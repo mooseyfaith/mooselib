@@ -166,7 +166,7 @@ void default_begin_frame(Default_State *state, Platform_API *platform_api)
     }
 }
 
-UI_Context * default_begin_ui(Default_State *state, bool *do_update, Platform_Window window,Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color)
+UI_Context * default_begin_ui(Default_State *state, bool *do_update, Platform_Window window,Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
 {
     *do_update |= !ARE_EQUAL(window_rect, &new_window_rect, sizeof(*window_rect));
     *window_rect = new_window_rect;
@@ -190,10 +190,10 @@ UI_Context * default_begin_ui(Default_State *state, bool *do_update, Platform_Wi
     
     ui_clear(ui);
     
-    ui_set_transform(ui, render_resolution);
+    ui_set_transform(ui, render_resolution, scale);
     ui_texture(ui, &state->blank_texture);
     ui->font_rendering.font = &state->default_font;
-    ui->font_rendering.line_spacing = state->default_font.pixel_height + 1;
+    ui->font_rendering.line_spacing = (state->default_font.pixel_height + 1) * ui->font_rendering.scale;
     
     return ui;
 }

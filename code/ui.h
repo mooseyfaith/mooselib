@@ -61,6 +61,7 @@ struct UI_Context {
     
     union { mat4x3f world_to_camera_transform, transform; };
     f32 depth;
+    f32 scale;
     
     bool use_sissor_area;
     UV_Area sissor_area;
@@ -121,6 +122,7 @@ UI_Context make_ui_context(Memory_Allocator *internal_allocator, Texture *blank_
     context.texture = blank_texture;
     context.world_to_camera_transform = MAT4X3_IDENTITY;
     context.depth = 0.0f;
+    context.scale = 1.0f;
     
     context.font_rendering.color = rgba32{ 0, 0, 0, 255 };
     context.font_rendering.font = null;
@@ -159,16 +161,36 @@ UI_Context make_ui_context(Memory_Allocator *internal_allocator, Texture *blank_
 
 void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scale = 1.0f, f32 depth_scale = 1.0f, f32 depth_alignment = 0.0f)
 {
+    assert((depth_scale > 0.0f) && (depth_scale <= 1.0f));
+    assert((depth_alignment >= 0.0f) && (depth_alignment <= 1.0f));
+    
     f32 y_up_direction = 1.0f;
     
     // for now using y_up_direction == -1 dows not seem to work properly, it will reverse face drawing order and will be culled if glEnable(GL_CULL_FACE), wich is the default
     assert(y_up_direction == 1.0f);
     
+    context->transform.columns[0] = {  2 * scale / (resolution.width), 0,                               0           };
+    context->transform.columns[1] = {  0,                                  2 * scale / (resolution.height), 0           };
+    context->transform.columns[2] = {  0,                                  0,                               depth_scale };
+    //context->transform.columns[3] = {  scale / resolution.width - 1,       scale / resolution.height - 1,   depth_alignment * (1.0f - depth_scale) };
+    context->transform.columns[3] = { -1,                                 -1,   depth_alignment * (1.0f - depth_scale) };
+    
+#if 0                                                                                                                          
+    
     context->transform.columns[0] = vec3f{ 2.0f * scale / resolution.width };
     context->transform.columns[1] = vec3f{ 0.0f, 2.0f * scale * y_up_direction / resolution.height };
     context->transform.columns[2] = vec3f{ 0.0f, 0.0f, depth_scale };
-    context->transform.columns[3] = vec3f{ -1.f, -1.0f * y_up_direction, depth_alignment * (1.0f - depth_scale) };
+    //context->transform.columns[2] = vec3f{ scale / (resolution.width - 1), scale / (resolution.height - 1), depth_scale };
+    //context->transform.columns[3] = vec3f{ -1.f, -1.0f * y_up_direction, depth_alignment * (1.0f - depth_scale) };
     
+    context->transform.columns[3] = vec3f{
+        -1.0f + context->transform.columns[0][0] * 0.5f,
+        -1.0f * y_up_direction + context->transform.columns[1][1] * 0.5f,
+        depth_alignment * (1.0f - depth_scale) 
+    };
+#endif
+    
+    context->scale = scale;
     //context->y_up_direction = y_up_direction;
     
     context->left   = 0.0f;
@@ -240,28 +262,53 @@ void ui_clear(UI_Context *context) {
     context->texture = null;
 }
 
-void _push_quad_as_triangles(UI_Context *context, u32 vertex_offset, u32 a, u32 b, u32 c, u32 d) {
-    *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + a;
-    *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + b;
-    *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + d;
+void _push_quad_as_triangles(UI_Context *context, u32 vertex_offset, u32 a, u32 b, u32 c, u32 d, bool only_edge = false) {
     
-    *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + d;
-    *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + b;
-    *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + c;
+    GLenum draw_mode;
+    u32 index_count;
+    
+    if (only_edge) {
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + a;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + b;
+        
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + b;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + c;
+        
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + c;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + d;
+        
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + d;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + a;
+        
+        draw_mode = GL_LINES;
+        index_count = 8;
+    }
+    else {
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + a;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + b;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + d;
+        
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + d;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + b;
+        *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + c;
+        
+        draw_mode = GL_TRIANGLES;
+        index_count = 6;
+    }
     
     UI_Command *command;
-    if (context->commands.count && (context->commands[context->commands.count - 1].kind == UI_Command_Kind_Draw) && (context->commands[context->commands.count - 1].draw.mode == GL_TRIANGLES))
+    if (context->commands.count && (context->commands[context->commands.count - 1].kind == UI_Command_Kind_Draw) && (context->commands[context->commands.count - 1].draw.mode == draw_mode))
     {
         command = context->commands + context->commands.count - 1;
     }
     else {
         command = grow(&context->command_memory.allocator, &context->commands);
         command->kind = UI_Command_Kind_Draw;
-        command->draw.mode = GL_TRIANGLES;
+        command->draw.mode = draw_mode;
         command->draw.index_count = 0;
     }
     
-    command->draw.index_count += 6;
+    command->draw.index_count += index_count;
 }
 
 vec2f _uv_from_position(UI_Context *context, s16 origin_x, s16 origin_y, s16 x, s16 y) {
@@ -335,12 +382,12 @@ UV_Area rect_from_border(s16 left, s16 right, s16 bottom, s16 top) {
     return result;
 }
 
-void ui_rect(UI_Context *context, UV_Area rect, UV_Area texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true, s16 thickness = 0)
+void ui_rect(UI_Context *context, UV_Area rect, UV_Area texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true, s16 thickness = 1)
 {
     u32 vertex_offset = context->vertices.count;
     
     f32 offset;
-    if (!is_filled && (thickness == 0))
+    if (!is_filled && (thickness * context->scale <= 1.0f))
         offset = 0.5f;
     else
         offset = 0.0f;
@@ -381,7 +428,7 @@ void ui_rect(UI_Context *context, UV_Area rect, UV_Area texture_rect = {}, rgba3
         
         _push_quad_as_triangles(context, vertex_offset, 0, 1, 2, 3);
     }
-    else if (thickness == 0) {
+    else if (thickness * context->scale <= 1.0f) {
         // push as 1 pixel thin lines
         *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + 0;
         *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + 1;
@@ -483,10 +530,10 @@ UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text,bool do_ren
             continue;
         
         UV_Area draw_area = {
-            cast_v(f32, info->current_x + glyph->draw_x_offset),
-            cast_v(f32, line_y + glyph->draw_y_offset),
-            cast_v(f32, glyph->rect.width),
-            cast_v(f32, glyph->rect.height)
+            cast_v(f32, info->current_x + glyph->draw_x_offset * context->font_rendering.scale),
+            cast_v(f32, line_y + glyph->draw_y_offset * context->font_rendering.scale),
+            cast_v(f32, glyph->rect.width) * context->font_rendering.scale,
+            cast_v(f32, glyph->rect.height) * context->font_rendering.scale
         };
         
         UV_Area texture_area = { 
@@ -510,7 +557,7 @@ UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text,bool do_ren
                 ui_rect(context, draw_area, texture_area, color);
         }
         
-        info->current_x += glyph->draw_x_advance;
+        info->current_x += glyph->draw_x_advance * context->font_rendering.scale;
     }
     
     info->text_area = merge(info->text_area, text_area);
