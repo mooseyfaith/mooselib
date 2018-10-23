@@ -27,9 +27,7 @@ struct UI_Command {
             u32 index_count;
         } draw;
         
-        struct {
-            GLuint object;
-        } texture;
+        Texture *texture;
     };
     
 };
@@ -72,15 +70,13 @@ struct UI_Context {
         s16 width, height;
     };
     
+    u32 last_texture_command_index;
     Texture *texture;
-    Texture *blank_texture;
-    
-    UI_Command *previous_texture_command, *current_texture_command;
     
     struct {
         Font *font;
         rgba32 color;
-        s16 line_spacing;
+        f32 line_spacing;
         f32 line_grow_direction;
         f32 scale;
         vec2f alignment; // -1 to 1 (left to right), (bottom to top)
@@ -109,7 +105,7 @@ struct UI_Context {
     } control;
 };
 
-UI_Context make_ui_context(Memory_Allocator *internal_allocator, Texture *blank_texture) {
+UI_Context make_ui_context(Memory_Allocator *internal_allocator) {
     UI_Context context = {};
     context.vertex_memory  = make_memory_growing_stack(internal_allocator);
     context.index_memory   = make_memory_growing_stack(internal_allocator);
@@ -118,8 +114,6 @@ UI_Context make_ui_context(Memory_Allocator *internal_allocator, Texture *blank_
     context.indices  = {};
     context.commands = {};
     
-    assert(blank_texture);
-    context.texture = blank_texture;
     context.world_to_camera_transform = MAT4X3_IDENTITY;
     context.depth = 0.0f;
     context.scale = 1.0f;
@@ -172,23 +166,7 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
     context->transform.columns[0] = {  2 * scale / (resolution.width), 0,                               0           };
     context->transform.columns[1] = {  0,                                  2 * scale / (resolution.height), 0           };
     context->transform.columns[2] = {  0,                                  0,                               depth_scale };
-    //context->transform.columns[3] = {  scale / resolution.width - 1,       scale / resolution.height - 1,   depth_alignment * (1.0f - depth_scale) };
     context->transform.columns[3] = { -1,                                 -1,   depth_alignment * (1.0f - depth_scale) };
-    
-#if 0                                                                                                                          
-    
-    context->transform.columns[0] = vec3f{ 2.0f * scale / resolution.width };
-    context->transform.columns[1] = vec3f{ 0.0f, 2.0f * scale * y_up_direction / resolution.height };
-    context->transform.columns[2] = vec3f{ 0.0f, 0.0f, depth_scale };
-    //context->transform.columns[2] = vec3f{ scale / (resolution.width - 1), scale / (resolution.height - 1), depth_scale };
-    //context->transform.columns[3] = vec3f{ -1.f, -1.0f * y_up_direction, depth_alignment * (1.0f - depth_scale) };
-    
-    context->transform.columns[3] = vec3f{
-        -1.0f + context->transform.columns[0][0] * 0.5f,
-        -1.0f * y_up_direction + context->transform.columns[1][1] * 0.5f,
-        depth_alignment * (1.0f - depth_scale) 
-    };
-#endif
     
     context->scale = scale;
     //context->y_up_direction = y_up_direction;
@@ -203,6 +181,19 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
     
     context->center_x = (context->left + context->right)  * 0.5f;
     context->center_y = (context->top  + context->bottom) * 0.5f;
+}
+
+// scale == 0 => pixel perfect font without scaling
+void ui_set_font(UI_Context *context, Font *font, f32 scale = 0.0f) {
+    context->font_rendering.font = font;
+    
+    // use pixel perfect font
+    if (scale == 0.0f)
+        context->font_rendering.scale = 1.0f / context->scale;
+    else
+        context->font_rendering.scale = scale;
+    
+    context->font_rendering.line_spacing = (font->pixel_height + 1) * context->font_rendering.scale;
 }
 
 void ui_flush(UI_Context *context) {
@@ -222,7 +213,7 @@ void ui_draw(UI_Context *context) {
     
     glActiveTexture(GL_TEXTURE0 + 0);
     
-    GLuint current_texture_object = 0;
+    Texture *current_texture = null;
     
     for (auto it = context->commands + 0, end = it + context->commands.count; it != end; ++it)
     {
@@ -233,9 +224,9 @@ void ui_draw(UI_Context *context) {
             } break;
             
             case UI_Command_Kind_Texture: {
-                if (current_texture_object != it->texture.object) {
-                    current_texture_object = it->texture.object;
-                    glBindTexture(GL_TEXTURE_2D, it->texture.object);
+                if (current_texture != it->texture) {
+                    current_texture = it->texture;
+                    glBindTexture(GL_TEXTURE_2D, it->texture->object);
                 }
             } break;
             
@@ -257,8 +248,9 @@ void ui_clear(UI_Context *context) {
     context->indices  = {};
     context->commands = {};
     
-    context->previous_texture_command = null;
-    context->current_texture_command = null;
+    context->last_texture_command_index = -1;
+    //context->previous_texture_command = null;
+    //context->current_texture_command = null;
     context->texture = null;
 }
 
@@ -312,24 +304,38 @@ void _push_quad_as_triangles(UI_Context *context, u32 vertex_offset, u32 a, u32 
 }
 
 vec2f _uv_from_position(UI_Context *context, s16 origin_x, s16 origin_y, s16 x, s16 y) {
+    assert(context->texture);
+    
     return { cast_v(f32, x - origin_x) / context->texture->resolution.width, cast_v(f32, y - origin_y) / context->texture->resolution.height };
     
 }
 
-Texture * ui_texture(UI_Context *context, Texture *texture) {
-    if (context->texture == texture)
-        return texture;
+Texture * ui_set_texture(UI_Context *context, Texture *texture)
+{
+    UI_Command *last_texture_command;
+    Texture *old_texture;
+    if (context->last_texture_command_index == -1) {
+        last_texture_command = null;
+        old_texture = null;
+    }
+    else {
+        last_texture_command = context->commands + context->last_texture_command_index;
+        old_texture = last_texture_command->texture;
+    }
     
-    auto old_texture = context->texture;
-    context->texture = texture;
-    
-    if (!context->commands.count || (context->commands[context->commands.count - 1].kind != UI_Command_Kind_Texture))
+    if (!old_texture || ((old_texture != texture) && (context->last_texture_command_index != context->commands.count - 1)))
     {
         auto command = grow(&context->command_memory.allocator, &context->commands);
         command->kind = UI_Command_Kind_Texture;
+        command->texture = texture;
+        
+        context->last_texture_command_index = index_of(context->commands, command);
+    }
+    else if (last_texture_command) {
+        last_texture_command->texture = texture;
     }
     
-    context->commands[context->commands.count - 1].texture.object = texture->object;
+    context->texture = texture;
     
     return old_texture;
 }
@@ -496,7 +502,7 @@ struct UI_Text_Info {
     bool is_initialized;
 };
 
-UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text,bool do_render = true, rgba32 color = { 0, 0, 0, 255 })
+UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_render = true, rgba32 color = { 0, 0, 0, 255 })
 {
     assert(info && info->is_initialized);
     assert(context->font_rendering.font);
@@ -504,9 +510,9 @@ UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text,bool do_ren
     
     Texture *backup;
     if (do_render)
-        backup = ui_texture(context, &font->texture);
+        backup = ui_set_texture(context, &font->texture);
     
-    defer { if (do_render) ui_texture(context, backup); };
+    defer { if (do_render) ui_set_texture(context, backup); };
     
     bool text_area_is_initialized = false;
     UV_Area text_area;
@@ -572,9 +578,9 @@ UI_Text_Info ui_text(UI_Context *context, s16 x, s16 y, string text,bool do_rend
     
     Texture *backup;
     if (do_render)
-        backup = ui_texture(context, &font->texture);
+        backup = ui_set_texture(context, &font->texture);
     
-    defer { if (do_render) ui_texture(context, backup); };
+    defer { if (do_render) ui_set_texture(context, backup); };
     
     UI_Text_Info info;
     info.line_count = 1;

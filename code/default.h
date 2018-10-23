@@ -88,7 +88,7 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     state->default_font = make_font(state->font_library, S("C:/Windows/Fonts/consola.ttf"), 12, ' ', 256 - ' ', platform_api->read_entire_file, &state->persistent_memory.allocator);
     
     state->blank_texture = make_blank_texture();
-    state->ui = make_ui_context(&platform_api->allocator, &state->blank_texture);
+    state->ui = make_ui_context(&platform_api->allocator);
     
     {
         glGenBuffers(COUNT_WITH_ARRAY(state->uniform_buffer_objects));
@@ -194,9 +194,8 @@ UI_Context * default_begin_ui(Default_State *state, bool *do_update, Platform_Wi
     ui_clear(ui);
     
     ui_set_transform(ui, render_resolution, scale);
-    ui_texture(ui, &state->blank_texture);
-    ui->font_rendering.font = &state->default_font;
-    ui->font_rendering.line_spacing = (state->default_font.pixel_height + 1) * ui->font_rendering.scale;
+    ui_set_texture(ui, &state->blank_texture);
+    ui_set_font(ui, &state->default_font);
     
     return ui;
 }
