@@ -25,6 +25,7 @@ struct Default_State
     Memory_Growing_Stack work_memory;
     Memory_Stack *worker_thread_stacks;
     
+    FT_MemoryRec_ font_allocator;
     FT_Library font_library;
     Font default_font;
     UI_Context ui;
@@ -81,7 +82,8 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
         state->work_memory = make_memory_growing_stack(&platform_api->allocator);
     }
     
-    state->font_library = make_font_library();
+    init_font_allocator(&state->font_allocator, C_Allocator);
+    state->font_library = make_font_library(&state->font_allocator);
     
     state->default_font = make_font(state->font_library, S("C:/Windows/Fonts/consola.ttf"), 12, ' ', 256 - ' ', platform_api->read_entire_file, &state->persistent_memory.allocator);
     
@@ -161,6 +163,7 @@ void default_begin_frame(Default_State *state, Platform_API *platform_api)
     for (auto it = platform_api->messages.head; it; it = it->next) {
         if (it->value->kind == Platform_Message_Kind_Reload) {
             default_reload_global_functions(platform_api);
+            init_font_allocator(&state->font_allocator, cast_p(Memory_Allocator, state->font_allocator.user));
             break;
         }
     }

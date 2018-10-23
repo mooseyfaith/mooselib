@@ -3,6 +3,7 @@
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
+#include <freetype/ftmodapi.h>
 
 #include "gl.h"
 #include "mo_string.h"
@@ -21,15 +22,46 @@ struct Font_Glyph {
 
 struct Font {
     Texture texture;
-    FT_Face face;
     s16 pixel_height;
     u32 glyph_count;
     Font_Glyph *glyphs;
 };
 
-FT_Library make_font_library() {
+#define FT_ALLOC_DEC(name) void * name(FT_Memory memory, long size)
+#define FT_FREE_DEC(name)  void name(FT_Memory memory, void *block)
+#define FT_REALLOC_DEC(name) void * name(FT_Memory memory, long cur_size, long new_size, void *block)
+
+FT_ALLOC_DEC(ft_allocate) {
+    return allocate(cast_p(Memory_Allocator, memory->user), size, MEMORY_MAX_ALIGNMENT);
+}
+
+FT_FREE_DEC(ft_free) {
+    free(cast_p(Memory_Allocator, memory->user), block);
+}
+
+FT_REALLOC_DEC(ft_reallocate) {
+    reallocate(cast_p(Memory_Allocator, memory->user), &block, new_size, MEMORY_MAX_ALIGNMENT);
+    return block;
+}
+
+// since this struct is maintained by freetype lib,
+// you have to manually make shure that it remains valid after a dll reaload
+// just call this function again with the same arguments
+void init_font_allocator(FT_MemoryRec_ *memory_rec, Memory_Allocator *allocator) {
+    FT_MemoryRec_ result;
+    memory_rec->user = allocator;
+    memory_rec->alloc = ft_allocate;
+    memory_rec->free  = ft_free;
+    memory_rec->realloc = ft_reallocate;
+}
+
+FT_Library make_font_library(FT_MemoryRec_ *allocator) {
     FT_Library library;
-    FT_Error error = FT_Init_FreeType(&library);
+    //FT_Error error = FT_Init_FreeType(&library);
+    
+    FT_Error error = FT_New_Library(allocator, &library);
+    FT_Add_Default_Modules(library);
+    FT_Set_Default_Properties(library);
     
     if (error) {
         printf("Error (init_fonts): could not init freetype2 lib\n");
@@ -39,7 +71,8 @@ FT_Library make_font_library() {
     return library;
 }
 
-Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_char, u32 char_count, Platform_Read_Entire_File_Function read_file, Memory_Allocator *allocator) {
+Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_char, u32 char_count, Platform_Read_Entire_File_Function read_file, Memory_Allocator *allocator)
+{
     Font result = {};
     result.pixel_height = height;
     result.texture = {};
@@ -50,25 +83,26 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
         return {};
     }
     
-    FT_Error error = FT_New_Memory_Face(ft_library, CAST_P(const FT_Byte, chunk.data), CAST_V(FT_Long, chunk.count), 0, &result.face);
+    FT_Face face;
+    FT_Error error = FT_New_Memory_Face(ft_library, CAST_P(const FT_Byte, chunk.data), CAST_V(FT_Long, chunk.count), 0, &face);
     
     if (error == FT_Err_Unknown_File_Format)
         printf("Error (create_font): unsupported font format from file %.*s\n", FORMAT_S(&file_path));
     else if (error) 
         printf("Error (create_font): could not open file %.*s as a font\n", FORMAT_S(&file_path));
     
-    error = FT_Set_Pixel_Sizes(result.face, 0, height);
+    error = FT_Set_Pixel_Sizes(face, 0, height);
     if (error)
         printf("Error (create_font): could not set font size to %i\n", CAST_V(s32, height));
     
     result.glyph_count = char_count;
     result.glyphs = ALLOCATE_ARRAY(allocator, Font_Glyph, result.glyph_count);
     
-    FT_GlyphSlot glyph_slot = result.face->glyph;
+    FT_GlyphSlot glyph_slot = face->glyph;
     
     u32 estimated_area = 0;
     for (u32 c = 0; c < char_count; ++c) {
-        if (FT_Load_Char(result.face, first_char + c, FT_LOAD_RENDER))  {
+        if (FT_Load_Char(face, first_char + c, FT_LOAD_RENDER))  {
             printf("could not load char %u\n", first_char + c);
             continue;
         }
@@ -120,9 +154,9 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
 #define BLACK_AND_WHITE 0
             
 #if BLACK_AND_WHITE
-            if (FT_Load_Char(result.face, first_char + c, FT_LOAD_RENDER| FT_LOAD_MONOCHROME)) 
+            if (FT_Load_Char(face, first_char + c, FT_LOAD_RENDER| FT_LOAD_MONOCHROME)) 
 #else
-                if (FT_Load_Char(result.face, first_char + c, FT_LOAD_RENDER)) 
+                if (FT_Load_Char(face, first_char + c, FT_LOAD_RENDER)) 
 #endif
             {
                 printf("could not load char %u\n", first_char + c);
@@ -193,12 +227,10 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
         }
         
         estimated_area = estimated_area * 1.2f;
-        
-        printf("filled %u chars\n", fill_count);
     } while (did_not_fit);
     
     
-    
+    FT_Done_Face(face);
     
     return result;
 }
