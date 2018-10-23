@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?> 
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+
+  <Type Name="u8_array,*u8_array">
+    <DisplayString>[{count}] {data, [count]}</DisplayString>
+    <StringView>data, [count]</StringView>
+  </Type>
+
+  <Type Name="u8_buffer,*u8_buffer">
+    <DisplayString>[{count} / {capacity}] {data, [count]}</DisplayString>
+    <StringView>data, [count]</StringView>
+  </Type>
+
+  <Type Name="vec2f,*vec2f">
+    <DisplayString>( {values, [sizeof(values)/sizeof(*values)]} )  | {length(*this)} |</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Size>sizeof(values)/sizeof(*values)</Size>
+        <ValuePointer>values</ValuePointer>
+      </ArrayItems>
+      <Item Name="length">length(*this)</Item>
+      <Item Name="squared length">squared_length(*this)</Item>
+      <Item Name="is unit length">is_unit_length(*this)</Item>
+      <Item Name="binary distance of length and 1.0">binary_distance(length(*this), 1.0f)</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="vec3f,*vec3f">
+    <DisplayString>( {values, [sizeof(values)/sizeof(*values)]} )  | {length(*this)} |</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Size>sizeof(values)/sizeof(*values)</Size>
+        <ValuePointer>values</ValuePointer>
+      </ArrayItems>
+      <Item Name="length">length(*this)</Item>
+      <Item Name="squared length">squared_length(*this)</Item>
+      <Item Name="is unit length">is_unit_length(*this)</Item>
+      <Item Name="binary distance of length and 1.0">binary_distance(length(*this), 1.0f)</Item>
+    </Expand>
+  </Type>
+
+  <Type Name="vec4f,*vec4f">
+    <DisplayString>( {values, [sizeof(values)/sizeof(*values)]} )  | {length(*this)} |</DisplayString>
+    <Expand>
+      <ArrayItems>
+        <Size>sizeof(values)/sizeof(*values)</Size>
+        <ValuePointer>values</ValuePointer>
+      </ArrayItems>
+      <Item Name="length">length(*this)</Item>
+      <Item Name="squared length">squared_length(*this)</Item>
+      <Item Name="is unit length">is_unit_length(*this)</Item>
+      <Item Name="binary distance of length and 1.0">binary_distance(length(*this), 1.0f)</Item>
+    </Expand>
+  </Type>
+
+</AutoVisualizer>
