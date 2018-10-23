@@ -511,14 +511,14 @@ UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text,bool do_ren
     bool text_area_is_initialized = false;
     UV_Area text_area;
     
-    s16 line_y = info->start_y + (info->line_count - 1) * (context->font_rendering.line_spacing) * context->font_rendering.line_grow_direction;
+    s16 line_y = info->start_y + (info->line_count - 1) * (context->font_rendering.line_spacing * context->font_rendering.scale) * context->font_rendering.line_grow_direction;
     
     for (auto it = text; it.count;) {
         u32 code = utf8_advance(&it);
         if (code == '\n') {
             ++info->line_count;
             
-            line_y = info->start_y + (info->line_count - 1) * (context->font_rendering.line_spacing) * context->font_rendering.line_grow_direction;
+            line_y = info->start_y + (info->line_count - 1) * (context->font_rendering.line_spacing * context->font_rendering.scale) * context->font_rendering.line_grow_direction;
             
             info->current_x = info->start_x;
             
