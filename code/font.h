@@ -246,7 +246,7 @@ Font_Glyph * get_font_glyph(const Font *font, u32 character_code) {
 
 //	if (line_spaceing == 0)
 //		line_spaceing = font->pixel_height + 1;
-UV_Area get_text_rect(u32 *line_count, const Font *font, string text, s16 line_spaceing = 0) {
+area2f get_text_rect(u32 *line_count, const Font *font, string text, s16 line_spaceing = 0) {
     if (!text.count) {
         *line_count = 1;
         return {};
@@ -344,7 +344,7 @@ UV_Area get_text_rect(u32 *line_count, const Font *font, string text, s16 line_s
 }
 
 // see Pixel_Rectangle get_text_rect(u32 *line_count, const Font *font, u32 text_length, const u8 *text, s16 line_spaceing = 0)
-UV_Area get_text_rect(const Font *font, string text, s16 line_spaceing = 0) {
+area2f get_text_rect(const Font *font, string text, s16 line_spaceing = 0) {
     u32 line_count;
     return get_text_rect(&line_count, font, text, line_spaceing);
 }

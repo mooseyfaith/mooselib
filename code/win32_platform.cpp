@@ -2,7 +2,6 @@
 
 #include <stdio.h>
 
-
 int main(int argc, const char **args)
 {
     init_memory_stack_allocators();
@@ -633,9 +632,14 @@ int main(int argc, const char **args)
                 }
             }
 #endif
+            LARGE_INTEGER frame_start;
+            QueryPerformanceCounter(&frame_start);
             
             if (!win32_platform_api.application_info.main_loop(CAST_P(Platform_API, &win32_platform_api), &win32_platform_api.input, &output_sound_buffer, win32_platform_api.application_info.data, delta_seconds))
                 PostQuitMessage(0);
+            
+            LARGE_INTEGER frame_end;
+            QueryPerformanceCounter(&frame_end);
             
             if (output_sound_buffer.output.count) {
                 u32 output_offset = 0;
@@ -654,6 +658,18 @@ int main(int argc, const char **args)
             win32_platform_api.swap_buffer_count = 0;
             
             advance_input(&win32_platform_api.input, delta_seconds);
+            
+            auto render_time = (frame_end.QuadPart - frame_start.QuadPart) / cast_v(f64, win32_platform_api.ticks_per_second.QuadPart);
+            
+            {
+                // wait a little shorter than we just required to render
+                // assuming the render time is stable
+                const f64 target_seconds_per_frame = 1.0 / 60.0;
+                auto sleep_time = (target_seconds_per_frame - render_time * 1.2f);
+                
+                if (sleep_time > 0.0f)
+                    Sleep(sleep_time * 1000);
+            }
             
             if (win32_platform_api.current_window && win32_platform_api.current_window->is_active)
             {

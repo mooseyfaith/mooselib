@@ -29,7 +29,6 @@ struct UI_Command {
         
         Texture *texture;
     };
-    
 };
 
 #define Template_Array_Type      UI_Vertex_Array
@@ -62,7 +61,7 @@ struct UI_Context {
     f32 scale;
     
     bool use_sissor_area;
-    UV_Area sissor_area;
+    area2f sissor_area;
     
     struct {
         s16 left, right, bottom, top;
@@ -96,7 +95,7 @@ struct UI_Context {
         u32 triggerd_id;
         u32 current_id;
         
-        UV_Area cursor_area;
+        area2f cursor_area;
         bool cursor_was_pressed;
         bool cursor_was_released;
         
@@ -168,8 +167,8 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
     
     context->scale = resolution.width / cast_v(f32, context->width);
     
-    context->transform.columns[0] = {  2.0f / context->width, 0,                      0           };
-    context->transform.columns[1] = {  0,                     2.0f / context->height, 0           };
+    context->transform.columns[0] = {  2.0f / resolution.width, 0,                      0           };
+    context->transform.columns[1] = {  0,                     2.0f / resolution.height, 0           };
     context->transform.columns[2] = {  0,                     0,                      depth_scale };
     
     context->transform.columns[3] = { -1, -1, depth_alignment * (1.0f - depth_scale) };
@@ -186,7 +185,7 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
 }
 
 // scale == 0 => pixel perfect font without scaling
-void ui_set_font(UI_Context *context, Font *font, f32 scale = 0.0f) {
+void ui_set_font(UI_Context *context, Font *font, f32 scale = 1.0f) {
     context->font_rendering.font = font;
     
     // use pixel perfect font
@@ -251,8 +250,6 @@ void ui_clear(UI_Context *context) {
     context->commands = {};
     
     context->last_texture_command_index = -1;
-    //context->previous_texture_command = null;
-    //context->current_texture_command = null;
     context->texture = null;
 }
 
@@ -306,7 +303,8 @@ void _push_quad_as_triangles(UI_Context *context, u32 vertex_offset, u32 a, u32 
     command->draw.index_count += index_count;
 }
 
-vec2f _uv_from_position(UI_Context *context, s16 origin_x, s16 origin_y, s16 x, s16 y) {
+vec2f _uv_from_position(UI_Context *context, s16 origin_x, s16 origin_y, s16 x, s16 y)
+{
     assert(context->texture);
     
     return { cast_v(f32, x - origin_x) / context->texture->resolution.width, cast_v(f32, y - origin_y) / context->texture->resolution.height };
@@ -343,24 +341,24 @@ Texture * ui_set_texture(UI_Context *context, Texture *texture)
     return old_texture;
 }
 
-bool ui_clip(UI_Context *context, UV_Area *draw_area, UV_Area *texture_area = null) {
+bool ui_clip(UI_Context *context, area2f *draw_area, area2f *texture_area = null) {
     if (context->use_sissor_area) {
         vec2f texture_scale;
         
         if (texture_area)
-            texture_scale = { texture_area->size.width / draw_area->size.width, texture_area->size.height / draw_area->size.height };
+            texture_scale = { texture_area->width / draw_area->width, texture_area->height / draw_area->height };
         
         bool is_valid;
-        UV_Area new_area = intersection(&is_valid, *draw_area, context->sissor_area);
+        area2f new_area = intersection(&is_valid, *draw_area, context->sissor_area);
         
         if (!is_valid)
             return false;
         
         if (texture_area) {
-            texture_area->min.x += (new_area.min.x - draw_area->min.x) * texture_scale.x;
-            texture_area->min.y += (new_area.min.y - draw_area->min.y) * texture_scale.y;
-            texture_area->size.width   += (new_area.size.width   - draw_area->size.width)   * texture_scale.x;
-            texture_area->size.height  += (new_area.size.height  - draw_area->size.height)  * texture_scale.y;
+            texture_area->min.x += (new_area.x - draw_area->min.x) * texture_scale.x;
+            texture_area->min.y += (new_area.y - draw_area->min.y) * texture_scale.y;
+            texture_area->width   += (new_area.width   - draw_area->width)   * texture_scale.x;
+            texture_area->height  += (new_area.height  - draw_area->height)  * texture_scale.y;
         }
         
         *draw_area = new_area;
@@ -369,29 +367,79 @@ bool ui_clip(UI_Context *context, UV_Area *draw_area, UV_Area *texture_area = nu
     return true;
 }
 
-UV_Area rect_from_size(s16 x, s16 y, s16 width, s16 height, s16 margin = 0) {
-    UV_Area result = {
-        cast_v(f32, x + margin),
-        cast_v(f32, y + margin),
-        cast_v(f32, width  - 2 * margin),
-        cast_v(f32, height - 2 * margin),
+area2f rect_from_size(f32 x, f32 y, f32 width, f32 height, f32 margin = 0) {
+    area2f result = {
+        x + margin,
+        y + margin,
+        width  - 2 * margin,
+        height - 2 * margin,
     };
     
     return result;
 }
 
-UV_Area rect_from_border(s16 left, s16 right, s16 bottom, s16 top, s16 margin = 0) {
-    UV_Area result = {
-        cast_v(f32, left + margin),
-        cast_v(f32, bottom + margin),
-        cast_v(f32, right - left + 1 - 2 * margin),
-        cast_v(f32, top - bottom + 1 - 2 * margin),
+area2f rect_from_border(f32 left, f32 bottom, f32 right, f32 top, f32 margin = 0) {
+    area2f result = {
+        left + margin,
+        bottom + margin,
+        right - left - 2 * margin,
+        top - bottom - 2 * margin,
     };
     
     return result;
 }
 
-void ui_rect(UI_Context *context, UV_Area rect, UV_Area texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true, s16 thickness = 1)
+void ui_vertex(UI_Context *context, f32 x, f32 y, f32 u, f32 v, rgba32 color)
+{
+    UI_Vertex vertex;
+    vertex.position = transform_point(context->world_to_camera_transform, make_vec3(x, y, context->depth));
+    vertex.color = color;
+    vertex.uv = { u, v };
+    
+    *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
+}
+
+void ui_quad(UI_Context *context, area2f draw_rect, area2f texture_rect, rgba32 color, f32 offset = 0.0f)
+{
+    vec2f texel_size = { 1.0f / context->texture->resolution.width, 1.0f / context->texture->resolution.height };
+    
+    // 3---2
+    // |   |
+    // |   |
+    // 0---1
+    
+    // add vertices counter clock wise
+    
+    ui_vertex(context,
+              draw_rect.x + offset,
+              draw_rect.y + offset,
+              texture_rect.x * texel_size.x,
+              texture_rect.y * texel_size.y,
+              color);
+    
+    ui_vertex(context,
+              draw_rect.x + draw_rect.width - offset,
+              draw_rect.y + offset,
+              (texture_rect.x + texture_rect.width) * texel_size.x,
+              texture_rect.y * texel_size.y,
+              color);
+    
+    ui_vertex(context,
+              draw_rect.x + draw_rect.width - offset,
+              draw_rect.y + draw_rect.height - offset,
+              (texture_rect.x + texture_rect.width) * texel_size.x,
+              (texture_rect.y + texture_rect.height) * texel_size.y,
+              color);
+    
+    ui_vertex(context,
+              draw_rect.x + offset,
+              draw_rect.y + draw_rect.height - offset,
+              texture_rect.x * texel_size.x,
+              (texture_rect.y + texture_rect.height) * texel_size.y,
+              color);
+}
+
+void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true, s16 thickness = 1)
 {
     u32 vertex_offset = context->vertices.count;
     
@@ -401,32 +449,13 @@ void ui_rect(UI_Context *context, UV_Area rect, UV_Area texture_rect = {}, rgba3
     else
         offset = 0.0f;
     
-    UI_Vertex vertex;
-    vertex.color = color;
+#if 0    
+    // scale is only applyed to offset, not to size
+    draw_rect.x = draw_rect.x * context->scale;
+    draw_rect.y = draw_rect.y * context->scale;
+#endif
     
-    // add vertices counter clock wise
-    
-    vec2f texel_size = { 1.0f / context->texture->resolution.width, 1.0f / context->texture->resolution.height };
-    
-    // bottom left
-    vertex.uv = texture_rect.min * texel_size;
-    vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min, context->depth) + vec3f { offset, offset, 0.0f });
-    *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
-    
-    // bottom right
-    vertex.uv = (texture_rect.min + vec2f{ texture_rect.size.width, 0 }) * texel_size;
-    vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min + vec2f{ rect.size.width, 0 }, context->depth) + vec3f { -offset, offset, 0.0f });
-    *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
-    
-    // top right
-    vertex.uv = (texture_rect.min + texture_rect.size) * texel_size;
-    vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min + rect.size, context->depth) + vec3f { -offset, -offset, 0.0f }); 
-    *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
-    
-    // top left
-    vertex.uv = (texture_rect.min + vec2f{ 0, texture_rect.size.height }) * texel_size;
-    vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min + vec2f{ 0, rect.size.height }, context->depth) + vec3f { offset, -offset, 0.0f });
-    *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
+    ui_quad(context, draw_rect, texture_rect, color, offset);
     
     if (is_filled) {
         
@@ -454,30 +483,20 @@ void ui_rect(UI_Context *context, UV_Area rect, UV_Area texture_rect = {}, rgba3
         command->draw.mode = GL_LINES;
     }
     else {
-        rect.min.x += thickness;
-        rect.min.y += thickness;
-        rect.size.width  -= 2 * thickness;
-        rect.size.height -= 2 * thickness;
         
-        // bottom left border
-        vertex.uv = texture_rect.min * texel_size;
-        vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min, context->depth));
-        *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
+#if 0        
+        draw_rect.x += thickness * context->scale;
+        draw_rect.y += thickness * context->scale;
+        draw_rect.width  -= 2 *thickness * context->scale;
+        draw_rect.height -= 2 *thickness * context->scale;
+#else
+        draw_rect.x += thickness;
+        draw_rect.y += thickness;
+        draw_rect.width  -= 2 *thickness;
+        draw_rect.height -= 2 *thickness;
+#endif
         
-        // bottom right border
-        vertex.uv = (texture_rect.min + vec2f{ texture_rect.size.width, 0 }) * texel_size;
-        vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min + vec2f{ rect.size.width, 0 }, context->depth));
-        *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
-        
-        // top right border
-        vertex.uv = (texture_rect.min + texture_rect.size) * texel_size;
-        vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min + rect.size, context->depth));
-        *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
-        
-        // top left border
-        vertex.uv = (texture_rect.min + vec2f{ 0, texture_rect.size.height }) * texel_size;
-        vertex.position = transform_point(context->world_to_camera_transform, make_vec3(rect.min + vec2f{ 0, rect.size.height }, context->depth));
-        *grow(&context->vertex_memory.allocator, &context->vertices) = vertex;
+        ui_quad(context, draw_rect, texture_rect, color);
         
         // 3-------2
         // | 7---6 |
@@ -498,14 +517,14 @@ void ui_rect(UI_Context *context, UV_Area rect, UV_Area texture_rect = {}, rgba3
 }
 
 struct UI_Text_Info {
-    UV_Area text_area;
+    area2f text_area;
     u32 line_count;
     f32 start_x, start_y;
     f32 current_x;
     bool is_initialized;
 };
 
-UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_render = true, rgba32 color = { 0, 0, 0, 255 })
+area2f ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_render = true, rgba32 color = { 0, 0, 0, 255 })
 {
     assert(info && info->is_initialized);
     assert(context->font_rendering.font);
@@ -518,7 +537,7 @@ UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_re
     defer { if (do_render) ui_set_texture(context, backup); };
     
     bool text_area_is_initialized = false;
-    UV_Area text_area;
+    area2f text_area;
     
     s16 line_y = info->start_y + (info->line_count - 1) * (context->font_rendering.line_spacing) * context->font_rendering.line_grow_direction;
     
@@ -538,14 +557,14 @@ UV_Area ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_re
         if (!glyph)
             continue;
         
-        UV_Area draw_area = {
+        area2f draw_area = {
             cast_v(f32, info->current_x + glyph->draw_x_offset * context->font_rendering.scale),
             cast_v(f32, line_y + glyph->draw_y_offset * context->font_rendering.scale),
             cast_v(f32, glyph->rect.width) * context->font_rendering.scale,
             cast_v(f32, glyph->rect.height) * context->font_rendering.scale
         };
         
-        UV_Area texture_area = { 
+        area2f texture_area = { 
             cast_v(f32, glyph->rect.x), 
             cast_v(f32, glyph->rect.y), 
             cast_v(f32, glyph->rect.width),
@@ -599,19 +618,19 @@ UI_Text_Info ui_text(UI_Context *context, s16 x, s16 y, string text,bool do_rend
 }
 
 
-UI_Text_Info ui_text(UI_Context *context, UV_Area area, vec2f alignment, string text, rgba32 color = { 0, 0, 0, 255 })
+UI_Text_Info ui_text(UI_Context *context, area2f area, vec2f alignment, string text, rgba32 color = { 0, 0, 0, 255 })
 {
     auto info = ui_text(context, 0, 0, text, false);
     
-    return ui_text(context, area.min.x - info.text_area.min.x + (area.size.x - info.text_area.size.x) * alignment.x, area.min.y - info.text_area.min.y + (area.size.y - info.text_area.size.y) * alignment.y, text, true, color);
+    return ui_text(context, area.x - info.text_area.x + (area.width - info.text_area.width) * alignment.x, area.y - info.text_area.y + (area.height - info.text_area.height) * alignment.y, text, true, color);
 }
 
 
-UV_Area ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_list params)
+area2f ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_list params)
 {
     bool is_escaping = false;
     
-    UV_Area result;
+    area2f result;
     bool area_is_init = false;
     
     while (format.count) {
@@ -622,7 +641,7 @@ UV_Area ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_l
         string text;
         text.data = write_buffer.data;
         text.count = write_buffer.count;
-        UV_Area area = ui_text(context, info, text, context->font_rendering.do_render, context->font_rendering.color);
+        area2f area = ui_text(context, info, text, context->font_rendering.do_render, context->font_rendering.color);
         
         if (!area_is_init) {
             result = area;
@@ -636,49 +655,49 @@ UV_Area ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_l
     return result;
 }
 
-inline UV_Area ui_write(UI_Context *context, s16 x, s16 y, string format, ...) {
+inline area2f ui_write(UI_Context *context, s16 x, s16 y, string format, ...) {
     va_list params;
     va_start(params, format);
     
     auto info = ui_text(context, x, y, {}, false);
-    UV_Area result = ui_write_va(context, &info, format, params);
+    area2f result = ui_write_va(context, &info, format, params);
     va_end(params);
     
     return result;
 }
 
-inline UV_Area ui_write(UI_Context *context, s16 x, s16 y, rgba32 color, string format, ...) {
+inline area2f ui_write(UI_Context *context, s16 x, s16 y, rgba32 color, string format, ...) {
     va_list params;
     va_start(params, format);
     SCOPE_PUSH(context->font_rendering.color, color);
     
     auto info = ui_text(context, x, y, {}, false);
-    UV_Area result = ui_write_va(context, &info, format, params);
+    area2f result = ui_write_va(context, &info, format, params);
     va_end(params);
     
     return result;
 }
 
-inline UV_Area ui_write(UI_Context *context, UI_Text_Info *info, string format, ...) {
+inline area2f ui_write(UI_Context *context, UI_Text_Info *info, string format, ...) {
     va_list params;
     va_start(params, format);
-    UV_Area result = ui_write_va(context, info, format, params);
+    area2f result = ui_write_va(context, info, format, params);
     va_end(params);
     
     return result;
 }
 
-inline UV_Area ui_write(UI_Context *context, UI_Text_Info *info, rgba32 color, string format, ...) {
+inline area2f ui_write(UI_Context *context, UI_Text_Info *info, rgba32 color, string format, ...) {
     va_list params;
     va_start(params, format);
     SCOPE_PUSH(context->font_rendering.color, color);
-    UV_Area result = ui_write_va(context, info, format, params);
+    area2f result = ui_write_va(context, info, format, params);
     va_end(params);
     
     return result;
 }
 
-INTERNAL bool ui_control(UI_Context *context, UV_Area cursor_area, bool cursor_was_pressed, bool cursor_was_released, bool force_update = true)
+INTERNAL bool ui_control(UI_Context *context, area2f cursor_area, bool cursor_was_pressed, bool cursor_was_released, bool force_update = true)
 {
     auto control = &context->control;
     
@@ -707,7 +726,7 @@ INTERNAL bool ui_control(UI_Context *context, UV_Area cursor_area, bool cursor_w
     return needs_update;
 }
 
-INTERNAL UI_Control_State ui_button(UI_Context *context, UV_Area button_area, f32 priority = 0.0f, bool is_enabled = true) {
+INTERNAL UI_Control_State ui_button(UI_Context *context, area2f button_area, f32 priority = 0.0f, bool is_enabled = true) {
     auto control = &context->control;
     
     if (((control->next_hot_id == -1) || (control->next_hot_priority > priority)) && intersects(button_area, control->cursor_area)) {

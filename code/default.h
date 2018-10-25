@@ -169,15 +169,14 @@ void default_begin_frame(Default_State *state, Platform_API *platform_api)
     }
 }
 
-UI_Context * default_begin_ui(Default_State *state, bool *do_update, Platform_Window window,Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
+UI_Context * default_begin_ui(Default_State *state, Platform_API *platform_api, bool allways_update, Platform_Window window, Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
 {
-    *do_update |= !ARE_EQUAL(window_rect, &new_window_rect, sizeof(*window_rect));
+    bool do_update = !ARE_EQUAL(window_rect, &new_window_rect, sizeof(*window_rect));
     *window_rect = new_window_rect;
     
     Pixel_Dimensions render_resolution = window_rect->size; //get_auto_render_resolution(state->main_window_area.size, Reference_Resolution);
     
     if (render_resolution.width == 0 || render_resolution.height == 0) {
-        do_update = false;
         return null;
     }
     
@@ -185,10 +184,11 @@ UI_Context * default_begin_ui(Default_State *state, bool *do_update, Platform_Wi
     
     auto ui = &state->ui;
     
-    if (!ui_control(ui, { window.mouse_position, { 1, 1 } }, cursor_was_pressed, cursor_was_released) && !*do_update)
-    {
-        //platform_api->skip_window_update(platform_api);
-        //return true;
+    do_update &= ui_control(ui, { window.mouse_position, { 1, 1 } }, cursor_was_pressed, cursor_was_released);
+    
+    if (!allways_update && !do_update) {
+        platform_api->skip_window_update(platform_api);
+        return null;
     }
     
     ui_clear(ui);

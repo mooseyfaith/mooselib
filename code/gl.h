@@ -272,11 +272,30 @@ struct Texture {
     GLenum format;
 };
 
+union area2f {
+    struct {
+        vec2f min, size;
+    };
+    
+    struct {
+        f32 x, y;
+        f32 width, height;
+    };
+    
+};
+
+#define Template_Area_Name area2f
+#define Template_Area_Struct_Is_Declared
+#define Template_Area_Vector_Type vec2f
+#include "template_area.h"
+
+#if 0
 #define AREA_TEMPLATE_NAME UV_Area
 #define AREA_TEMPLATE_VECTOR_TYPE vec2f
 #include "area_template.h"
+#endif
 
-UV_Area make_uv_rect(Texture *texture, Pixel_Rectangle rect) {
+area2f make_uv_rect(Texture *texture, Pixel_Rectangle rect) {
     return {
         rect.x / CAST_V(f32, texture->resolution.width), 
         rect.y / CAST_V(f32, texture->resolution.height), 
@@ -285,20 +304,20 @@ UV_Area make_uv_rect(Texture *texture, Pixel_Rectangle rect) {
     };
 }
 
-f32 bottom(UV_Area area) {
+f32 bottom(area2f area) {
     return area.min.y;
 }
 
-f32 top(UV_Area area) {
-    return area.min.y + area.size.y - 1;
+f32 top(area2f area) {
+    return area.min.y + area.size.y;
 }
 
-f32 left(UV_Area area) {
+f32 left(area2f area) {
     return area.min.x;
 }
 
-f32 right(UV_Area area) {
-    return area.min.x + area.size.x - 1;
+f32 right(area2f area) {
+    return area.min.x + area.size.x;
 }
 
 struct Frame_Buffer {
