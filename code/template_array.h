@@ -117,10 +117,17 @@ one_past_last(Template_Array_Type array)
     return array + array.count;
 }
 
+INTERNAL usize
+try_index_of(Template_Array_Type array, Template_Array_Data_Type *item)
+{
+    usize index = cast_v(usize, item - array.data);
+    return index;
+}
+
 INTERNAL Template_Array_Size_Type
 index_of(Template_Array_Type array, Template_Array_Data_Type *item)
 {
-    usize index = cast_v(usize, item - array.data);
+    usize index = try_index_of(array, item);
     assert(index < array.count);
     return cast_v(Template_Array_Size_Type, index);
 }

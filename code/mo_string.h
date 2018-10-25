@@ -827,6 +827,18 @@ inline Format_Info_64 f(u64 value, u32 max_digit_count = 0, u8 padding_symbol = 
     return { write_formatted_parameter_64, value, false, max_digit_count, padding_symbol, base, first_symbol_after_9 };
 }
 
+inline Format_Info_64 f(u32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
+inline Format_Info_64 f(u16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
+inline Format_Info_64 f(u8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
 inline Format_Info_64 f(s64 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A')
 {
     Format_Info_64 result;
@@ -840,8 +852,17 @@ inline Format_Info_64 f(s64 value, u32 max_digit_count = 0, u8 padding_symbol = 
     return result;
 }
 
-inline Format_Info_64 f(u32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+inline Format_Info_64 f(s32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
+
+inline Format_Info_64 f(s16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
+inline Format_Info_64 f(s8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 //#pragma pack(push, 1)

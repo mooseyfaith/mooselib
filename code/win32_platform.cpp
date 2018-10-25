@@ -1,4 +1,3 @@
-//#include <shellapi.h> // file drag/drop
 #include "win32_platform.h"
 
 #include <stdio.h>
@@ -8,6 +7,7 @@ int main(int argc, const char **args)
 {
     init_memory_stack_allocators();
     init_memory_growing_stack_allocators();
+    init_memory_list_allocators();
     init_c_allocator();
     init_win32_allocator();
     

@@ -66,7 +66,10 @@ struct Template_List_Name {
 #endif
 };
 
-static inline Template_List_Data_Type * _insert(Template_List_Name *list, u32 mark_index, Template_List_Name::Entry *entry, u32 insert_prev = 0)
+#define for_list_item(iterator, list) \
+for (auto iterator = (list).head; iterator; iterator = iterator->next)
+
+INTERNAL Template_List_Data_Type * _insert(Template_List_Name *list, u32 mark_index, Template_List_Name::Entry *entry, u32 insert_prev = 0)
 {
     Template_List_Name::Entry **mark = list->marks + mark_index;
     u32 const forward = insert_prev;
@@ -202,6 +205,55 @@ static inline void clear(Template_List_Name *list, Memory_Allocator *allocator)
     while (list->head)
         remove_head(list, allocator);
 }
+
+INTERNAL void insert_after(Template_List_Name *list, Template_List_Name::Entry *at_entry, Template_List_Name::Entry *new_entry)
+{
+    if (at_entry)
+    {
+        
+#if defined Template_List_With_Double_Links
+        if (at_entry->next)
+            at_entry->next->prev = new_entry;
+        
+        new_entry->prev = at_entry;
+#endif
+        
+        new_entry->next = at_entry->next;
+        at_entry->next = new_entry;
+    }
+    else {
+        new_entry->next = null;
+        
+        list->head = new_entry;
+        
+#if defined Template_List_With_Tail
+        list->tail = new_entry;
+#endif
+        
+    }
+}
+
+#if defined Template_List_With_Double_Links
+
+INTERNAL void remove(Template_List_Name *list, Template_List_Name::Entry *it) {
+    if (it->prev)
+        it->prev->next = it->next;
+    else
+        list->head = it->next;
+    
+    if (it->next)
+        it->next->prev = it->prev;
+    
+#if defined Template_List_With_Tail
+    
+    else
+        list->tail = it->prev;
+    
+#endif
+    
+}
+
+#endif // Template_List_With_Double_Links
 
 #undef Template_List_Name
 #undef Template_List_Data_Type

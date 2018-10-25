@@ -79,6 +79,7 @@ enum Memory_Allocator_Kind {
     Memory_Allocator_C_Kind,
     Memory_Allocator_Stack_Kind,
     Memory_Allocator_Growing_Stack_Kind,
+    Memory_Allocator_List_Kind,
     Memory_Allocator_Kind_Count
 };
 

@@ -51,7 +51,7 @@ const usize usize_max = -usize(1);
 
 #define assert(x, ...) { \
     if (!(x)) { \
-        printf("\n\n%s:%d: Assertion failed: \n\n\t" __VA_ARGS__ "\n\t%s\n", __FILE__, __LINE__, # x); \
+        printf("\n\n%s:%d:\n\n\t Assertion ( %s ) failed\n\n\t" __VA_ARGS__, __FILE__, __LINE__, # x); \
         *((int*)0) = 0; \
     } \
 }

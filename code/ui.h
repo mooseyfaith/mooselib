@@ -163,21 +163,23 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
     // for now using y_up_direction == -1 dows not seem to work properly, it will reverse face drawing order and will be culled if glEnable(GL_CULL_FACE), wich is the default
     assert(y_up_direction == 1.0f);
     
-    context->transform.columns[0] = {  2 * scale / (resolution.width), 0,                               0           };
-    context->transform.columns[1] = {  0,                                  2 * scale / (resolution.height), 0           };
-    context->transform.columns[2] = {  0,                                  0,                               depth_scale };
-    context->transform.columns[3] = { -1,                                 -1,   depth_alignment * (1.0f - depth_scale) };
+    context->width  = resolution.width / scale + 0.5f;
+    context->height = resolution.height / scale + 0.5f;
     
-    context->scale = scale;
+    context->scale = resolution.width / cast_v(f32, context->width);
+    
+    context->transform.columns[0] = {  2.0f / context->width, 0,                      0           };
+    context->transform.columns[1] = {  0,                     2.0f / context->height, 0           };
+    context->transform.columns[2] = {  0,                     0,                      depth_scale };
+    
+    context->transform.columns[3] = { -1, -1, depth_alignment * (1.0f - depth_scale) };
+    
     //context->y_up_direction = y_up_direction;
     
-    context->left   = 0.0f;
-    context->right  = (resolution.width - 1) / scale;
-    context->top    = (resolution.height - 1) / scale * interval_zero_to_one(y_up_direction);
-    context->bottom = (resolution.height - 1) / scale - context->top;
-    
-    context->width  = resolution.width / scale;
-    context->height = resolution.height / scale;
+    context->left   = 0;
+    context->right  = context->width - 1;
+    context->top    = (context->height - 1) * interval_zero_to_one(y_up_direction);
+    context->bottom = (context->height - 1) - context->top;
     
     context->center_x = (context->left + context->right)  * 0.5f;
     context->center_y = (context->top  + context->bottom) * 0.5f;
@@ -254,7 +256,8 @@ void ui_clear(UI_Context *context) {
     context->texture = null;
 }
 
-void _push_quad_as_triangles(UI_Context *context, u32 vertex_offset, u32 a, u32 b, u32 c, u32 d, bool only_edge = false) {
+void _push_quad_as_triangles(UI_Context *context, u32 vertex_offset, u32 a, u32 b, u32 c, u32 d, bool only_edge = false)
+{
     
     GLenum draw_mode;
     u32 index_count;
@@ -366,23 +369,23 @@ bool ui_clip(UI_Context *context, UV_Area *draw_area, UV_Area *texture_area = nu
     return true;
 }
 
-UV_Area rect_from_size(s16 x, s16 y, s16 width, s16 height) {
+UV_Area rect_from_size(s16 x, s16 y, s16 width, s16 height, s16 margin = 0) {
     UV_Area result = {
-        cast_v(f32, x),
-        cast_v(f32, y),
-        cast_v(f32, width),
-        cast_v(f32, height),
+        cast_v(f32, x + margin),
+        cast_v(f32, y + margin),
+        cast_v(f32, width  - 2 * margin),
+        cast_v(f32, height - 2 * margin),
     };
     
     return result;
 }
 
-UV_Area rect_from_border(s16 left, s16 right, s16 bottom, s16 top) {
+UV_Area rect_from_border(s16 left, s16 right, s16 bottom, s16 top, s16 margin = 0) {
     UV_Area result = {
-        cast_v(f32, left),
-        cast_v(f32, bottom),
-        cast_v(f32, right - left + 1),
-        cast_v(f32, top - bottom + 1),
+        cast_v(f32, left + margin),
+        cast_v(f32, bottom + margin),
+        cast_v(f32, right - left + 1 - 2 * margin),
+        cast_v(f32, top - bottom + 1 - 2 * margin),
     };
     
     return result;

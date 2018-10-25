@@ -7,6 +7,7 @@
 #include "gl.h"
 #include "platform.h"
 #include "memory_growing_stack.h"
+#include "memory_list.h"
 #include "memory_c_allocator.h"
 
 struct Win32_Window {

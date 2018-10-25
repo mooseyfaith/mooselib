@@ -1,115 +1,206 @@
-#if !defined(_MEMORY_LIST_H_)
-#define _MEMORY_LIST_H_
+#if !defined MEMORY_LIST_H
+#define MEMORY_LIST_H
+
+#define Template_List_Name      Chunk_List
+#define Template_List_Data_Type u8_array
+#define Template_List_Data_Name chunk
+#define Template_List_With_Tail
+#define Template_List_With_Double_Links
+#include "template_list.h"
 
 struct Memory_List {
-    Memory_Allocator *backup_allocator;
+    Memory_Allocator allocator;
+    Memory_Allocator *internal_allocator;
     
-    struct Item {
-        any data;
-        u32 size; // not memory_units (save space)
-        Item *next;
-    } *free_list_head, *allocated_list_head;
+    Chunk_List used_list, free_list;
 };
 
+#define Template_Allocator_Type Memory_List
+#define Template_Allocator_Name memory_list
+#define Template_Allocator_Kind Memory_Allocator_List_Kind
+#include "memory_allocator_template.h"
 
-#define TEMPLATE_ALLOCATOR_TYPE Memory_List
-#define TEMPLATE_ALLOCATOR_NAME memory_list
-#include "memory_template.h"
-
-inline Memory_List make_memory_list(Memory_Allocator *backup_allocator) {
-    return { backup_allocator };
+INTERNAL Memory_List make_memory_list(Memory_Allocator *internal_allocator)
+{
+    Memory_List result = {};
+    result.allocator.kind     = Memory_Allocator_List_Kind;
+    result.internal_allocator = internal_allocator;
+    
+    return result;
 }
 
-ALLOCATE_DEC(ALLOCATE_FUNCTION_NAME, Memory_List *list) {
-    auto it = &list->free_list_head;
-    while (*it) {
-        if (((*it)->size == size) && ((MEMORY_ADDRESS((*it)->data) % alignment) == 0)) {
-            auto data = (*it)->data;
-            *it = (*it)->next;
+INTERNAL void insert_to_free_list(Memory_List *list, Chunk_List::Entry *new_entry)
+{
+    auto prev_entry = list->free_list.head;
+    
+    for_list_item(it, list->free_list)
+    {
+        if (it->chunk.data + it->chunk.count == new_entry->chunk.data)
+        {
+            it->chunk.count += new_entry->chunk.count;
+            
+            auto next = it->next;
+            if (next && (it->chunk.data + it->chunk.count == next->chunk.data))
+            {
+                it->chunk.count += next->chunk.count;
+                remove(&list->free_list, next);
+            }
+            
+            return;
+        }
+        else if (new_entry->chunk.data + new_entry->chunk.count == it->chunk.data)
+        {
+            it->chunk.data = new_entry->chunk.data;
+            it->chunk.count += new_entry->chunk.count;
+            return;
+        }
+        
+        if (!it->next || (new_entry <= it->next)) {
+            prev_entry = it;
+            break;
+        }
+    }
+    
+    insert_after(&list->free_list, prev_entry, new_entry);
+}
+
+INTERNAL ALLOCATE_DEC(Memory_List *list)
+{
+    for_list_item(it, list->free_list)
+    {
+        usize required_size = size + sizeof(Chunk_List::Entry);
+        auto data = it->chunk.data + sizeof(Chunk_List::Entry);
+        
+        usize offset = MOD(alignment - MOD(MEMORY_ADDRESS(data), alignment), alignment);
+        required_size += offset;
+        data += offset;
+        
+        if (it->chunk.count >= required_size)
+        {
+            remove(&list->free_list, it);
+            insert_head(&list->used_list, it);
+            
+            if (it->chunk.count >= required_size)
+            {
+                auto free_entry = cast_p(Chunk_List::Entry, it->chunk.data + required_size);
+                free_entry->chunk.data  = cast_p(u8, free_entry);
+                free_entry->chunk.count = it->chunk.count - required_size;
+                it->chunk.count -= required_size;
+                
+                insert_to_free_list(list, free_entry);
+            }
+            
             return data;
         }
-        
-        it = &((*it)->next);
     }
     
-    auto item = ALLOCATE(list->backup_allocator, Memory_List::Item);	
-    *item = { ALLOCATE_FUNCTION_NAME(list->backup_allocator, size, alignment), CAST_V(u32, size), list->allocated_list_head };	
-    list->allocated_list_head = item;
+    u8_array new_chunk = ALLOCATE_ARRAY_INFO(list->internal_allocator, u8, size + sizeof(Chunk_List::Entry) + alignment);
     
-    return item->data;	
+    auto new_entry = cast_p(Chunk_List::Entry, new_chunk.data);
+    
+    new_entry->chunk = new_chunk;
+    insert_head(&list->used_list, new_entry);
+    
+    auto data = new_entry->chunk.data + sizeof(Chunk_List::Entry);
+    data += MOD(alignment - MOD(MEMORY_ADDRESS(data), alignment), alignment);
+    
+    return data;
 }
 
-FREE_DEC(FREE_FUNCTION_NAME, Memory_List *list) {
-    auto it = &list->allocated_list_head;
-    while (*it) {
-        if ((*it)->data == data) {
-            auto item = *it;
-            *it = (*it)->next;
+INTERNAL FREE_DEC(Memory_List *list)
+{
+    for_list_item(it, list->used_list)
+    {
+        if (try_index_of(it->chunk, cast_p(u8, data)) != -1)
+        {
+            remove(&list->used_list, it);
+            insert_to_free_list(list, it);
+            return;
+        }
+    }
+    
+    assert(0, "data was not allocated by this allocator");
+}
+
+INTERNAL REALLOCATE_DEC(Memory_List *list)
+{
+    bool is_big_enough = false;
+    u8 *data_end = null;
+    
+    Chunk_List::Entry *used_entry;
+    
+    for_list_item(it, list->used_list)
+    {
+        usize index = try_index_of(it->chunk, cast_p(u8, data));
+        
+        if (index != -1)
+        {
+            data_end = it->chunk.data + index + size;
+            if (it->chunk.data + it->chunk.count >= data_end)
+                is_big_enough = true;
             
-            item->next = list->free_list_head;
-            list->free_list_head = item;
-            return;
+            used_entry = it;
+            break;
+        }
+    }
+    
+    assert(used_entry, "data was not allocated by this allocator");
+    
+    if (!is_big_enough)
+    {
+        for_list_item(it, list->free_list)
+        {
+            if (used_entry->chunk.data + used_entry->chunk.count == it->chunk.data)
+            {
+                remove(&list->free_list, it);
+                used_entry->chunk.count += it->chunk.count;
+                
+                if (used_entry->chunk.data + used_entry->chunk.count >= data_end)
+                    is_big_enough = true;
+                
+                break;
+            }
+            else if (!it || (used_entry >= it->next))
+                break;
+        }
+    }
+    
+    if (is_big_enough) 
+    {
+        auto new_size = index_of(used_entry->chunk, data_end);
+        
+        usize remaining_size = used_entry->chunk.count - new_size;
+        
+        if (remaining_size > sizeof(Chunk_List::Entry))
+        {
+            auto new_entry = cast_p(Chunk_List::Entry, used_entry->chunk.data + new_size);
+            new_entry->chunk.data  = cast_p(u8, new_entry);
+            new_entry->chunk.count = remaining_size;
+            
+            used_entry->chunk.count = new_size;
+            
+            insert_to_free_list(list, new_entry);
         }
         
-        it = &((*it)->next);
+        return true;
     }
     
-    assert(0); // data is not in allocated_list_head
+    used_entry->chunk.count = cast_v(usize, data_end - used_entry->chunk.data);
+    bool ok = reallocate(list->internal_allocator, &cast_any(used_entry->chunk.data), used_entry->chunk.count, 1);
+    if (!ok)
+        return false;
+    
+    if (used_entry->prev)
+        used_entry->prev->next = used_entry;
+    else
+        list->used_list.head = used_entry;
+    
+    if (used_entry->next)
+        used_entry->next->prev = used_entry;
+    else
+        list->used_list.tail = used_entry;
+    
+    return true;
 }
 
-GET_FREE_CHUNK_DEC(GET_FREE_CHUNK_FUNCTION_NAME, Memory_List *list) {
-    max_size += sizeof(Memory_List::Item);
-    if (sizeof(Memory_List::Item) % alignment)
-        max_size += alignment - (sizeof(Memory_List::Item) % alignment);
-    
-    auto it = &list->free_list_head;
-    while (*it) {
-        if (((*it)->size == max_size) && ((MEMORY_ADDRESS((*it)->data) % alignment) == 0)) {
-            *data = (*it)->data;
-            *size = max_size;
-            return;
-        }
-        
-        it = &((*it)->next);
-    }
-    
-    GET_FREE_CHUNK_FUNCTION_NAME(list->backup_allocator, data, size, max_size, alignof(Memory_List::Item));
-    u8 *u8_data = CAST_P(u8, *data);
-    u8_data += sizeof(Memory_List::Item);
-    if (sizeof(Memory_List::Item) % alignment) {
-        u8_data += alignment - (sizeof(Memory_List::Item) % alignment);
-        *size -= alignment - (sizeof(Memory_List::Item) % alignment);
-    }
-    *data = u8_data;
-}
-
-ALLOCATE_FREE_CHUNK_DEC(ALLOCATE_FREE_CHUNK_FUNCTION_NAME, Memory_List *list) {
-    auto it = &list->free_list_head;
-    while (*it) {
-        if ((*it)->data == data) {
-            assert((MEMORY_ADDRESS((*it)->data) % alignment) == 0);
-            assert(size <= (*it)->size);
-            *it = (*it)->next;
-            return;
-        }
-        
-        it = &((*it)->next);
-    }
-    
-    auto total_data = CAST_P(u8, data) - sizeof(Memory_List::Item);
-    memory_units total_size = size + sizeof(Memory_List::Item); 
-    if (sizeof(Memory_List::Item) % alignment) {
-        total_data -= alignment - (sizeof(Memory_List::Item) % alignment);	
-        total_size += alignment - (sizeof(Memory_List::Item) % alignment);		
-    }
-    
-    auto item = CAST_P(Memory_List::Item, total_data);
-    *item = { data, CAST_V(u32, size), list->allocated_list_head };	
-    list->allocated_list_head = item;
-    
-    ALLOCATE_FREE_CHUNK_FUNCTION_NAME(list->backup_allocator, total_data, total_size, alignment);
-}
-
-#endif // _MEMORY_LIST_H_
-
-
+#endif // MEMORY_LIST_H
