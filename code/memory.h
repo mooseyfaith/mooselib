@@ -95,11 +95,11 @@ Memory_Allocate_Function   global_allocate_functions[Memory_Allocator_Kind_Count
 Memory_Reallocate_Function global_reallocate_functions[Memory_Allocator_Kind_Count];
 Memory_Free_Function       global_free_functions[Memory_Allocator_Kind_Count];
 
-void assert_no_clash(any destination, any source) {
+INTERNAL void assert_no_clash(any destination, any source) {
     assert(!destination || (destination == source)); 
 }
 
-void init_allocators(u32 kind, Memory_Allocate_Function allocate, Memory_Reallocate_Function reallocate, Memory_Free_Function free) {
+INTERNAL void init_allocators(u32 kind, Memory_Allocate_Function allocate, Memory_Reallocate_Function reallocate, Memory_Free_Function free) {
     // just increase MEMORY_ALLOCATOR_COUNT in basic.h
     assert(kind < Memory_Allocator_Kind_Count);
     
@@ -113,17 +113,17 @@ void init_allocators(u32 kind, Memory_Allocate_Function allocate, Memory_Realloc
     global_free_functions[kind]       = free;
 }
 
-ALLOCATE_DEC(Memory_Allocator *allocator) {
+INTERNAL ALLOCATE_DEC(Memory_Allocator *allocator) {
     assert(allocator->kind < Memory_Allocator_Kind_Count);
     return global_allocate_functions[allocator->kind](allocator, size, alignment);
 }
 
-REALLOCATE_DEC(Memory_Allocator *allocator) {
+INTERNAL REALLOCATE_DEC(Memory_Allocator *allocator) {
     assert(allocator->kind < Memory_Allocator_Kind_Count);
     return global_reallocate_functions[allocator->kind](allocator, data, size, alignment);
 }
 
-FREE_DEC(Memory_Allocator *allocator) {
+INTERNAL FREE_DEC(Memory_Allocator *allocator) {
     assert(allocator->kind < Memory_Allocator_Kind_Count);
     global_free_functions[allocator->kind](allocator, data);
 }

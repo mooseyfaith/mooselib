@@ -19,22 +19,22 @@ FREE_DEC(Template_Allocator_Type *Template_Allocator_Name);
 
 // wrapper functions
 
-_ALLOCATE_WRAPPER_DEC(Template_Allocator_Name)
+INTERNAL _ALLOCATE_WRAPPER_DEC(Template_Allocator_Name)
 {
     return allocate(cast_p(Template_Allocator_Type, allocator), size, alignment);
 }
 
-_REALLOCATE_WRAPPER_DEC(Template_Allocator_Name)
+INTERNAL _REALLOCATE_WRAPPER_DEC(Template_Allocator_Name)
 {
     return reallocate(cast_p(Template_Allocator_Type, allocator), data, size, alignment);
 }
 
-_FREE_WRAPPER_DEC(Template_Allocator_Name)
+INTERNAL _FREE_WRAPPER_DEC(Template_Allocator_Name)
 {
     free(cast_p(Template_Allocator_Type, allocator), data);
 }
 
-void CHAIN(CHAIN(init_, Template_Allocator_Name), _allocators)()
+INTERNAL void CHAIN(CHAIN(init_, Template_Allocator_Name), _allocators)()
 {
     init_allocators(Template_Allocator_Kind, _ALLOCATE_WRAPPER_FUNCTION_NAME(Template_Allocator_Name),_REALLOCATE_WRAPPER_FUNCTION_NAME(Template_Allocator_Name), _FREE_WRAPPER_FUNCTION_NAME(Template_Allocator_Name));
 }

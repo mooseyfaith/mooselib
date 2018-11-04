@@ -19,6 +19,7 @@ struct Memory_Growing_Stack {
     usize count;
     usize capacity;
     usize max_count;
+    usize frame_byte_count;
 };
 
 #define Template_Allocator_Type Memory_Growing_Stack
@@ -28,14 +29,10 @@ struct Memory_Growing_Stack {
 
 INTERNAL Memory_Growing_Stack make_memory_growing_stack(Memory_Allocator *internal_allocator, usize min_chunk_capacity = 4 << 10)
 {
-    Memory_Growing_Stack result;
+    Memory_Growing_Stack result = {};
     result.allocator = { Memory_Allocator_Growing_Stack_Kind };
     result.internal_allocator = internal_allocator;
     result.min_chunk_capacity = min_chunk_capacity;
-    result.list = {};
-    result.count = 0;
-    result.capacity = 0;
-    result.max_count = 0;
     
     return result;
 }
@@ -98,10 +95,15 @@ INTERNAL ALLOCATE_DEC(Memory_Growing_Stack *stack)
     SCOPE_UPDATE_COUNT(stack, stack->list.tail);
     any data = allocate(&stack->list.tail->memory_stack, size, alignment);
     
+    stack->frame_byte_count += size;
+    
     return data;
 }
 
-INTERNAL void _free_empty_tails(Memory_Growing_Stack *stack) {
+INTERNAL void _free_empty_tails(Memory_Growing_Stack *stack, bool force = false) {
+    if (!force && (stack->list.count <= 1))
+        return;
+    
     while (stack->list.tail && !stack->list.tail->memory_stack.buffer.count) {
         Memory_Stack_List::Entry *entry = remove_tail(&stack->list);
         
@@ -154,9 +156,12 @@ INTERNAL REALLOCATE_DEC(Memory_Growing_Stack *stack) {
     COPY(new_data, *data, MIN(old_size, size));
     *data = new_data;
     
+    if (size > old_size)
+        stack->frame_byte_count += size - old_size;
+    
     // now its ok to free empty stacks
     auto real_tail = remove_tail(&stack->list);
-    _free_empty_tails(stack);
+    _free_empty_tails(stack, true);
     insert_tail(&stack->list, real_tail);
     
     return true;
@@ -167,7 +172,9 @@ INTERNAL void clear(Memory_Growing_Stack *stack)
 {
     assert_bounds(*stack);
     
-    if (stack->list.count <= 1) {
+    defer { stack->frame_byte_count = 0; };
+    
+    if ((stack->capacity >= stack->max_count) && (stack->list.count <= 1)) {
         if (stack->list.head)
             stack->list.head->memory_stack.buffer.count = 0;
         

@@ -348,7 +348,7 @@ bool default_begin_frame(Default_State *state, const Game_Input *input, Platform
         }
     }
     
-#if defined DEBUG
+#if defined DEBUG_EDITOR
     
     if (was_pressed(input->keys[VK_F1])) {
         state->debug.is_active = !state->debug.is_active;
@@ -439,7 +439,7 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     glUnmapBuffer(GL_UNIFORM_BUFFER);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
     
-#if defined DEBUG
+#if defined DEBUG_EDITOR
     // update debug camera
     if (state->debug.is_active) {
         if (was_pressed(input->keys[VK_F3]))
