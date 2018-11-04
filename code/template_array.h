@@ -156,10 +156,17 @@ push(Template_Array_Type *buffer, Template_Array_Size_Type count = 1)
 }
 
 INTERNAL Template_Array_Data_Type *
-push(Memory_Allocator *allocator, Template_Array_Type *buffer, Template_Array_Size_Type count = 1)
+push(Memory_Allocator *allocator, Template_Array_Type *buffer, Template_Array_Size_Type count = 1, bool double_capacity_on_grow = true)
 {
-    if (buffer->count + count > buffer->capacity) {
-        grow(allocator, buffer, buffer->count + count - buffer->capacity);
+    if (buffer->count + count > buffer->capacity)
+    {
+        Template_Array_Size_Type grow_count;
+        if (double_capacity_on_grow)
+            grow_count = (buffer->count + count) * 2 - buffer->capacity;
+        else
+            grow_count =  (buffer->count + count) - buffer->capacity;
+        
+        grow(allocator, buffer, grow_count);
     }
     
     return push(buffer, count);
@@ -171,7 +178,23 @@ pop(Template_Array_Type *buffer, Template_Array_Size_Type count = 1)
     assert(count <= buffer->count);
     Template_Array_Data_Type *result = buffer->data + buffer->count;
     buffer->count -= count;
+    
     return result;
+}
+
+
+INTERNAL void
+pop(Memory_Allocator *allocator, Template_Array_Type *buffer, Template_Array_Size_Type count = 1, bool half_capacity_on_quarter_count = true)
+{
+    pop(buffer, count);
+    
+    if (half_capacity_on_quarter_count)
+    {
+        if (buffer->count < (buffer->capacity >> 2))
+            shrink(allocator, buffer, buffer->capacity >> 1);
+    }
+    else
+        shrink(allocator, buffer, buffer->capacity - buffer->count);
 }
 
 #undef Template_Array_Is_Buffer

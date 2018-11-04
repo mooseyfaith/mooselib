@@ -254,7 +254,7 @@ PLATFORM_OPEN_FILE_DEC(win32_open_file) {
     u8 _file_path_buffer[MAX_PATH];
     u8_buffer file_path_buffer = ARRAY_INFO(_file_path_buffer);
     
-    write(&file_path_buffer, S("%\0"), f(file_path));
+    write(null, &file_path_buffer, S("%\0"), f(file_path));
     c_const_string c_file_path = cast_p(char, file_path_buffer.data);
     
     HANDLE handle = CreateFile(c_file_path, GENERIC_READ, FILE_SHARE_READ, null, OPEN_EXISTING, null, null);
@@ -324,7 +324,7 @@ PLATFORM_CLOSE_FILE_DEC(win32_close_file) {
 PLATFORM_READ_ENTIRE_FILE_DEC(win32_read_entire_file) {
     u8 _file_path_buffer[MAX_PATH];
     u8_buffer file_path_buffer = ARRAY_INFO(_file_path_buffer);
-    write(&file_path_buffer, S("%\0"), f(file_path));
+    write(null, &file_path_buffer, S("%\0"), f(file_path));
     c_const_string c_file_path = cast_p(char, file_path_buffer.data);
     
     HANDLE file = CreateFile(c_file_path, GENERIC_READ, FILE_SHARE_READ, null, OPEN_EXISTING, null, null);
@@ -510,14 +510,14 @@ bool win32_load_application(Application_Info *application_info) {
     u8 _name_buffer[MAX_PATH * 2]; // can hold up to 2 paths
     u8_buffer name_buffer = ARRAY_INFO(_name_buffer);
     
-    string name = write(&name_buffer, S("%compile_dll_lock.tmp\0"), f(application_info->dll_path));
+    string name = write(null, &name_buffer, S("%compile_dll_lock.tmp\0"), f(application_info->dll_path));
     
     WIN32_FILE_ATTRIBUTE_DATA ignored;
     if (GetFileAttributesEx(CAST_P(char, name.data), GetFileExInfoStandard, &ignored))
         return false;
     
     name_buffer.count = 0;
-    name = write(&name_buffer, S("%%\0"), f(application_info->dll_path), f(application_info->dll_name));
+    name = write(null, &name_buffer, S("%%\0"), f(application_info->dll_path), f(application_info->dll_name));
     
     WIN32_FIND_DATA find_data;
     HANDLE find_handle = FindFirstFile(TO_C_STR(&name), &find_data);
@@ -535,7 +535,7 @@ bool win32_load_application(Application_Info *application_info) {
                 assert(result);
             }
             
-            string tmp_file_name = write(&name_buffer, S("%tmp_app.dll\0"), f(application_info->dll_path));
+            string tmp_file_name = write(null, &name_buffer, S("%tmp_app.dll\0"), f(application_info->dll_path));
             
             BOOL result = CopyFile(TO_C_STR(&name), TO_C_STR(&tmp_file_name), FALSE);
             if (!result) {
@@ -557,12 +557,12 @@ bool win32_load_application(Application_Info *application_info) {
             assert(application_info->dll);
             
             name_buffer.count = 0;
-            name = write(&name_buffer, S("%\0"), f(application_info->init_name));
+            name = write(null, &name_buffer, S("%\0"), f(application_info->init_name));
             application_info->init = (App_Init_Function)GetProcAddress(application_info->dll, TO_C_STR(&name));
             assert(application_info->init);
             
             name_buffer.count = 0;
-            name = write(&name_buffer, S("%\0"), f(application_info->main_loop_name));
+            name = write(null, &name_buffer, S("%\0"), f(application_info->main_loop_name));
             application_info->main_loop = (App_Main_Loop_Function)GetProcAddress(application_info->dll, TO_C_STR(&name));
             assert(application_info->main_loop);
             

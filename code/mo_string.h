@@ -76,6 +76,20 @@ inline string sub_string(string start, string end) {
     return { start.data, cast_v(usize, end.data - start.data) };
 }
 
+INTERNAL string
+left(u8_buffer buffer, usize left_count)
+{
+    assert(left_count < buffer.count);
+    return { buffer.data, left_count };
+}
+
+INTERNAL string
+right(u8_buffer buffer, usize left_count)
+{
+    assert(left_count < buffer.count);
+    return { one_past_last(buffer) - left_count, buffer.count - left_count };
+}
+
 INTERNAL bool operator==(string a, string b) {
     if (a.count != b.count)
         return false;
@@ -630,110 +644,87 @@ inline f64 parse_f64(string *it) {
 
 // writing
 
-#define STRING_WRITE_DEC(name) void name(string *it, va_list *va_args)
-typedef STRING_WRITE_DEC((*String_Write_Function));
-typedef void (*String_Write_Function)(string *it, va_list *va_args);
+//#define STRING_WRITE_DEC(name) void name(string *it, va_list *va_args)
+//typedef STRING_WRITE_DEC((*String_Write_Function));
+//typedef void (*String_Write_Function)(string *it, va_list *va_args);
 
-string write(u8_buffer *buffer, string *format_it, va_list va_args, bool *is_escaping) {
-    string it = { one_past_last(*buffer), remaining_count(*buffer) };
+#define STRING_WRITE2_DEC(name) void name(Memory_Allocator *allocator, u8_buffer *buffer, va_list *va_args)
+typedef STRING_WRITE2_DEC((*String_Write2_Function));
+//typedef void (*String_Write2_Function)(Memory_Allocator *allocator, u8_buffer *buffer, va_list *va_args);
+
+
+string write_va(Memory_Allocator *allocator, u8_buffer *buffer, string *format_it, va_list va_args, bool *is_escaping, bool double_capacity_on_grow = true)
+{
+    auto old_count = buffer->count;
     
-    while (format_it->count) {
-        if (*is_escaping) {
-            if (!it.count)
-                break;
-            
-            it.data[0] = (*format_it)[0];
-            advance(&it);
+    while (format_it->count)
+    {
+        if (*is_escaping)
+        {
+            *push(allocator, buffer) = (*format_it)[0];
             advance(format_it);
             *is_escaping = false;
+            
             continue;
         }
         
-        if ((*format_it)[0] == '\\') {
+        if ((*format_it)[0] == '\\')
+        {
             *is_escaping = true;
             advance(format_it);
+            
             continue;
         }
         
         if ((*format_it)[0] == '%')
         {
             va_list peek_args = va_args;
-            String_Write_Function write_formatted_parameter = *va_arg(peek_args, String_Write_Function*);
+            auto string_write = *va_arg(peek_args, String_Write2_Function*);
             
             // if you crash here, you probably haven't wrapped your arguments with f(..)
             // we aret trying to call a function, wich will be returned by f(..)
-            write_formatted_parameter(&it, &va_args);
+            string_write(allocator, buffer, &va_args);
         }
-        else {
-            if (!it.count)
-                break;
-            
-            it.data[0] = (*format_it)[0];
-            advance(&it);
+        else
+        {
+            *push(allocator, buffer) = (*format_it)[0];
         }
         
         advance(format_it);
     }
     
-    
-    string text = { one_past_last(*buffer), CAST_V(u32, it.data - one_past_last(*buffer)) };
-    buffer->count += text.count;
-    
-    return text;
+    return { buffer->data + old_count, buffer->count - old_count };
 }
 
-string write_va(Memory_Allocator *allocator, string *buffer, string format, va_list va_args) 
+INTERNAL string write_va(Memory_Allocator *allocator, u8_buffer *buffer, string format, va_list va_args, bool double_capacity_on_grow = true) 
 {
     bool is_escaping = false;
-    u32 text_count = 0;
-    
-    while (format.count) {
-        u8 _buffer[1024];
-        u8_buffer write_buffer = ARRAY_INFO(_buffer);
-        
-        write(&write_buffer, &format, va_args, &is_escaping);
-        text_count += write_buffer.count;
-        u8 *dest = grow(allocator, buffer, write_buffer.count);
-        COPY(dest, write_buffer.data, byte_count(write_buffer));
-    }
-    
-    return { buffer->data + buffer->count - text_count, text_count };
-}
-
-INTERNAL string write(Memory_Allocator *allocator, string *buffer, string format, ...)
-{
-    va_list va_args;
-    va_start(va_args, format);
-    string result = write_va(allocator, buffer, format, va_args);
-    va_end(va_args);
-    return result;
+    auto text = write_va(allocator, buffer, &format, va_args, &is_escaping, double_capacity_on_grow);
+    return text;
 }
 
 INTERNAL string write(Memory_Allocator *allocator, string format, ...)
 {
     va_list va_args;
     va_start(va_args, format);
-    string buffer = {};
-    string result = write_va(allocator, &buffer, format, va_args);
+    u8_buffer buffer = {};
+    string result = write_va(allocator, &buffer, format, va_args, false);
     va_end(va_args);
     return result;
 }
 
-INTERNAL string write(u8_buffer *buffer, string format, ...) {
+INTERNAL string write(Memory_Allocator *allocator, u8_buffer *buffer, string format, ...) {
     va_list va_args;
     va_start(va_args, format);
     bool is_escaping = false;
-    string text = write(buffer, &format, va_args, &is_escaping);
-    // buffer was not big enough
-    assert(!format.count);
+    string text = write_va(allocator, buffer, &format, va_args, &is_escaping, false);
     va_end(va_args);
     
     return text;
 }
 
-#pragma pack(push, 1)
-struct Format_Info_64 {
-    String_Write_Function write_formatted_parameter;
+struct Format_Info_integer64 {
+    String_Write2_Function write;
     union { u64 uvalue; s64 svalue; };
     bool is_signed;
     u32 max_digit_count;
@@ -741,7 +732,6 @@ struct Format_Info_64 {
     u8 base;
     u8 first_symbol_after_9;
 };
-#pragma pack(pop)
 
 u32 get_digit_count(u64 value, u64 base) {
     u32 result = 0;
@@ -757,16 +747,15 @@ u32 get_digit_count(u64 value, u64 base) {
     return result;
 }
 
-void write_formatted_64(string *it, Format_Info_64 *format_info)
+STRING_WRITE2_DEC(write_integer64)
 {
-    u64 value;
+    auto format_info = &va_arg(*va_args, Format_Info_integer64);
     
+    u64 value;
     if (format_info->is_signed) {
-        assert(it->count);
         
         if (format_info->svalue < 0) {
-            it->data[0] = '-';
-            advance(it);
+            *push(allocator, buffer) = '-';
             value = -format_info->svalue;
         }
         else
@@ -786,63 +775,54 @@ void write_formatted_64(string *it, Format_Info_64 *format_info)
     else
         max_digit_count = digit_count;
     
-    assert(max_digit_count <= it->count);
-    
     // writing from end to begin :D
     u32 end = max_digit_count;
+    auto it = push(allocator, buffer, max_digit_count);
     
     while (value) {
         u8 digit = value % format_info->base;
         value /= format_info->base;
         
         if (digit < 10)
-            it->data[end - 1] = '0' + digit;
+            it[end - 1] = '0' + digit;
         else
-            it->data[end - 1] = format_info->first_symbol_after_9 + (digit - 10);
+            it[end - 1] = format_info->first_symbol_after_9 + (digit - 10);
         
         --end;
     }
     
     // if value is 0, write at least 0
     if (!format_info->uvalue) {
-        it->data[end - 1] = '0';
+        it[end - 1] = '0';
         --end;
     }
     
     while (end) {
-        it->data[end - 1] = format_info->padding_symbol;
+        it[end - 1] = format_info->padding_symbol;
         --end;
     }
-    
-    advance(it, max_digit_count);
 }
 
-STRING_WRITE_DEC(write_formatted_parameter_64)
+inline Format_Info_integer64 f(u64 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return { write_integer64, value, false, max_digit_count, padding_symbol, base, first_symbol_after_9 };
+}
+
+inline Format_Info_integer64 f(u32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
+inline Format_Info_integer64 f(u16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
+inline Format_Info_integer64 f(u8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+}
+
+inline Format_Info_integer64 f(s64 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A')
 {
-    Format_Info_64 *format_info = &va_arg(*va_args, Format_Info_64);
-    write_formatted_64(it, format_info); 
-}
-
-inline Format_Info_64 f(u64 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return { write_formatted_parameter_64, value, false, max_digit_count, padding_symbol, base, first_symbol_after_9 };
-}
-
-inline Format_Info_64 f(u32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
-}
-
-inline Format_Info_64 f(u16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
-}
-
-inline Format_Info_64 f(u8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
-}
-
-inline Format_Info_64 f(s64 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A')
-{
-    Format_Info_64 result;
-    result.write_formatted_parameter =write_formatted_parameter_64;
+    Format_Info_integer64 result;
+    result.write = write_integer64;
     result.svalue = value;
     result.is_signed = true;
     result.max_digit_count = max_digit_count;
@@ -852,49 +832,46 @@ inline Format_Info_64 f(s64 value, u32 max_digit_count = 0, u8 padding_symbol = 
     return result;
 }
 
-inline Format_Info_64 f(s32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+inline Format_Info_integer64 f(s32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
     return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 
-inline Format_Info_64 f(s16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+inline Format_Info_integer64 f(s16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
     return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
-inline Format_Info_64 f(s8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
+inline Format_Info_integer64 f(s8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
     return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
-//#pragma pack(push, 1)
 struct Format_Info_string {
-    String_Write_Function write_formatted_parameter;
-    string value;
+    String_Write2_Function write;
+    string text;
     u32 prepend_symbol_count;
     u8 prepend_symbol;
 };
-//#pragma pack(pop)
 
-STRING_WRITE_DEC(write_formatted_parameter_string)
+STRING_WRITE2_DEC(write_string_info)
 {
-    Format_Info_string *format_info = &va_arg(*va_args, Format_Info_string);
-    assert(format_info->value.count + format_info->prepend_symbol_count <= it->count);
+    auto format_info = &va_arg(*va_args, Format_Info_string);
     
-    reset(it->data, format_info->prepend_symbol_count, format_info->prepend_symbol);
-    COPY(it->data + format_info->prepend_symbol_count, format_info->value.data, format_info->value.count);
-    advance(it, format_info->value.count + format_info->prepend_symbol_count);
+    auto it = push(allocator, buffer, format_info->prepend_symbol_count + format_info->text.count);
+    reset(it, format_info->prepend_symbol_count, format_info->prepend_symbol);
+    copy(it + format_info->prepend_symbol_count, format_info->text.data, format_info->text.count);
 }
 
 inline Format_Info_string f_indent(u32 count, u8 symbol = ' ') {
-    return { write_formatted_parameter_string, {}, count, symbol };
+    return { write_string_info, {}, count, symbol };
     
 }
 
 inline Format_Info_string f(string text, u32 prepend_symbol_count = 0, u8 prepend_symbol = ' ') {
-    return { write_formatted_parameter_string, text, prepend_symbol_count, prepend_symbol };
+    return { write_string_info, text, prepend_symbol_count, prepend_symbol };
 }
 
 struct Format_Info_f64 {
-    String_Write_Function write_formatted_parameter;
+    String_Write2_Function write;
     union {
         f64 value;
         
@@ -914,39 +891,39 @@ struct Format_Info_f64 {
     u8 first_symbol_after_9;
 };
 
-STRING_WRITE_DEC(write_formatted_parameter_f64)
+STRING_WRITE2_DEC(write_f64)
 {
-    Format_Info_f64 *format_info = &va_arg(*va_args, Format_Info_f64);
+    auto format_info = &va_arg(*va_args, Format_Info_f64);
     
-    if (format_info->sign) {
-        it->data[0] = '-';
-        advance(it);
-    }
+    if (format_info->sign)
+        *push(allocator, buffer) = '-';
     
-    if (format_info->exponent == 0) {
+    if (format_info->exponent == 0)
+    {
         if (format_info->mantisa == 0)
         {
-            it->data[0] = '0';
-            it->data[1] = format_info->fraction_symbol;
-            it->data[2] = '0';
-            advance(it, 3);
+            auto it = push(allocator, buffer, 3);
+            
+            it[0] = '0';
+            it[1] = format_info->fraction_symbol;
+            it[2] = '0';
             return;
         }
         
         // subnormals are not implemented yet
-        assert(0);
+        UNREACHABLE_CODE;
     }
     
-    if (format_info->exponent == ((1 << 11) - 1)) {
-        if (format_info->mantisa == 0) {
-            COPY(it->data, "infinity", 8);
-            advance(it, 8);
-        }
-        else {
-            COPY(it->data, "not-a-number", 12);
-            advance(it, 12);
-        }
+    if (format_info->exponent == ((1 << 11) - 1))
+    {
+        string text;
+        if (format_info->mantisa == 0)
+            text = S("infinity");
+        else 
+            text = S("not-a-number");
         
+        auto it = push(allocator, buffer, text.count);
+        copy(it, text.data, text.count);
         return;
     }
     
@@ -1007,12 +984,13 @@ STRING_WRITE_DEC(write_formatted_parameter_f64)
             ++i;
         }
         
-        auto whole_info = f(whole_value, 0, '0', format_info->base, format_info->first_symbol_after_9);
-        write_formatted_64(it, &whole_info);
+        //auto whole_info = f(whole_value, 0, '0', format_info->base, format_info->first_symbol_after_9);
+        //write_formatted_64(it, &whole_info);
+        
+        write(allocator, buffer, S("%"), f(whole_value, 0, '0', format_info->base, format_info->first_symbol_after_9));
     }
     
-    it->data[0] = format_info->fraction_symbol;
-    advance(it);
+    *push(allocator, buffer) = format_info->fraction_symbol;
     
     u64 fraction_value = whole_value;
     s64 i = fraction_digit_count;
@@ -1036,13 +1014,14 @@ STRING_WRITE_DEC(write_formatted_parameter_f64)
         ++base_exponent;
     }
     
-    auto fraction_info = f(fraction_value, -base_exponent, '0', format_info->base, format_info->first_symbol_after_9);
-    write_formatted_64(it, &fraction_info);
+    //auto fraction_info = f(fraction_value, -base_exponent, '0', format_info->base, format_info->first_symbol_after_9);
+    //write_formatted_64(it, &fraction_info);
+    write(allocator, buffer, S("%"), f(fraction_value, -base_exponent, '0', format_info->base, format_info->first_symbol_after_9));
 }
 
 inline Format_Info_f64 f(f64 value, u32 max_fraction_digit_count = 4, u8 fraction_symbol = '.', u8 base = 10, u8 first_symbol_after_9 = 'A') {
     Format_Info_f64 result;
-    result.write_formatted_parameter = write_formatted_parameter_f64;
+    result.write = write_f64;
     result.value = value;
     result.max_digit_count = 0;
     result.max_fraction_digit_count = max_fraction_digit_count;

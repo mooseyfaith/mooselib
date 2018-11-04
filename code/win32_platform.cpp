@@ -229,6 +229,10 @@ int main(int argc, const char **args)
                                 code = Platform_Character_Down;
                             } break;
                             
+                            case VK_DELETE: {
+                                code = Platform_Character_Delete;
+                            } break;
+                            
                             default:
                             code = 0;
                         }
@@ -635,7 +639,9 @@ int main(int argc, const char **args)
             LARGE_INTEGER frame_start;
             QueryPerformanceCounter(&frame_start);
             
-            if (!win32_platform_api.application_info.main_loop(CAST_P(Platform_API, &win32_platform_api), &win32_platform_api.input, &output_sound_buffer, win32_platform_api.application_info.data, delta_seconds))
+            auto main_loop_result = win32_platform_api.application_info.main_loop(CAST_P(Platform_API, &win32_platform_api), &win32_platform_api.input, &output_sound_buffer, win32_platform_api.application_info.data, delta_seconds);
+            
+            if (main_loop_result == Platform_Main_Loop_Quit)
                 PostQuitMessage(0);
             
             LARGE_INTEGER frame_end;
@@ -676,9 +682,9 @@ int main(int argc, const char **args)
                 SwapBuffers(win32_platform_api.current_window->device_context);
                 win32_platform_api.current_window = null;
             }
-            else if (!win32_platform_api.swap_buffer_count) {
+            
+            if (main_loop_result == Platform_Main_Loop_Wait_For_Input)
                 WaitMessage();
-            }
             
             {
                 u32 i = 0;

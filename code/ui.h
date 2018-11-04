@@ -52,13 +52,14 @@ struct UI_Context {
     Memory_Growing_Stack index_memory;
     Memory_Growing_Stack command_memory;
     
+    Memory_Allocator *temporary_allocator;
+    
     UI_Vertex_Array vertices;
     u16_array indices;
     UI_Command_Array commands;
     
     union { mat4x3f world_to_camera_transform, transform; };
     f32 depth;
-    f32 scale;
     
     bool use_sissor_area;
     area2f sissor_area;
@@ -69,13 +70,15 @@ struct UI_Context {
         s16 width, height;
     };
     
+    s16 border_thickness;
+    
     u32 last_texture_command_index;
     Texture *texture;
     
     struct {
         Font *font;
         rgba32 color;
-        f32 line_spacing;
+        s16 line_spacing;
         f32 line_grow_direction;
         f32 scale;
         vec2f alignment; // -1 to 1 (left to right), (bottom to top)
@@ -92,7 +95,7 @@ struct UI_Context {
     struct {
         u32 hot_id;
         u32 active_id;
-        u32 triggerd_id;
+        //u32 triggerd_id;
         u32 current_id;
         
         area2f cursor_area;
@@ -115,7 +118,6 @@ UI_Context make_ui_context(Memory_Allocator *internal_allocator) {
     
     context.world_to_camera_transform = MAT4X3_IDENTITY;
     context.depth = 0.0f;
-    context.scale = 1.0f;
     
     context.font_rendering.color = rgba32{ 0, 0, 0, 255 };
     context.font_rendering.font = null;
@@ -147,12 +149,12 @@ UI_Context make_ui_context(Memory_Allocator *internal_allocator) {
     control->hot_id = -1;
     control->active_id = -1;
     control->next_hot_id = -1;
-    control->triggerd_id = -1;
+    //control->triggerd_id = -1;
     
     return context;
 }
 
-void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scale = 1.0f, f32 depth_scale = 1.0f, f32 depth_alignment = 0.0f)
+void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 depth_scale = 1.0f, f32 depth_alignment = 0.0f)
 {
     assert((depth_scale > 0.0f) && (depth_scale <= 1.0f));
     assert((depth_alignment >= 0.0f) && (depth_alignment <= 1.0f));
@@ -162,10 +164,8 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
     // for now using y_up_direction == -1 dows not seem to work properly, it will reverse face drawing order and will be culled if glEnable(GL_CULL_FACE), wich is the default
     assert(y_up_direction == 1.0f);
     
-    context->width  = resolution.width / scale + 0.5f;
-    context->height = resolution.height / scale + 0.5f;
-    
-    context->scale = resolution.width / cast_v(f32, context->width);
+    context->width  = resolution.width;
+    context->height = resolution.height;
     
     context->transform.columns[0] = {  2.0f / resolution.width, 0,                      0           };
     context->transform.columns[1] = {  0,                     2.0f / resolution.height, 0           };
@@ -176,9 +176,9 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
     //context->y_up_direction = y_up_direction;
     
     context->left   = 0;
-    context->right  = context->width - 1;
-    context->top    = (context->height - 1) * interval_zero_to_one(y_up_direction);
-    context->bottom = (context->height - 1) - context->top;
+    context->right  = context->width;
+    context->top    = (context->height) * interval_zero_to_one(y_up_direction);
+    context->bottom = (context->height) - context->top;
     
     context->center_x = (context->left + context->right)  * 0.5f;
     context->center_y = (context->top  + context->bottom) * 0.5f;
@@ -188,13 +188,9 @@ void ui_set_transform(UI_Context *context, Pixel_Dimensions resolution, f32 scal
 void ui_set_font(UI_Context *context, Font *font, f32 scale = 1.0f) {
     context->font_rendering.font = font;
     
-    // use pixel perfect font
-    if (scale == 0.0f)
-        context->font_rendering.scale = 1.0f / context->scale;
-    else
-        context->font_rendering.scale = scale;
+    context->font_rendering.scale = scale;
     
-    context->font_rendering.line_spacing = (font->pixel_height + 1) * context->font_rendering.scale;
+    context->font_rendering.line_spacing = (font->pixel_height + 1) * context->font_rendering.scale + 0.5f;
 }
 
 void ui_flush(UI_Context *context) {
@@ -208,8 +204,8 @@ void ui_flush(UI_Context *context) {
     glBufferData(GL_ELEMENT_ARRAY_BUFFER, byte_count(context->indices), context->indices.data, GL_STREAM_DRAW);
 }
 
-void ui_draw(UI_Context *context) {
-    
+void ui_draw(UI_Context *context)
+{
     usize offset = 0;
     
     glActiveTexture(GL_TEXTURE0 + 0);
@@ -367,24 +363,24 @@ bool ui_clip(UI_Context *context, area2f *draw_area, area2f *texture_area = null
     return true;
 }
 
-area2f rect_from_size(f32 x, f32 y, f32 width, f32 height, f32 margin = 0) {
-    area2f result = {
-        x + margin,
-        y + margin,
-        width  - 2 * margin,
-        height - 2 * margin,
-    };
+INTERNAL area2f rect(s16 x, s16 y, s16 width, s16 height)
+{
+    area2f result;
+    result.x = x;
+    result.y = y;
+    result.width = width;
+    result.height = height;
     
     return result;
 }
 
-area2f rect_from_border(f32 left, f32 bottom, f32 right, f32 top, f32 margin = 0) {
-    area2f result = {
-        left + margin,
-        bottom + margin,
-        right - left - 2 * margin,
-        top - bottom - 2 * margin,
-    };
+INTERNAL area2f border(s16 left, s16 bottom, s16 right, s16 top, s16 margin = 0)
+{
+    area2f result;
+    result.x = left   + margin;
+    result.y = bottom + margin;
+    result.width  = right - left - 2 * margin;
+    result.height = top - bottom - 2 * margin;
     
     return result;
 }
@@ -439,12 +435,14 @@ void ui_quad(UI_Context *context, area2f draw_rect, area2f texture_rect, rgba32 
               color);
 }
 
-void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true, s16 thickness = 1)
+void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true)
 {
+    s16 thickness = context->border_thickness;
+    
     u32 vertex_offset = context->vertices.count;
     
     f32 offset;
-    if (!is_filled && (thickness * context->scale <= 1.0f))
+    if (!is_filled && (thickness <= 1.0f))
         offset = 0.5f;
     else
         offset = 0.0f;
@@ -466,7 +464,7 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
         
         _push_quad_as_triangles(context, vertex_offset, 0, 1, 2, 3);
     }
-    else if (thickness * context->scale <= 1.0f) {
+    else if (thickness <= 1.0f) {
         // push as 1 pixel thin lines
         *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + 0;
         *grow(&context->index_memory.allocator, &context->indices) = vertex_offset + 1;
@@ -484,11 +482,11 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
     }
     else {
         
-#if 0        
-        draw_rect.x += thickness * context->scale;
-        draw_rect.y += thickness * context->scale;
-        draw_rect.width  -= 2 *thickness * context->scale;
-        draw_rect.height -= 2 *thickness * context->scale;
+#if 1        
+        draw_rect.x += thickness;
+        draw_rect.y += thickness;
+        draw_rect.width  -= 2 *thickness;
+        draw_rect.height -= 2 *thickness;
 #else
         draw_rect.x += thickness;
         draw_rect.y += thickness;
@@ -564,6 +562,11 @@ area2f ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_ren
             cast_v(f32, glyph->rect.height) * context->font_rendering.scale
         };
         
+        draw_area.x = info->current_x + glyph->draw_x_offset * context->font_rendering.scale;
+        draw_area.y = line_y + glyph->draw_y_offset * context->font_rendering.scale;
+        draw_area.width = glyph->rect.width * context->font_rendering.scale;
+        draw_area.height = glyph->rect.height * context->font_rendering.scale;
+        
         area2f texture_area = { 
             cast_v(f32, glyph->rect.x), 
             cast_v(f32, glyph->rect.y), 
@@ -588,7 +591,10 @@ area2f ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_ren
         info->current_x += glyph->draw_x_advance * context->font_rendering.scale;
     }
     
-    info->text_area = merge(info->text_area, text_area);
+    if (text_area_is_initialized)
+        info->text_area = merge(info->text_area, text_area);
+    else
+        info->text_area = {};
     
     return text_area;
 }
@@ -628,29 +634,11 @@ UI_Text_Info ui_text(UI_Context *context, area2f area, vec2f alignment, string t
 
 area2f ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_list params)
 {
-    bool is_escaping = false;
+    u8_buffer buffer = {};
+    auto text = write_va(context->temporary_allocator, &buffer, format, params);
+    defer { free(context->temporary_allocator, &buffer); };
     
-    area2f result;
-    bool area_is_init = false;
-    
-    while (format.count) {
-        u8 _buffer[1024];
-        u8_buffer write_buffer = ARRAY_INFO(_buffer);
-        write(&write_buffer, &format, params, &is_escaping);
-        
-        string text;
-        text.data = write_buffer.data;
-        text.count = write_buffer.count;
-        area2f area = ui_text(context, info, text, context->font_rendering.do_render, context->font_rendering.color);
-        
-        if (!area_is_init) {
-            result = area;
-            area_is_init = true;
-        }
-        else {
-            result = merge(result, area);
-        }
-    }
+    area2f result = ui_text(context, info, text, context->font_rendering.do_render, context->font_rendering.color);
     
     return result;
 }
@@ -701,53 +689,107 @@ INTERNAL bool ui_control(UI_Context *context, area2f cursor_area, bool cursor_wa
 {
     auto control = &context->control;
     
+    if (control->cursor_was_released)
+        control->active_id = -1;
+    
     bool needs_update = force_update || cursor_was_pressed || cursor_was_released || !ARE_EQUAL(&cursor_area, &control->cursor_area, sizeof(cursor_area));
     
-    if (needs_update) {
+    if (needs_update)
+    {
         control->hot_id = control->next_hot_id;
         control->next_hot_id = -1;
-        control->triggerd_id = -1;
+        //control->triggerd_id = -1;
         control->cursor_area = cursor_area;
         control->cursor_was_pressed  = cursor_was_pressed;
         control->cursor_was_released = cursor_was_released;
-        control->current_id = 0;
+        control->current_id = -1;
         
         if ((control->hot_id != -1) && cursor_was_pressed)
             control->active_id = control->hot_id;
-        else if (cursor_was_released) {
-            if (control->hot_id == control->active_id) {
+        
+#if 0
+        else if (cursor_was_released)
+        {
+            if (control->hot_id == control->active_id)
                 control->triggerd_id = control->active_id;
-            }
             
             control->active_id = -1;
         }
+#endif
     }
     
     return needs_update;
 }
 
-INTERNAL UI_Control_State ui_button(UI_Context *context, area2f button_area, f32 priority = 0.0f, bool is_enabled = true) {
+INTERNAL UI_Control_State ui_button(UI_Context *context, area2f button_area, f32 priority = 0.0f, bool is_enabled = true)
+{
     auto control = &context->control;
+    control->current_id++;
     
     if (((control->next_hot_id == -1) || (control->next_hot_priority > priority)) && intersects(button_area, control->cursor_area)) {
         control->next_hot_priority = priority;
         control->next_hot_id = control->current_id;
     }
     
-    defer { control->current_id++; };
-    
     if (!is_enabled)
         return UI_Control_State_Disabled;
     
-    else if (control->triggerd_id == control->current_id) {
-        return UI_Control_State_Triggered;
-    }
+    //else if (control->triggerd_id == control->current_id)
     
     else if (control->active_id == control->current_id)
+    {
+        if (control->cursor_was_released)
+        {
+            if (control->active_id == control->hot_id)
+                return UI_Control_State_Triggered;
+            else
+                return UI_Control_State_Idle;
+        }
+        
         return UI_Control_State_Active;
+    }
     
     else if ((control->active_id == -1) && (control->hot_id == control->current_id))
         return UI_Control_State_Hot;
+    
+    return UI_Control_State_Idle;
+}
+
+INTERNAL UI_Control_State ui_selectable(UI_Context *context, area2f area, u32 selection_id, bool *is_selected, bool invert_selection = false)
+{
+    auto control = &context->control;
+    control->current_id++;
+    
+    bool next_is_selected;
+    if (invert_selection)
+        next_is_selected = *is_selected;
+    else
+        next_is_selected = false;
+    
+    if (intersects(area, control->cursor_area))
+    {
+        if ((selection_id != -1) && (selection_id == control->active_id))
+        {
+            next_is_selected = !next_is_selected;
+            
+            if (control->cursor_was_released)
+            {
+                *is_selected = next_is_selected;
+                
+                return UI_Control_State_Triggered;
+            }
+            
+            if (!next_is_selected)
+                return UI_Control_State_Idle;
+            
+            return UI_Control_State_Active;
+        }
+        
+        if (!next_is_selected)
+            return UI_Control_State_Idle;
+        
+        return UI_Control_State_Hot;
+    }
     
     return UI_Control_State_Idle;
 }

@@ -129,6 +129,8 @@ enum Platform_Character {
     Platform_Character_Right,
     Platform_Character_Down,
     Platform_Character_Up,
+    
+    Platform_Character_Delete = 127,
 };
 
 struct Platform_Message_Character {
@@ -188,7 +190,13 @@ struct Sound_Buffer {
     u64 debug_write_frame;
 };
 
-#define _APP_MAIN_LOOP_DEC(name) bool name(Platform_API *platform_api, Game_Input const *input, Sound_Buffer *output_sound_buffer, any app_data_ptr, double delta_seconds)
+enum Platform_Main_Loop_Result {
+    Platform_Main_Loop_Quit = 0,
+    Platform_Main_Loop_Continue,
+    Platform_Main_Loop_Wait_For_Input,
+};
+
+#define _APP_MAIN_LOOP_DEC(name) Platform_Main_Loop_Result name(Platform_API *platform_api, Game_Input const *input, Sound_Buffer *output_sound_buffer, any app_data_ptr, double delta_seconds)
 typedef _APP_MAIN_LOOP_DEC((*App_Main_Loop_Function));
 
 

@@ -304,20 +304,20 @@ area2f make_uv_rect(Texture *texture, Pixel_Rectangle rect) {
     };
 }
 
-f32 bottom(area2f area) {
-    return area.min.y;
-}
-
-f32 top(area2f area) {
-    return area.min.y + area.size.y;
-}
-
-f32 left(area2f area) {
+INTERNAL f32 left(area2f area) {
     return area.min.x;
 }
 
-f32 right(area2f area) {
+INTERNAL f32 right(area2f area) {
     return area.min.x + area.size.x;
+}
+
+INTERNAL f32 bottom(area2f area) {
+    return area.min.y;
+}
+
+INTERNAL f32 top(area2f area) {
+    return area.min.y + area.size.y;
 }
 
 struct Frame_Buffer {

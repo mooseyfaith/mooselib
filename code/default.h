@@ -169,7 +169,7 @@ void default_begin_frame(Default_State *state, Platform_API *platform_api)
     }
 }
 
-UI_Context * default_begin_ui(Default_State *state, Platform_API *platform_api, bool allways_update, Platform_Window window, Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
+UI_Context * default_begin_ui(Default_State *state, bool allways_update, Platform_Window window, Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
 {
     bool do_update = !ARE_EQUAL(window_rect, &new_window_rect, sizeof(*window_rect));
     *window_rect = new_window_rect;
@@ -186,16 +186,16 @@ UI_Context * default_begin_ui(Default_State *state, Platform_API *platform_api, 
     
     do_update &= ui_control(ui, { window.mouse_position, { 1, 1 } }, cursor_was_pressed, cursor_was_released);
     
-    if (!allways_update && !do_update) {
-        platform_api->skip_window_update(platform_api);
-        return null;
-    }
+    //if (!allways_update && !do_update)
+    //return null;
     
     ui_clear(ui);
     
     ui_set_transform(ui, render_resolution, scale);
     ui_set_texture(ui, &state->blank_texture);
     ui_set_font(ui, &state->default_font);
+    
+    ui->temporary_allocator = &state->transient_memory.allocator;
     
     return ui;
 }
