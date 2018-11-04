@@ -15,16 +15,6 @@ struct Immediate_Render_Vertex {
 #define Template_Array_Is_Buffer
 #include "template_array.h"
 
-#if !defined U16_BUFFER
-#define U16_BUFFER
-
-#define Template_Array_Type      u16_buffer
-#define Template_Array_Data_Type u16
-#define Template_Array_Is_Buffer
-#include "template_array.h"
-
-#endif
-
 struct Immediate_Render_Context {
     Memory_Allocator *allocator;
     
@@ -36,7 +26,7 @@ struct Immediate_Render_Context {
     
     GLuint vertex_array_object;
     union {
-        struct {GLuint vertex_buffer_object, index_buffer_object; };
+        struct { GLuint vertex_buffer_object, index_buffer_object; };
         GLuint buffer_objects[2];
     };
 };

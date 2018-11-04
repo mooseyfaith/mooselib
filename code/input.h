@@ -83,7 +83,7 @@ struct Game_Input {
             Input_Button buttons[3];
         };
         
-        vec2f window_position;
+        //vec2f window_position;
         f32 horizontal_wheel_delta;
         f32 vertical_wheel_delta;
         u32 window_id;
