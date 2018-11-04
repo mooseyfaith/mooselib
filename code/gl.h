@@ -45,6 +45,7 @@ PFNGLGENVERTEXARRAYSPROC glGenVertexArrays = NULL;
 PFNGLBINDVERTEXARRAYPROC glBindVertexArray = NULL;
 
 PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray = NULL;
+PFNGLDISABLEVERTEXATTRIBARRAYPROC glDisableVertexAttribArray = NULL;
 PFNGLVERTEXATTRIBPOINTERPROC glVertexAttribPointer = NULL;
 
 PFNGLCREATESHADERPROC glCreateShader = NULL;
@@ -72,7 +73,8 @@ PFNGLACTIVETEXTUREPROC glActiveTexture = NULL;
 PFNGLGENERATEMIPMAPPROC glGenerateMipmap = NULL;
 
 PFNGLVERTEXATTRIB3FPROC glVertexAttrib3f = NULL;
-PFNGLVERTEXATTRIB4FPROC glVertexAttrib4f = NULL;
+PFNGLVERTEXATTRIB4FPROC glVertexAttrib4f = null;
+PFNGLVERTEXATTRIB4FVPROC glVertexAttrib4fv = null;
 
 PFNGLUNIFORM1IPROC  glUniform1i = NULL;
 PFNGLUNIFORM1UIPROC glUniform1ui = NULL;
@@ -109,7 +111,6 @@ void init_wgl(HDC window_device_context) {
     GL_LOAD_PROC(PFNWGLGETEXTENSIONSSTRINGARBPROC, wglGetExtensionsStringARB);
     
     const char *wgl_extensions_string = wglGetExtensionsStringARB(window_device_context);
-    printf("wgl extensions: %s\n", wgl_extensions_string);
     
     for (GLuint i = 0; i != extensions_count; ++i) {
         const GLubyte *ext_name = glGetStringi(GL_EXTENSIONS, i);
@@ -118,11 +119,11 @@ void init_wgl(HDC window_device_context) {
         for (u32 j = 0; j < 1; ++j)
             if (strcmp((const char*)ext_name, (const char*)search_extensions[j].extension_name) == 0) {
             search_extensions[j].is_available = true;
-            printf("found extension %s (%u)", ext_name, (unsigned int)j);
+            //printf("found extension %s (%u)", ext_name, (unsigned int)j);
         }
     }
     
-    printf("found %i GL extensions\n", extensions_count);
+    //printf("found %i GL extensions\n", extensions_count);
     
     // TODO: check if extensions are available
     GL_LOAD_PROC(PFNWGLCHOOSEPIXELFORMATARBPROC, wglChoosePixelFormatARB);
@@ -157,6 +158,7 @@ void init_gl() {
     GL_LOAD_PROC(PFNGLBINDVERTEXARRAYPROC, glBindVertexArray);
     
     GL_LOAD_PROC(PFNGLENABLEVERTEXATTRIBARRAYPROC, glEnableVertexAttribArray);
+    GL_LOAD_PROC(PFNGLDISABLEVERTEXATTRIBARRAYPROC, glDisableVertexAttribArray);
     GL_LOAD_PROC(PFNGLVERTEXATTRIBPOINTERPROC, glVertexAttribPointer);
     
     GL_LOAD_PROC(PFNGLCREATESHADERPROC, glCreateShader);
@@ -186,6 +188,7 @@ void init_gl() {
     
     GL_LOAD_PROC(PFNGLVERTEXATTRIB3FPROC, glVertexAttrib3f);
     GL_LOAD_PROC(PFNGLVERTEXATTRIB4FPROC, glVertexAttrib4f);
+    GL_LOAD_PROC(PFNGLVERTEXATTRIB4FVPROC, glVertexAttrib4fv);
     
     GL_LOAD_PROC(PFNGLUNIFORM1IPROC,  glUniform1i);
     GL_LOAD_PROC(PFNGLUNIFORM1UIPROC, glUniform1ui);

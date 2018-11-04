@@ -164,8 +164,8 @@ void load_phong_shader(Default_State *state, Platform_API *platform_api)
     
     string global_defines = S(
         "#version 150\n"
-        //"#define MAX_LIGHT_COUNT 10\n"
-        "#define WITH_VERTEX_COLOR\n"
+        "#define MAX_LIGHT_COUNT 10\n"
+        //"#define WITH_VERTEX_COLOR\n"
         //"#define WITH_DIFFUSE_TEXTURE\n"
         //"#define WITH_NORMAL_MAP\n"
         //"#define TANGENT_TRANSFORM_PER_FRAGMENT\n"
