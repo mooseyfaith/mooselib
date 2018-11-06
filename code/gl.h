@@ -401,6 +401,20 @@ Texture make_blank_texture() {
     return result;
 }
 
+Texture make_singe_color_texture(rgb32 color) {
+    Texture result;
+    result.resolution = { 1, 1 };
+    
+    glGenTextures(1, &result.object);
+    glBindTexture(GL_TEXTURE_2D, result.object);
+    
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, &color);
+    
+    set_texture_filter_level(result.object, Texture_Filter_Level_Nearest);
+    
+    return result;
+}
+
 Frame_Buffer make_frame_buffer(Pixel_Dimensions resolution) {
     Frame_Buffer frame_buffer;
     frame_buffer.resolution = resolution;
@@ -504,43 +518,32 @@ GLuint make_shader_object(GLenum type, string *shader_sources, u32 source_count,
     return shader_object;
 }
 
-#if 0
-bool load_shaders(Shader_Program *program, string vertex_shader_filepath, string fragment_shader_filepath, Platform_Read_Text_File_Function read_text_file, Memory_Allocator *temporary_allocator) {
-    {
-        string source = read_text_file(vertex_shader_filepath, temporary_allocator);
-        
-        if (!source.count)
-            return false; // nothing to clean up
-        
-        defer { free(temporary_allocator, source.data); };
-        
-        if (!create_shader(&program->vertex_shader_object, GL_VERTEX_SHADER, source, temporary_allocator))
-            return false;       
-    }
-    
-    {
-        string source = read_text_file(fragment_shader_filepath, temporary_allocator);
-        if (!source.count) {
-            glDeleteShader(program->vertex_shader_object);
-            return false;
-        }
-        
-        defer { free(temporary_allocator, source.data); };
-        
-        if (!create_shader(&program->fragment_shader_object, GL_FRAGMENT_SHADER, source, temporary_allocator)) {
-            glDeleteShader(program->vertex_shader_object);
-            return false;
-        }
-    }
-    
-    return true;
-}
-#endif
-
 #define UNIFORM_NAMES_(uniform_list) S(STRINGIFY(uniform_list))
 #define UNIFORM_NAMES(uniform_list)  UNIFORM_NAMES_(STRINGIFY(uniform_list)))
 
-GLuint make_shader_program(GLuint *shader_objects, u32 shader_object_count, bool delete_shader_objects, Shader_Attribute_Info *attribute_infos, u32 attribute_info_count, string uniform_names, OUTPUT GLint *uniform_locations, u32 uniform_count, Memory_Allocator *temporary_allocator)
+void  get_uniforms(GLint *uniform_locations, u32 uniform_count, GLuint program_object, string uniform_names, Memory_Allocator *temporary_allocator)
+{
+    string uniform_it = uniform_names;
+    
+    for (u32 i = 0; i < uniform_count; ++i) {
+        skip_set(&uniform_it, S(" \t\b\r\n\0"));
+        string uniform_name = skip_until_first_in_set(&uniform_it, S(",\0"), true);
+        assert(uniform_name.count);
+        skip_set(&uniform_it, S(" \t\b\r\n\0"));
+        
+        // convert to c string
+        // add c string terminator
+        char *c_uniform_name = ALLOCATE_ARRAY(temporary_allocator, char, uniform_name.count + 1);
+        COPY(c_uniform_name, uniform_name.data, uniform_name.count);
+        c_uniform_name[uniform_name.count] = '\0';
+        
+        uniform_locations[i] = glGetUniformLocation(program_object, c_uniform_name);
+        
+        free(temporary_allocator, c_uniform_name);
+    }
+}
+
+GLuint make_shader_program(GLuint *shader_objects, u32 shader_object_count, bool delete_shader_objects, Shader_Attribute_Info *attribute_infos, u32 attribute_info_count, Memory_Allocator *temporary_allocator)
 {
     GLuint program_object = glCreateProgram();
     
@@ -575,28 +578,10 @@ GLuint make_shader_program(GLuint *shader_objects, u32 shader_object_count, bool
         return 0;
     }
     
-    string uniform_it = uniform_names;
-    
-    for (u32 i = 0; i < uniform_count; ++i) {
-        skip_set(&uniform_it, S(" \t\b\r\n\0"));
-        string uniform_name = skip_until_first_in_set(&uniform_it, S(",\0"), true);
-        assert(uniform_name.count);
-        skip_set(&uniform_it, S(" \t\b\r\n\0"));
-        
-        // convert to c string
-        // add c string terminator
-        char *c_uniform_name = ALLOCATE_ARRAY(temporary_allocator, char, uniform_name.count + 1);
-        COPY(c_uniform_name, uniform_name.data, uniform_name.count);
-        c_uniform_name[uniform_name.count] = '\0';
-        
-        uniform_locations[i] = glGetUniformLocation(program_object, c_uniform_name);
-        
-        free(temporary_allocator, c_uniform_name);
-    }
-    
     return program_object;
 }
 
+#if 0
 GLuint make_shader_program(string vertex_shader_source, string fragment_shader_source, Shader_Attribute_Info *attribute_infos, u32 attribute_info_count, string uniform_names, OUTPUT GLint *uniform_locations, u32 uniform_count, Memory_Allocator *temporary_allocator)
 {
     GLuint shader_objects[2];
@@ -612,6 +597,7 @@ GLuint make_shader_program(string vertex_shader_source, string fragment_shader_s
     
     return make_shader_program(ARRAY_WITH_COUNT(shader_objects), false, attribute_infos, attribute_info_count, uniform_names, uniform_locations, uniform_count, temporary_allocator);
 }
+#endif
 
 Pixel_Dimensions get_auto_render_resolution(Pixel_Dimensions window_resolution, Pixel_Dimensions reference_resolution) {
     assert(reference_resolution.width && reference_resolution.height);

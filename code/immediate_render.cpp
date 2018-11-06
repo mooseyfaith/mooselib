@@ -100,8 +100,16 @@ draw_circle(vec3f center, f32 radius, vec3f plane_normal, rgba32 color, bool is_
     
     if (is_filled) {
         *push(context->allocator, &context->triangle_indices) = vertex_offset + 0;
+        *push(context->allocator, &context->triangle_indices) = vertex_offset + 1;
+        *push(context->allocator, &context->triangle_indices) = vertex_offset + corner_count - 1;
         
         for (u16 i = 1; i < corner_count/2; ++i) {
+            
+            *push(context->allocator, &context->triangle_indices) = vertex_offset + i - 1;
+            *push(context->allocator, &context->triangle_indices) = vertex_offset + corner_count - i - 1;
+            *push(context->allocator, &context->triangle_indices) = vertex_offset + i;
+            
+            *push(context->allocator, &context->triangle_indices) = vertex_offset + corner_count - i - 1;
             *push(context->allocator, &context->triangle_indices) = vertex_offset + i;
             *push(context->allocator, &context->triangle_indices) = vertex_offset + corner_count - i;
         }

@@ -16,7 +16,7 @@ struct Camera_Uniform_Block
 {
     mat4f camera_to_clip_projection;
     // actually a 4x3 but after each vec3 there is 1 f32 padding
-    mat4f world_to_camera_transform;
+    mat4f world_to_camera;
     vec3f camera_world_position;
     f32 padding0;
 };
@@ -24,6 +24,12 @@ struct Camera_Uniform_Block
 #define MAX_LIGHT_COUNT 10
 
 struct Lighting_Uniform_Block {
+    vec4f global_ambient_color;
+    
+    vec4f global_light_direction;
+    vec4f global_light_diffuse_color;
+    vec4f global_light_specular_color;
+    
     vec4f diffuse_colors[MAX_LIGHT_COUNT];
     vec4f specular_colors[MAX_LIGHT_COUNT];
     vec4f world_positions_and_attenuations[MAX_LIGHT_COUNT];
@@ -32,7 +38,7 @@ struct Lighting_Uniform_Block {
 };
 
 struct Debug_Camera {
-    union { mat4x3f to_world_transform, inverse_view_matrix; };
+    union { mat4x3f to_world, inverse_view_matrix; };
     
     vec3f alpha_axis, beta_axis;
     f32 alpha, beta;
@@ -71,42 +77,47 @@ struct Default_State
         };
         
         GLuint program_object;
-        GLuint camera_uniform_block;
-        
     } ui_shader;
+    
     
     struct {
         GLuint program_object;
         
         union {
             
-#define PHONG_UNIFORMS \
+#define IM_SHADER_UNIFORMS \
+            u_object_to_world_transform, \
+            u_diffuse_texture
+            
+            struct { GLint IM_SHADER_UNIFORMS; };
+            GLint uniforms[2];
+        };
+    } im_shader;
+    
+    struct {
+        GLuint program_object;
+        
+        union {
+            
+#define PHONG_SHADER_UNIFORMS \
             u_object_to_world_transform, \
             u_bone_transforms, \
             u_shininess, \
-            u_ambient_color, \
             u_diffuse_texture, \
             u_diffuse_color, \
             u_normal_map
             
-            struct { GLint PHONG_UNIFORMS; };
-            
-            // sadly we cannot automate this,
-            // but make_shader_program will catch a missmatch
-            // while parsing the uniform_names string
-            GLint uniforms[7];
+            struct { GLint PHONG_SHADER_UNIFORMS; };
+            GLint uniforms[6];
         };
-        
-        GLuint camera_uniform_block;
-        GLuint lighting_uniform_block;
-        
     } phong_shader;
     
     Texture blank_texture;
+    Texture blank_normal_map;
     
     struct {
-        union { mat4x3f to_world_transform, inverse_view_matrix; };
-        mat4x3f world_to_camera_transform;
+        union { mat4x3f to_world, inverse_view_matrix; };
+        mat4x3f world_to_camera;
         
         mat4f to_clip_projection;
         mat4f clip_to_camera_projection;
@@ -142,12 +153,9 @@ void default_reload_global_functions(Platform_API *platform_api)
     init(state, platform_api); \
 }
 
-
-void load_phong_shader(Default_State *state, Platform_API *platform_api)
+GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *uniforms, u32 uniform_count, string file, string options, string uniform_names)
 {
-    defer { assert(state->phong_shader.program_object); };
-    
-    string shader_source = platform_api->read_entire_file(S("shaders/phong.shader.txt"), &state->transient_memory.allocator);
+    string shader_source = platform_api->read_entire_file(file, &state->transient_memory.allocator);
     assert(shader_source.count);
     
     defer { free(&state->transient_memory.allocator, shader_source.data); };
@@ -160,25 +168,35 @@ void load_phong_shader(Default_State *state, Platform_API *platform_api)
         { Vertex_Color_Index,    "a_color" },
     };
     
-    string uniform_names = S(STRINGIFY(PHONG_UNIFORMS));
+    u8_buffer define_buffer = {};
+    write(&state->transient_memory.allocator, &define_buffer, S("#version 150\n"));
+    defer { free(&state->transient_memory.allocator, &define_buffer); };
     
-    string global_defines = S(
-        "#version 150\n"
-        "#define MAX_LIGHT_COUNT 10\n"
-        //"#define WITH_VERTEX_COLOR\n"
-        //"#define WITH_DIFFUSE_TEXTURE\n"
-        //"#define WITH_NORMAL_MAP\n"
-        //"#define TANGENT_TRANSFORM_PER_FRAGMENT\n"
-        );
+    {
+        string options_it = options;
+        skip_set(&options_it, S(" \t\b\r\n\0"));
+        
+        while (options_it.count)
+        {
+            string name = get_identifier(&options_it, S("_"));
+            skip_set(&options_it, S(" \t\b\r\n\0"));
+            
+            string value = skip_until_first_in_set(&options_it, S(",\0"), true);
+            skip_set(&options_it, S(" \t\b\r\n\0"));
+            write(&state->transient_memory.allocator, &define_buffer, S("#define % %\n"), f(name), f(value));
+        }
+    }
+    
+    string defines = { define_buffer.data, define_buffer.count };
     
     string vertex_shader_sources[] = {
-        global_defines,
+        defines,
         S("#define VERTEX_SHADER\n"),
         shader_source,
     };
     
     string fragment_shader_sources[] = {
-        global_defines,
+        defines,
         S("#define FRAGMENT_SHADER\n"),
         shader_source,
     };
@@ -187,32 +205,32 @@ void load_phong_shader(Default_State *state, Platform_API *platform_api)
     shader_objects[0] = make_shader_object(GL_VERTEX_SHADER, ARRAY_WITH_COUNT(vertex_shader_sources), &state->transient_memory.allocator);
     shader_objects[1] = make_shader_object(GL_FRAGMENT_SHADER, ARRAY_WITH_COUNT(fragment_shader_sources), &state->transient_memory.allocator);
     
-    if (!shader_objects[0] || !shader_objects[1])
-        return;
-    
-    GLint uniforms[ARRAY_COUNT(state->phong_shader.uniforms)];
-    
-    GLuint program_object = make_shader_program(ARRAY_WITH_COUNT(shader_objects), true, ARRAY_WITH_COUNT(attributes), uniform_names, ARRAY_WITH_COUNT(uniforms), &state->transient_memory.allocator
-                                                );
-    
-    if (program_object) {
-        if (state->phong_shader.program_object) {
-            glUseProgram(0);
-            glDeleteProgram(state->phong_shader.program_object);
-        }
-        
-        state->phong_shader.camera_uniform_block = glGetUniformBlockIndex(program_object, "Camera_Uniform_Block");
-        glUniformBlockBinding(program_object, state->phong_shader.camera_uniform_block, Camera_Uniform_Block_Index);
-        
-        state->phong_shader.lighting_uniform_block = glGetUniformBlockIndex(program_object, "Lighting_Uniform_Block");
-        
-        if (state->phong_shader.lighting_uniform_block != -1)
-            glUniformBlockBinding(program_object, state->phong_shader.lighting_uniform_block, Lighting_Uniform_Block_Index);
-        
-        
-        state->phong_shader.program_object = program_object;
-        COPY(state->phong_shader.uniforms, uniforms, sizeof(uniforms));
+    // leak!!
+    // leak!!
+    // leak!!
+    if (!shader_objects[0] || !shader_objects[1]) {
+        UNREACHABLE_CODE;
+        return 0;
     }
+    
+    GLuint program_object = make_shader_program(ARRAY_WITH_COUNT(shader_objects), true, ARRAY_WITH_COUNT(attributes), &state->transient_memory.allocator);
+    
+    if (!program_object) {
+        UNREACHABLE_CODE;
+        return 0;
+    }
+    
+    get_uniforms(uniforms, uniform_count, program_object, uniform_names, &state->transient_memory.allocator);
+    
+    GLint camera_uniform_block = glGetUniformBlockIndex(program_object, "Camera_Uniform_Block");
+    if (camera_uniform_block != -1)
+        glUniformBlockBinding(program_object, camera_uniform_block, Camera_Uniform_Block_Index);
+    
+    GLint lighting_uniform_block = glGetUniformBlockIndex(program_object, "Lighting_Uniform_Block");
+    if (lighting_uniform_block != -1)
+        glUniformBlockBinding(program_object, lighting_uniform_block, Lighting_Uniform_Block_Index);
+    
+    return program_object;
 }
 
 
@@ -220,7 +238,7 @@ void debug_update_camera(Debug_Camera *camera) {
     quatf rotation = make_quat(camera->alpha_axis, camera->alpha);
     rotation = multiply(rotation, make_quat(camera->beta_axis, camera->beta));
     
-    camera->to_world_transform = make_transform(rotation, camera->to_world_transform.translation);
+    camera->to_world = make_transform(rotation, camera->to_world.translation);
 }
 
 void init(Default_State *state, Platform_API *platform_api, usize worker_thread_memory_count = MEGA(256))
@@ -241,6 +259,8 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     state->default_font = make_font(state->font_library, S("C:/Windows/Fonts/consola.ttf"), 16, ' ', 256 - ' ', platform_api->read_entire_file, &state->persistent_memory.allocator);
     
     state->blank_texture = make_blank_texture();
+    state->blank_normal_map = make_singe_color_texture({ 128, 128, 255 });
+    
     state->ui = make_ui_context(&platform_api->allocator);
     
     {
@@ -256,68 +276,16 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
         glBindBuffer(GL_UNIFORM_BUFFER, 0);
     }
     
-    {
-        string shader_source = platform_api->read_entire_file(S("shaders/transparent_textured.shader.txt"), &state->transient_memory.allocator);
-        
-        assert(shader_source.count);
-        
-        defer { free(&state->transient_memory.allocator, shader_source.data); };
-        
-        Shader_Attribute_Info attributes[] = {
-            { Vertex_Position_Index,     "a_position" },
-            { Vertex_Color_Index,        "a_color" },
-            { Vertex_UV_Index,           "a_uv" },
-            { Vertex_First_Unused_Index, "a_saturation" },
-        };
-        
-        string uniform_names = S(STRINGIFY(UI_SHADER_UNIFORMS));
-        
-        GLuint shader_objects[2];
-        
-        string shader_options =
-            S(
-            "#version 150\n"
-            "#define WITH_VERTEX_COLOR\n"
-            "#define WITH_DIFFUSE_TEXTURE\n"
-            //"#define WITH_SATURATION\n"
-            "#define ALPHA_THRESHOLD 0.025\n"
-            );
-        
-        string vertex_sources[] = {
-            shader_options,
-            S("#define VERTEX_SHADER\n"),
-            shader_source
-        };
-        
-        shader_objects[0] = make_shader_object(GL_VERTEX_SHADER, ARRAY_WITH_COUNT(vertex_sources), &state->transient_memory.allocator);
-        
-        string fragment_sources[] = {
-            shader_options,
-            S("#define FRAGMENT_SHADER\n"),
-            shader_source
-        };
-        
-        shader_objects[1] = make_shader_object(GL_FRAGMENT_SHADER, ARRAY_WITH_COUNT(fragment_sources), &state->transient_memory.allocator);
-        
-        GLuint program_object = make_shader_program(ARRAY_WITH_COUNT(shader_objects), false, ARRAY_WITH_COUNT(attributes), uniform_names, ARRAY_WITH_COUNT(state->ui_shader.uniforms), &state->transient_memory.allocator);
-        
-        assert(program_object);
-        
-        if (state->ui_shader.program_object)
-            glDeleteProgram(state->ui_shader.program_object);
-        
-        state->ui_shader.camera_uniform_block = glGetUniformBlockIndex(program_object, "Camera_Uniform_Block");
-        glUniformBlockBinding(program_object, state->ui_shader.camera_uniform_block, Camera_Uniform_Block_Index);
-        
-        state->ui_shader.program_object = program_object;
-    }
+    state->ui_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->ui_shader.uniforms), S("shaders/transparent_textured.shader.txt"), S("WITH_VERTEX_COLOR, WITH_DIFFUSE_TEXTURE, ALPHA_THRESHOLD 0.025"), S(STRINGIFY(UI_SHADER_UNIFORMS)));
     
-    load_phong_shader(state, platform_api);
+    state->im_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->im_shader.uniforms), S("shaders/phong.shader.txt"), S("WITH_VERTEX_COLOR"), S(STRINGIFY(IM_SHADER_UNIFORMS)));
+    
+    state->phong_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->phong_shader.uniforms), S("shaders/phong.shader.txt"), S("WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), S(STRINGIFY(PHONG_SHADER_UNIFORMS)));
     
     init(&state->im);
     
-    state->camera.to_world_transform = make_transform(make_quat(VEC3_X_AXIS, PIf * -0.25f));
-    state->camera.to_world_transform.translation = transform_direction(state->camera.to_world_transform, vec3f{0, 0, 40});
+    state->camera.to_world = make_transform(make_quat(VEC3_X_AXIS, PIf * -0.25f));
+    state->camera.to_world.translation = transform_direction(state->camera.to_world, vec3f{0, 0, 40});
     
     state->debug.speed = 1.0f;
     state->debug.backup_speed = 1.0f;
@@ -333,7 +301,7 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     state->debug.camera.alpha = 0.0f;
     state->debug.camera.beta = PIf * -0.25f;
     debug_update_camera(&state->debug.camera);
-    state->debug.camera.to_world_transform.translation = transform_direction(state->debug.camera.to_world_transform, vec3f{ 0, 0, 20.f });
+    state->debug.camera.to_world.translation = transform_direction(state->debug.camera.to_world, vec3f{ 0, 0, 20.f });
 }
 
 bool default_begin_frame(Default_State *state, const Game_Input *input, Platform_API *platform_api, f64 *delta_seconds)
@@ -354,9 +322,9 @@ bool default_begin_frame(Default_State *state, const Game_Input *input, Platform
         state->debug.is_active = !state->debug.is_active;
         
         if (state->debug.is_active)
-            state->debug.backup_camera_to_world = state->camera.to_world_transform;
+            state->debug.backup_camera_to_world = state->camera.to_world;
         else
-            state->camera.to_world_transform = state->debug.backup_camera_to_world;
+            state->camera.to_world = state->debug.backup_camera_to_world;
     }
     
     if (was_pressed(input->keys[VK_F5])) {
@@ -432,9 +400,9 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     camera_block->camera_to_clip_projection = state->camera.to_clip_projection;
     
     for (u32 i = 0; i < 4; ++i)
-        camera_block->world_to_camera_transform.columns[i] = make_vec4(state->camera.world_to_camera_transform.columns[i], 0.0f);
+        camera_block->world_to_camera.columns[i] = make_vec4(state->camera.world_to_camera.columns[i], 0.0f);
     
-    camera_block->camera_world_position = state->camera.to_world_transform.translation;
+    camera_block->camera_world_position = state->camera.to_world.translation;
     
     glUnmapBuffer(GL_UNIFORM_BUFFER);
     glBindBuffer(GL_UNIFORM_BUFFER, 0);
@@ -484,14 +452,14 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
             
             direction = normalize_or_zero(direction);
             
-            state->debug.camera.to_world_transform.translation +=  transform_direction(state->debug.camera.to_world_transform, direction) * debug_delta_seconds * state->debug.camera_movement_speed;
+            state->debug.camera.to_world.translation +=  transform_direction(state->debug.camera.to_world, direction) * debug_delta_seconds * state->debug.camera_movement_speed;
         }
         
-        state->camera.to_world_transform = state->debug.camera.to_world_transform;
+        state->camera.to_world = state->debug.camera.to_world;
     }
 #endif
     
-    state->camera.world_to_camera_transform = make_inverse_unscaled_transform(state->camera.to_world_transform);
+    state->camera.world_to_camera = make_inverse_unscaled_transform(state->camera.to_world);
     
     return ui;
 }
@@ -500,9 +468,9 @@ void default_end_frame(Default_State *state)
 {
     // im
     {
-        glUseProgram(state->phong_shader.program_object);
+        glUseProgram(state->im_shader.program_object);
         
-        glUniformMatrix4x3fv(state->phong_shader.u_object_to_world_transform, 1, GL_FALSE, MAT4X3_IDENTITY);
+        glUniformMatrix4x3fv(state->im_shader.u_object_to_world_transform, 1, GL_FALSE, MAT4X3_IDENTITY);
         
         glDisable(GL_BLEND);
         draw_end(&state->im);
@@ -515,7 +483,7 @@ void default_end_frame(Default_State *state)
         glBindBuffer(GL_UNIFORM_BUFFER, state->camera_uniform_buffer_object);
         auto camera_block = cast_p(Camera_Uniform_Block, glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY));
         camera_block->camera_to_clip_projection = MAT4_IDENTITY;
-        camera_block->world_to_camera_transform = MAT4_IDENTITY;
+        camera_block->world_to_camera = MAT4_IDENTITY;
         camera_block->camera_world_position = vec3f{};
         
         glUnmapBuffer(GL_UNIFORM_BUFFER);

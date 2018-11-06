@@ -1,4 +1,4 @@
-#if !defined(_ENGINE_MESH_H_)
+#if !defined _ENGINE_MESH_H_
 #define _ENGINE_MESH_H_
 
 #include "render_batch.h"
