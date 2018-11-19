@@ -160,7 +160,7 @@ class GLMeshExporter(bpy.types.Operator):
 			# normalize bone_weight so that the total_weight of the top 4 bones adds up to 1.0
 			if total_weight > 0.0:
 				for bone_element in bones:
-					bone_element[0] /= total_weight;
+					bone_element = (bone_element[0] / total_weight, bone_element[1]);
 
 		self.write("u8 4 ")
 
@@ -171,7 +171,7 @@ class GLMeshExporter(bpy.types.Operator):
 			self.write("%.6f " % bones[i][0])
 
 	def execute(self, context):
-		# reset temporary data here, stored in class to avoid passing aroundu
+		# reset temporary data here, stored in class to avoid passing around
 		self.alignment = ""
 		self.file = None
 		self.new_line_pending = False

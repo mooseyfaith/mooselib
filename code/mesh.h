@@ -347,6 +347,8 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
                 bone_it->parent = NULL;
             else {
                 skip(&it, S("parent"));
+                skip_white_space(&it);
+                
                 string parent_name = parse_quoted_string(&it);
                 
                 Bone *parent = NULL;
