@@ -32,6 +32,12 @@ class GLMeshExporter(bpy.types.Operator):
 
 	# export options ##########################################################
 
+	apply_modifiers = bpy.props.BoolProperty(
+		name        = "Apply Visible Modifiers",
+		description = "",
+		default     = True,
+		)
+
 	with_tangents = bpy.props.BoolProperty(
 		name        = "Export Tangents",
 		description = """Add Vertex Buffer Attribute 'tangent' for all vertecies.
@@ -39,18 +45,11 @@ class GLMeshExporter(bpy.types.Operator):
 		default     = False,
 		)
 
-	'''
-	sample_float = bpy.props.FloatProperty(
-		name="example",
-		description="Just an example.",
-		min=0.0, max=1000.0,
-		soft_min=0.0, soft_max=100.0,
-		default=0.0,
-		)
-	'''
-
 	def draw(self, context):
 		layout = self.layout
+
+		row = layout.row()
+		row.prop(self, "apply_modifiers")
 
 		row = layout.row()
 		row.prop(self, "with_tangents")
@@ -179,7 +178,8 @@ class GLMeshExporter(bpy.types.Operator):
 		#self.unique_ids = []
 	
 		object = context.object
-		mesh = object.data
+		#mesh = object.data
+		mesh = object.to_mesh(context.scene, self.apply_modifiers, 'PREVIEW')
 		triangles = []
 
 		mesh.calc_normals_split()
