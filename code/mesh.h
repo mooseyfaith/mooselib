@@ -92,7 +92,7 @@ struct Mesh {
     struct Vertex_Buffer {
         Vertex_Attribute_Info *vertex_attribute_infos;
         u32 vertex_attribute_info_count;
-        u32 vertex_stride;
+        u32 vertex_byte_count;
         GLuint object;
     } *vertex_buffers;
     u32 vertex_buffer_count;
@@ -221,9 +221,9 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             if (out_vertex_count)
                 *out_vertex_count = vertex_count;
             
-            mesh.vertex_buffers[vertex_buffer_count].vertex_stride = get_vertex_size(mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_infos, mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_info_count);
+            mesh.vertex_buffers[vertex_buffer_count].vertex_byte_count = get_vertex_byte_count(mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_infos, mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_info_count);
             
-            u32 data_length = vertex_count * mesh.vertex_buffers[vertex_buffer_count].vertex_stride;
+            u32 data_length = vertex_count * mesh.vertex_buffers[vertex_buffer_count].vertex_byte_count;
             u8_buffer buffer = ALLOCATE_ARRAY_INFO(allocator, u8, data_length);
             
             while (it.count) {

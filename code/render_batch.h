@@ -22,7 +22,7 @@ struct Vertex_Attribute_Info {
     GLint padding_length;
 };
 
-inline u32 get_vertex_attribute_size(const Vertex_Attribute_Info *attribute_info) {
+inline u32 get_vertex_attribute_byte_count(const Vertex_Attribute_Info *attribute_info) {
     switch (attribute_info->type) {
         case GL_FLOAT:
         return sizeof(GLfloat) * (attribute_info->length + attribute_info->padding_length);
@@ -36,17 +36,17 @@ inline u32 get_vertex_attribute_size(const Vertex_Attribute_Info *attribute_info
     }
 }
 
-u32 get_vertex_size(const Vertex_Attribute_Info *attribute_infos, u32 attribute_infos_length) {
-    u32 vertex_size = 0;
+u32 get_vertex_byte_count(const Vertex_Attribute_Info *attribute_infos, u32 attribute_infos_length) {
+    u32 byte_count = 0;
     
     for (u32 i = 0; i != attribute_infos_length; ++i)
-        vertex_size += get_vertex_attribute_size(attribute_infos + i);
+        byte_count+= get_vertex_attribute_byte_count(attribute_infos + i);
     
-    return vertex_size;
+    return byte_count;
 }
 
 void set_vertex_attributes(GLuint vertex_buffer_object, const Vertex_Attribute_Info *attribute_infos, u32 attribute_infos_length) {
-    GLsizei stride = (GLsizei)get_vertex_size(attribute_infos, attribute_infos_length);
+    GLsizei stride = (GLsizei)get_vertex_byte_count(attribute_infos, attribute_infos_length);
     u8 *offset = 0;
     
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_object);
@@ -62,7 +62,7 @@ void set_vertex_attributes(GLuint vertex_buffer_object, const Vertex_Attribute_I
             (const void *)offset
             );
         
-        offset += get_vertex_attribute_size(attribute_infos + i);
+        offset += get_vertex_attribute_byte_count(attribute_infos + i);
     }
 }
 
