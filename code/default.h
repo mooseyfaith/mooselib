@@ -103,10 +103,10 @@ struct Default_State
             
 #define PHONG_SHADER_UNIFORMS \
             u_object_to_world_transform, \
-            u_bone_transforms, \
-            u_shininess, \
-            u_diffuse_texture, \
+            u_gloss, \
             u_diffuse_color, \
+            u_specular_color, \
+            u_diffuse_texture, \
             u_normal_map
             
             struct { GLint PHONG_SHADER_UNIFORMS; };

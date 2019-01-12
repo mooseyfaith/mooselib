@@ -72,6 +72,29 @@ grow(Memory_Allocator *allocator, Template_Array_Type *array, Template_Array_Siz
     return result;
 }
 
+// how to prevent or warn bad usage of grow/shrink/push/pop ??
+#if 0
+struct CHAIN(Template_Array_Type, _Reference)  {
+    Template_Array_Data_Type **array_data;
+    Template_Array_Size_Type offset;
+    
+    inline Template_Array_Data_Type & operator[](Template_Array_Size_Type index) {
+        return cast_p(Template_Array_Size_Type *, (*array_data) + index);
+    }
+    
+    inline Template_Array_Data_Type operator[](Template_Array_Size_Type index) const {
+        return cast_p(Template_Array_Size_Type *, (*array_data) + index);
+    }
+};
+
+#define ARRAY_BEGIN_GROW {
+    
+#define ARRAY_GROW(items, allocator, array, capacity) } { \
+    decltype(array->data) items = grow(allocator, array, capacity);
+    
+#define ARRAY_GROW_END }
+#endif
+
 INTERNAL void
 shrink(Memory_Allocator *allocator, Template_Array_Type *array, Template_Array_Size_Type capacity = 1)
 {
