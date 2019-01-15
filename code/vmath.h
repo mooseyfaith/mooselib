@@ -438,8 +438,8 @@ inline MAT4 make_perspective_projection(REAL a, REAL b, REAL c, REAL d, REAL e) 
     result.columns[0].values[0] = a;
     result.columns[1].values[1] = b;
     result.columns[2].values[2] = c;
-    result.columns[2].values[3] = e;
     result.columns[3].values[2] = d;
+    result.columns[2].values[3] = e;
     
     return result;
 }
@@ -467,17 +467,18 @@ inline MAT4 make_inverse_perspective_projection(MAT4 projection) {
     return make_inverse_perspective_projection(projection.columns[0].values[0], projection.columns[1].values[1], projection.columns[2].values[2], projection.columns[3].values[2], projection.columns[2].values[3]);
 }
 
-inline MAT4 make_perspective_projection(REAL width, REAL height, REAL near_ = 0.01f, REAL far_ = 1000.0f) {
+inline MAT4 make_perspective_projection(REAL width, REAL height, REAL near_ = (REAL)0.01, REAL far_ = (REAL)1000.0)
+{
     return make_perspective_projection((REAL)2 * near_ / width, (REAL)2 * near_ / height, -(far_ + near_) / (far_ - near_), (REAL)-2 * far_ * near_ / (far_ - near_), (REAL)-1);
 }
 
-inline MAT4 make_perspective_fov_projection(REAL fov_y, REAL width_over_height, REAL near_ = 0.01f, REAL far_ = 1000.0f) {
-    REAL height = near_ * (REAL)tan(fov_y * (REAL)(0.5 * DEG_TO_RAD));
+inline MAT4 make_perspective_fov_projection(REAL fov_y, REAL width_over_height, REAL near_ =(REAL)0.01, REAL far_ = (REAL)1000.0) {
+    REAL height = 2 * near_ * (REAL)tan(fov_y * (REAL)0.5);
     REAL width = width_over_height * height;
     return make_perspective_projection(width, height, near_, far_);
 }
 
-inline MAT4 make_orthographic_projection(REAL width, REAL height, REAL near_ = 0.01f, REAL far_ = 1000.0f) {
+inline MAT4 make_orthographic_projection(REAL width, REAL height, REAL near_ = (REAL)0.01, REAL far_ = (REAL)1000.0) {
     MAT4 result = {};
     
     result.columns[0].values[0] = (REAL)2 / width;

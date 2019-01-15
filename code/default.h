@@ -14,27 +14,24 @@ enum {
 // all aliginged to vec4, since layout (std140) sux!!!
 struct Camera_Uniform_Block
 {
-    mat4f camera_to_clip_projection;
+    mat4f camera_to_clip;
     // actually a 4x3 but after each vec3 there is 1 f32 padding
     mat4f world_to_camera;
-    vec3f camera_world_position;
+    vec3f world_position;
     f32 padding0;
 };
+
+#define MAX_BONE_COUNT 0
 
 #define MAX_LIGHT_COUNT 10
 
 struct Lighting_Uniform_Block {
+    vec4f colors[MAX_LIGHT_COUNT];
+    vec4f parameters[MAX_LIGHT_COUNT];
     vec4f global_ambient_color;
-    
-    vec4f global_light_direction;
-    vec4f global_light_diffuse_color;
-    vec4f global_light_specular_color;
-    
-    vec4f diffuse_colors[MAX_LIGHT_COUNT];
-    vec4f specular_colors[MAX_LIGHT_COUNT];
-    vec4f world_positions_and_attenuations[MAX_LIGHT_COUNT];
-    u32 count;
-    u32 padding[3];
+    u32 directional_light_count;
+    u32 point_light_count;
+    u32 padding[2];
 };
 
 struct Debug_Camera {
@@ -81,38 +78,55 @@ struct Default_State
         GLuint program_object;
     } ui_shader;
     
-    
-    struct {
+    struct Default_Shader {
         GLuint program_object;
         
         union {
+            struct { 
+                struct {
+                    GLint gloss;
+                    GLint diffuse_color;
+                    GLint specular_color;
+                    GLint diffuse_map;
+                    GLint normal_map;
+                } Material;
+                
+                struct {
+                    GLint world_to_shadow;
+                    GLint map;
+                } Shadow;
+                
+                struct {
+                    GLint world_to_environment;
+                    GLint map;
+                    GLint level_of_detail_count;
+                } Environment;
+                
+                GLint Object_To_World;
+                GLint Animation_Bones[MAX_BONE_COUNT];
+            };
             
-#define IM_SHADER_UNIFORMS \
-            u_object_to_world_transform, \
-            u_diffuse_texture
+            GLint uniforms[11 + MAX_BONE_COUNT];
+        };
+    };
+    
+    Default_Shader im_shader;
+    Default_Shader default_shader;
+    
+    struct Shadow_Map_Shader {
+        GLuint program_object;
+        
+        union {
+            struct {
+                GLint World_To_Shadow_Map;
+                GLint Object_To_World;
+            };
             
-            struct { GLint IM_SHADER_UNIFORMS; };
             GLint uniforms[2];
         };
-    } im_shader;
+    };
     
-    struct {
-        GLuint program_object;
-        
-        union {
-            
-#define PHONG_SHADER_UNIFORMS \
-            u_object_to_world_transform, \
-            u_gloss, \
-            u_diffuse_color, \
-            u_specular_color, \
-            u_diffuse_texture, \
-            u_normal_map
-            
-            struct { GLint PHONG_SHADER_UNIFORMS; };
-            GLint uniforms[6];
-        };
-    } phong_shader;
+    Shadow_Map_Shader shadow_map_shader;
     
     Texture blank_texture;
     Texture blank_normal_map;
@@ -168,6 +182,12 @@ GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *unif
         { Vertex_Tangent_Index,  "a_tangent" },
         { Vertex_UV_Index,       "a_uv" },
         { Vertex_Color_Index,    "a_color" },
+        
+        { Vertex_Position_Index, "vertex_position" },
+        { Vertex_Normal_Index,   "vertex_normal" },
+        { Vertex_Tangent_Index,  "vertex_tangent" },
+        { Vertex_UV_Index,       "vertex_uv" },
+        { Vertex_Color_Index,    "vertex_color" },
     };
     
     u8_buffer define_buffer = {};
@@ -261,7 +281,7 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     state->default_font = make_font(state->font_library, S("C:/Windows/Fonts/consola.ttf"), 16, ' ', 256 - ' ', platform_api->read_entire_file, &state->persistent_memory.allocator);
     
     state->blank_texture = make_blank_texture();
-    state->blank_normal_map = make_singe_color_texture({ 128, 128, 255 });
+    state->blank_normal_map = make_single_color_texture({ 128, 128, 255 });
     
     
     state->ui_memory = make_memory_growing_stack(&platform_api->allocator);
@@ -282,9 +302,20 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     
     state->ui_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->ui_shader.uniforms), S("shaders/transparent_textured.shader.txt"), S("WITH_VERTEX_COLOR, WITH_DIFFUSE_TEXTURE, ALPHA_THRESHOLD 0.025"), S(STRINGIFY(UI_SHADER_UNIFORMS)));
     
-    state->im_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->im_shader.uniforms), S("shaders/phong.shader.txt"), S("WITH_VERTEX_COLOR"), S(STRINGIFY(IM_SHADER_UNIFORMS)));
+    state->im_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->im_shader.uniforms), S("shaders/default.shader.txt"), S("WITH_VERTEX_COLOR"), S("Material.gloss, Material.diffuse_color, Material.specular_color, Material.diffuse_map, Material.normal_map, "
+                                                                                                                                                                               "Shadow.world_to_shadow, Shadow.map, "
+                                                                                                                                                                               "Environment.world_to_environment, Environment.map, Environment.level_of_detail_count, "
+                                                                                                                                                                               "Object_To_World"));
     
-    state->phong_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->phong_shader.uniforms), S("shaders/phong.shader.txt"), S("WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), S(STRINGIFY(PHONG_SHADER_UNIFORMS)));
+    state->default_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->default_shader.uniforms), S("shaders/default.shader.txt"), S("WITH_SHADOW_MAP, WITH_ENVIRONMENT_MAP, WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
+                                                       S("Material.gloss, Material.diffuse_color, Material.specular_color, Material.diffuse_map, Material.normal_map, "
+                                                         "Shadow.world_to_shadow, Shadow.map, "
+                                                         "Environment.world_to_environment, Environment.map, Environment.level_of_detail_count, "
+                                                         "Object_To_World"));
+    
+    
+    state->shadow_map_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->shadow_map_shader.uniforms), S("shaders/shadow_map.shader.txt"), S("WITH_DIFFUSE_COLOR"),
+                                                          S("World_To_Shadow_Map, Object_To_World"));
     
     init(&state->im);
     
@@ -366,6 +397,25 @@ bool default_begin_frame(Default_State *state, const Game_Input *input, Platform
     return true;
 }
 
+void upload_camera_block(GLuint camera_uniform_buffer_object, mat4x3f world_to_camera, mat4f camera_to_clip, vec3f camera_position) {
+    glBindBuffer(GL_UNIFORM_BUFFER, camera_uniform_buffer_object);
+    auto camera_block = cast_p(Camera_Uniform_Block, glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY));
+    camera_block->camera_to_clip = camera_to_clip;
+    
+    for (u32 i = 0; i < 4; ++i)
+        camera_block->world_to_camera.columns[i] = make_vec4(world_to_camera.columns[i], 0.0f);
+    
+    camera_block->world_position = camera_position;
+    
+    glUnmapBuffer(GL_UNIFORM_BUFFER);
+    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+}
+
+void upload_camera_block(Default_State *state) {
+    upload_camera_block(state->camera_uniform_buffer_object, state->camera.world_to_camera, state->camera.to_clip_projection, state->camera.to_world.translation);
+    
+}
+
 UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64 delta_seconds, bool allways_update, Platform_Window window, Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
 {
     bool do_update = !ARE_EQUAL(window_rect, &new_window_rect, sizeof(*window_rect));
@@ -396,20 +446,10 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     
     draw_begin(&state->im, C_Allocator, MAT4X3_IDENTITY);
     
-    state->camera.to_clip_projection = make_perspective_fov_projection(60.0f, width_over_height(render_resolution));
+    state->camera.to_clip_projection = make_perspective_fov_projection((f32)(60 * DEG_TO_RAD), width_over_height(render_resolution));
     state->camera.clip_to_camera_projection = make_inverse_perspective_projection(state->camera.to_clip_projection);
     
-    glBindBuffer(GL_UNIFORM_BUFFER, state->camera_uniform_buffer_object);
-    auto camera_block = cast_p(Camera_Uniform_Block, glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY));
-    camera_block->camera_to_clip_projection = state->camera.to_clip_projection;
-    
-    for (u32 i = 0; i < 4; ++i)
-        camera_block->world_to_camera.columns[i] = make_vec4(state->camera.world_to_camera.columns[i], 0.0f);
-    
-    camera_block->camera_world_position = state->camera.to_world.translation;
-    
-    glUnmapBuffer(GL_UNIFORM_BUFFER);
-    glBindBuffer(GL_UNIFORM_BUFFER, 0);
+    upload_camera_block(state->camera_uniform_buffer_object, state->camera.world_to_camera, state->camera.to_clip_projection, state->camera.to_world.translation);
     
 #if defined DEBUG_EDITOR
     // update debug camera
@@ -474,7 +514,7 @@ void default_end_frame(Default_State *state)
     {
         glUseProgram(state->im_shader.program_object);
         
-        glUniformMatrix4x3fv(state->im_shader.u_object_to_world_transform, 1, GL_FALSE, MAT4X3_IDENTITY);
+        glUniformMatrix4x3fv(state->im_shader.Object_To_World, 1, GL_FALSE, MAT4X3_IDENTITY);
         
         glDisable(GL_BLEND);
         draw_end(&state->im);
@@ -486,9 +526,9 @@ void default_end_frame(Default_State *state)
         
         glBindBuffer(GL_UNIFORM_BUFFER, state->camera_uniform_buffer_object);
         auto camera_block = cast_p(Camera_Uniform_Block, glMapBuffer(GL_UNIFORM_BUFFER, GL_WRITE_ONLY));
-        camera_block->camera_to_clip_projection = MAT4_IDENTITY;
+        camera_block->camera_to_clip = MAT4_IDENTITY;
         camera_block->world_to_camera = MAT4_IDENTITY;
-        camera_block->camera_world_position = vec3f{};
+        camera_block->world_position = vec3f{};
         
         glUnmapBuffer(GL_UNIFORM_BUFFER);
         glBindBuffer(GL_UNIFORM_BUFFER, 0);

@@ -25,6 +25,7 @@ PFNGLDEBUGMESSAGECALLBACKPROC glDebugMessageCallback = NULL;
 PFNGLGENFRAMEBUFFERSPROC glGenFramebuffers = NULL;
 PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer = NULL;
 PFNGLFRAMEBUFFERTEXTUREPROC glFramebufferTexture = NULL;
+PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D = NULL;
 PFNGLFRAMEBUFFERRENDERBUFFERPROC glFramebufferRenderbuffer = NULL;
 PFNGLDRAWBUFFERSPROC glDrawBuffers = NULL;
 
@@ -137,6 +138,7 @@ void init_gl() {
     GL_LOAD_PROC(PFNGLGENFRAMEBUFFERSPROC, glGenFramebuffers);
     GL_LOAD_PROC(PFNGLBINDFRAMEBUFFERPROC, glBindFramebuffer);
     GL_LOAD_PROC(PFNGLFRAMEBUFFERTEXTUREPROC, glFramebufferTexture);
+    GL_LOAD_PROC(PFNGLFRAMEBUFFERTEXTURE2DPROC, glFramebufferTexture2D);
     GL_LOAD_PROC(PFNGLFRAMEBUFFERRENDERBUFFERPROC, glFramebufferRenderbuffer);
     GL_LOAD_PROC(PFNGLDRAWBUFFERSPROC, glDrawBuffers);
     
@@ -292,12 +294,6 @@ union area2f {
 #define Template_Area_Vector_Type vec2f
 #include "template_area.h"
 
-#if 0
-#define AREA_TEMPLATE_NAME UV_Area
-#define AREA_TEMPLATE_VECTOR_TYPE vec2f
-#include "area_template.h"
-#endif
-
 area2f make_uv_rect(Texture *texture, Pixel_Rectangle rect) {
     return {
         rect.x / CAST_V(f32, texture->resolution.width), 
@@ -401,7 +397,7 @@ Texture make_blank_texture() {
     return result;
 }
 
-Texture make_singe_color_texture(rgb32 color) {
+Texture make_single_color_texture(rgb32 color) {
     Texture result;
     result.resolution = { 1, 1 };
     
@@ -415,33 +411,41 @@ Texture make_singe_color_texture(rgb32 color) {
     return result;
 }
 
-Frame_Buffer make_frame_buffer(Pixel_Dimensions resolution) {
+Frame_Buffer make_frame_buffer(Pixel_Dimensions resolution, bool create_color_texture = true) {
     Frame_Buffer frame_buffer;
     frame_buffer.resolution = resolution;
     
     glGenFramebuffers(1, &frame_buffer.object);
     glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer.object);
     
-    glGenTextures(1, &frame_buffer.color_attachment0_texture_object);
-    glBindTexture(GL_TEXTURE_2D, frame_buffer.color_attachment0_texture_object);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, resolution.width, resolution.height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
-    
-    //	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    //	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    if (create_color_texture)
+    {
+        glGenTextures(1, &frame_buffer.color_attachment0_texture_object);
+        glBindTexture(GL_TEXTURE_2D, frame_buffer.color_attachment0_texture_object);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, resolution.width, resolution.height, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+        
+        //	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        //	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        
+        glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, frame_buffer.color_attachment0_texture_object, 0);
+    }
+    else {
+        frame_buffer.color_attachment0_texture_object = 0;
+    }
     
     // depth texture
     
     glGenTextures(1, &frame_buffer.depth_attachment_texture_object);
     glBindTexture(GL_TEXTURE_2D, frame_buffer.depth_attachment_texture_object);
     
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
@@ -457,8 +461,6 @@ Frame_Buffer make_frame_buffer(Pixel_Dimensions resolution) {
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, resolution.width, resolution.height);
 #endif
     
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, frame_buffer.color_attachment0_texture_object, 0);
-    
     glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, frame_buffer.depth_attachment_texture_object, 0);
     
 #if 0    
@@ -473,9 +475,9 @@ Frame_Buffer make_frame_buffer(Pixel_Dimensions resolution) {
     return frame_buffer;
 }
 
-void bind_frame_buffer(Frame_Buffer *frame_buffer) {
-    glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer->object);
-    glViewport(0, 0, frame_buffer->resolution.width, frame_buffer->resolution.height);
+void bind_frame_buffer(Frame_Buffer frame_buffer) {
+    glBindFramebuffer(GL_FRAMEBUFFER, frame_buffer.object);
+    glViewport(0, 0, frame_buffer.resolution.width, frame_buffer.resolution.height);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 }
 
