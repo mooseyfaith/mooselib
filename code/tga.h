@@ -3,7 +3,7 @@
 
 #include "gl.h"
 #include "platform.h"
-#include "image.h"
+//#include "image.h"
 
 #pragma pack(push, 1)
 struct TGA_Header {
@@ -79,7 +79,7 @@ u8 * tga_get_mapped_image_data(TGA_Header *header, u8 *image_data, u8 *color_map
 {
     s32 y_advance;
     s32 y_end;
-    if (header->image_info.origin_is_top) {
+    if (!header->image_info.origin_is_top) {
         y_advance = -1;
         y_end = -1;
     }
@@ -155,6 +155,8 @@ u8 * tga_get_mapped_image_data(TGA_Header *header, u8 *image_data, u8 *color_map
                 maped_it += image_bytes_per_pixel;
             }
         }
+        
+        return maped_image_data;
     }
     
     return NULL;
@@ -222,16 +224,22 @@ TGA_Header * tga_load_sub_texture(OUTPUT Pixel_Rectangle *area, Texture *texture
     return header;
 }
 
-TGA_Header * tga_load_texture(Texture *out_texture, u8_array source, Memory_Allocator *temporary_allocator) {
+TGA_Header * tga_load_texture(Texture *out_texture, u8_array source, Memory_Allocator *temporary_allocator, GLuint texture_object = 0, GLenum texture_target = GL_TEXTURE_2D, GLenum sub_texture_target = -1)
+{
     u8 *image_data, *color_map;
     TGA_Header *header = tga_load(&image_data, &color_map, source);
     
     if (!header)
         return NULL;
     
-    GLuint texture_object;
-    glGenTextures(1, &texture_object);
-    glBindTexture(GL_TEXTURE_2D, texture_object);
+    bool generate_texture_object = !texture_object;
+    if (!texture_object)
+        glGenTextures(1, &texture_object);
+    
+    glBindTexture(texture_target, texture_object);
+    
+    if (sub_texture_target == -1)
+        sub_texture_target = texture_target;
     
     GLint internal_format;
     GLenum format;
@@ -240,28 +248,31 @@ TGA_Header * tga_load_texture(Texture *out_texture, u8_array source, Memory_Allo
     switch (internal_format) {
         case GL_R8: {
             GLint swizzleMask[] = { GL_ONE, GL_ONE, GL_ONE, GL_RED };
-            glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+            glTexParameteriv(sub_texture_target, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
         } break;
         case GL_RG8: {
             GLint swizzleMask[] = { GL_RED, GL_RED, GL_RED, GL_GREEN };
-            glTexParameteriv(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
+            glTexParameteriv(sub_texture_target, GL_TEXTURE_SWIZZLE_RGBA, swizzleMask);
         } break;
     }
     
     u8 *mapped_image_data = tga_get_mapped_image_data(header, image_data, color_map, temporary_allocator);
+    
     if (mapped_image_data) {
-        glTexImage2D(GL_TEXTURE_2D, 0, internal_format, header->image_info.width, header->image_info.height, 0, format, GL_UNSIGNED_BYTE, mapped_image_data);
+        glTexImage2D(sub_texture_target, 0, internal_format, header->image_info.width, header->image_info.height, 0, format, GL_UNSIGNED_BYTE, mapped_image_data);
         
         free(temporary_allocator, mapped_image_data);
     }
     else {
-        glTexImage2D(GL_TEXTURE_2D, 0, internal_format, header->image_info.width, header->image_info.height, 0, format, GL_UNSIGNED_BYTE, image_data);
+        glTexImage2D(sub_texture_target, 0, internal_format, header->image_info.width, header->image_info.height, 0, format, GL_UNSIGNED_BYTE, image_data);
     }
     
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    if (generate_texture_object) {
+        glTexParameteri(texture_target, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(texture_target, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(texture_target, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(texture_target, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
     
     *out_texture = {
         texture_object,
@@ -273,9 +284,10 @@ TGA_Header * tga_load_texture(Texture *out_texture, u8_array source, Memory_Allo
     return header;
 }
 
-bool tga_load_texture(OUTPUT Texture *out_texture, string file_path, Platform_Read_File_Function read_file, Memory_Allocator *temporary_allocator) {
-    u8_array source = read_file(file_path, temporary_allocator);
-    TGA_Header *header = tga_load_texture(out_texture, source, temporary_allocator);
+bool tga_load_texture(OUTPUT Texture *out_texture, string file_path, Platform_Read_Entire_File_Function read_entire_file, Memory_Allocator *temporary_allocator, GLuint texture_object = 0, GLenum texture_target = GL_TEXTURE_2D,
+                      GLenum sub_texture_target = -1) {
+    u8_array source = read_entire_file(file_path, temporary_allocator);
+    TGA_Header *header = tga_load_texture(out_texture, source, temporary_allocator, texture_object, texture_target, sub_texture_target);
     
     // also clears source, its the same data
     if (header)
@@ -284,6 +296,7 @@ bool tga_load_texture(OUTPUT Texture *out_texture, string file_path, Platform_Re
     return header != NULL;
 }
 
+#if 0
 Image tga_load_image(u8_array source, Memory_Allocator *allocator) {
     u8 *image_data, *color_map;
     TGA_Header *header = tga_load(&image_data, &color_map, source);
@@ -310,5 +323,6 @@ Image tga_load_image(u8_array source, Memory_Allocator *allocator) {
     
     return result;
 }
+#endif
 
 #endif

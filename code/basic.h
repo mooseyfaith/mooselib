@@ -292,6 +292,7 @@ INTERNAL u32 index_count(Indices indices) {
     return indices.buffer.count / indices.bytes_per_index;
 }
 
+// TODO: add intrinsics
 INTERNAL u32 bit_count(u32 value) {
     u32 result = 0;
     do {

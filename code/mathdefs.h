@@ -104,6 +104,6 @@ const mat4x3 MAT4X3_IDENTITY = make_transform(QUAT_IDENTITY);
     0, 1, 0, 0, \
     0, 0, 1, 0, \
     0, 0, 0, 1 \
-};
+}
 
 #endif // !_ENGINE_MATH_DEFS_H_
