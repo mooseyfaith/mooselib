@@ -406,38 +406,44 @@ string skip_until_first(string *it, string pattern, bool skip_pattern = false, b
 
 // parsing
 
-inline string try_parse_quoted_string(string *iterator, bool *ok) {
+inline string try_parse_quoted_string(string *iterator, bool *ok, u32 quot_symbol = '\"', u32 escape_symbol = '\\') {
     *ok = false;
     
     auto start = *iterator;
     
-    if (!try_skip(iterator, S("\"")))
-        return {};
+    {
+        u32 byte_count;
+        if (utf8_head(*iterator, &byte_count) != quot_symbol)
+            return {};
+        advance(iterator, byte_count);
+    }
     
     bool was_escaping = false;
     
     while (iterator->count) {
-        was_escaping = (iterator->data[0] == '\\');
+        u32 token_byte_count;
+        u32 token = utf8_head(*iterator, &token_byte_count);
+        was_escaping = (token == escape_symbol);
         
-        if (!was_escaping && (iterator->data[0] == '\"')) {
+        if (!was_escaping && (token == quot_symbol)) {
             *ok = true;
             auto text = sub_string(start, *iterator);
-            advance(&text);
-            advance(iterator);
+            advance(&text, token_byte_count);
+            advance(iterator, token_byte_count);
             
             return text;
         }
         
-        advance(iterator);
+        advance(iterator, token_byte_count);
     }
     
     *iterator = start;
     return {};
 }
 
-inline string parse_quoted_string(string *it) {
+inline string parse_quoted_string(string *it, u32 quot_symbol = '\"', u32 escape_symbol = '\\') {
     bool ok;
-    auto result = try_parse_quoted_string(it, &ok);
+    auto result = try_parse_quoted_string(it, &ok, quot_symbol, escape_symbol);
     assert(ok);
     
     return result;
@@ -644,24 +650,19 @@ inline f64 parse_f64(string *it) {
 
 // writing
 
-//#define STRING_WRITE_DEC(name) void name(string *it, va_list *va_args)
-//typedef STRING_WRITE_DEC((*String_Write_Function));
-//typedef void (*String_Write_Function)(string *it, va_list *va_args);
-
-#define STRING_WRITE2_DEC(name) void name(Memory_Allocator *allocator, u8_buffer *buffer, va_list *va_args)
-typedef STRING_WRITE2_DEC((*String_Write2_Function));
-//typedef void (*String_Write2_Function)(Memory_Allocator *allocator, u8_buffer *buffer, va_list *va_args);
+#define STRING_WRITE_DEC(name) void name(Memory_Allocator *allocator, string *output, va_list *va_args)
+typedef STRING_WRITE_DEC((*String_Write_Function));
 
 
-string write_va(Memory_Allocator *allocator, u8_buffer *buffer, string *format_it, va_list va_args, bool *is_escaping, bool double_capacity_on_grow = true)
+string write_va(Memory_Allocator *allocator, string *output, string *format_it, va_list va_args, bool *is_escaping, bool double_capacity_on_grow = true)
 {
-    auto old_count = buffer->count;
+    auto old_count = output->count;
     
     while (format_it->count)
     {
         if (*is_escaping)
         {
-            *push(allocator, buffer) = (*format_it)[0];
+            *grow(allocator, output) = (*format_it)[0];
             advance(format_it);
             *is_escaping = false;
             
@@ -679,52 +680,61 @@ string write_va(Memory_Allocator *allocator, u8_buffer *buffer, string *format_i
         if ((*format_it)[0] == '%')
         {
             va_list peek_args = va_args;
-            auto string_write = *va_arg(peek_args, String_Write2_Function*);
+            auto string_write = *va_arg(peek_args, String_Write_Function*);
             
             // if you crash here, you probably haven't wrapped your arguments with f(..)
-            // we aret trying to call a function, wich will be returned by f(..)
-            string_write(allocator, buffer, &va_args);
+            // we are trying to call a function, wich will be returned by f(..)
+            string_write(allocator, output, &va_args);
         }
         else
         {
-            *push(allocator, buffer) = (*format_it)[0];
+            *grow(allocator, output) = (*format_it)[0];
         }
         
         advance(format_it);
     }
     
-    return { buffer->data + old_count, buffer->count - old_count };
+    return { output->data + old_count, output->count - old_count };
 }
 
-INTERNAL string write_va(Memory_Allocator *allocator, u8_buffer *buffer, string format, va_list va_args, bool double_capacity_on_grow = true) 
+INTERNAL string write_va(Memory_Allocator *allocator, string *output, string format, va_list va_args, bool double_capacity_on_grow = true) 
 {
     bool is_escaping = false;
-    auto text = write_va(allocator, buffer, &format, va_args, &is_escaping, double_capacity_on_grow);
+    auto text = write_va(allocator, output, &format, va_args, &is_escaping, double_capacity_on_grow);
     return text;
 }
+
+
+INTERNAL string write_va(Memory_Allocator *allocator, string format, va_list va_args, bool double_capacity_on_grow = true) 
+{
+    bool is_escaping = false;
+    string output = {};
+    auto text = write_va(allocator, &output, &format, va_args, &is_escaping, double_capacity_on_grow);
+    return text;
+}
+
 
 INTERNAL string write(Memory_Allocator *allocator, string format, ...)
 {
     va_list va_args;
     va_start(va_args, format);
-    u8_buffer buffer = {};
-    string result = write_va(allocator, &buffer, format, va_args, false);
+    string result = write_va(allocator, format, va_args, false);
     va_end(va_args);
     return result;
 }
 
-INTERNAL string write(Memory_Allocator *allocator, u8_buffer *buffer, string format, ...) {
+INTERNAL string write(Memory_Allocator *allocator, string *output, string format, ...) {
     va_list va_args;
     va_start(va_args, format);
     bool is_escaping = false;
-    string text = write_va(allocator, buffer, &format, va_args, &is_escaping, false);
+    string text = write_va(allocator, output, &format, va_args, &is_escaping, false);
     va_end(va_args);
     
     return text;
 }
 
 struct Format_Info_integer64 {
-    String_Write2_Function write;
+    String_Write_Function write;
     union { u64 uvalue; s64 svalue; };
     bool is_signed;
     u32 max_digit_count;
@@ -747,7 +757,7 @@ u32 get_digit_count(u64 value, u64 base) {
     return result;
 }
 
-STRING_WRITE2_DEC(write_integer64)
+STRING_WRITE_DEC(write_integer64)
 {
     auto format_info = &va_arg(*va_args, Format_Info_integer64);
     
@@ -755,7 +765,7 @@ STRING_WRITE2_DEC(write_integer64)
     if (format_info->is_signed) {
         
         if (format_info->svalue < 0) {
-            *push(allocator, buffer) = '-';
+            *grow(allocator, output) = '-';
             value = -format_info->svalue;
         }
         else
@@ -777,7 +787,7 @@ STRING_WRITE2_DEC(write_integer64)
     
     // writing from end to begin :D
     u32 end = max_digit_count;
-    auto it = push(allocator, buffer, max_digit_count);
+    auto it = grow(allocator, output, max_digit_count);
     
     while (value) {
         u8 digit = value % format_info->base;
@@ -846,17 +856,17 @@ inline Format_Info_integer64 f(s8 value, u32 max_digit_count = 0, u8 padding_sym
 }
 
 struct Format_Info_string {
-    String_Write2_Function write;
+    String_Write_Function write;
     string text;
     u32 prepend_symbol_count;
     u8 prepend_symbol;
 };
 
-STRING_WRITE2_DEC(write_string_info)
+STRING_WRITE_DEC(write_string_info)
 {
     auto format_info = &va_arg(*va_args, Format_Info_string);
     
-    auto it = push(allocator, buffer, format_info->prepend_symbol_count + format_info->text.count);
+    auto it = grow(allocator, output, format_info->prepend_symbol_count + format_info->text.count);
     reset(it, format_info->prepend_symbol_count, format_info->prepend_symbol);
     copy(it + format_info->prepend_symbol_count, format_info->text.data, format_info->text.count);
 }
@@ -871,7 +881,7 @@ inline Format_Info_string f(string text, u32 prepend_symbol_count = 0, u8 prepen
 }
 
 struct Format_Info_f64 {
-    String_Write2_Function write;
+    String_Write_Function write;
     union {
         f64 value;
         
@@ -891,18 +901,18 @@ struct Format_Info_f64 {
     u8 first_symbol_after_9;
 };
 
-STRING_WRITE2_DEC(write_f64)
+STRING_WRITE_DEC(write_f64)
 {
     auto format_info = &va_arg(*va_args, Format_Info_f64);
     
     if (format_info->sign)
-        *push(allocator, buffer) = '-';
+        *grow(allocator, output) = '-';
     
     if (format_info->exponent == 0)
     {
         if (format_info->mantisa == 0)
         {
-            auto it = push(allocator, buffer, 3);
+            auto it = grow(allocator, output, 3);
             
             it[0] = '0';
             it[1] = format_info->fraction_symbol;
@@ -922,7 +932,7 @@ STRING_WRITE2_DEC(write_f64)
         else 
             text = S("not-a-number");
         
-        auto it = push(allocator, buffer, text.count);
+        auto it = grow(allocator, output, text.count);
         copy(it, text.data, text.count);
         return;
     }
@@ -987,10 +997,10 @@ STRING_WRITE2_DEC(write_f64)
         //auto whole_info = f(whole_value, 0, '0', format_info->base, format_info->first_symbol_after_9);
         //write_formatted_64(it, &whole_info);
         
-        write(allocator, buffer, S("%"), f(whole_value, 0, '0', format_info->base, format_info->first_symbol_after_9));
+        write(allocator, output, S("%"), f(whole_value, 0, '0', format_info->base, format_info->first_symbol_after_9));
     }
     
-    *push(allocator, buffer) = format_info->fraction_symbol;
+    *grow(allocator, output) = format_info->fraction_symbol;
     
     u64 fraction_value = whole_value;
     s64 i = fraction_digit_count;
@@ -1016,7 +1026,7 @@ STRING_WRITE2_DEC(write_f64)
     
     //auto fraction_info = f(fraction_value, -base_exponent, '0', format_info->base, format_info->first_symbol_after_9);
     //write_formatted_64(it, &fraction_info);
-    write(allocator, buffer, S("%"), f(fraction_value, -base_exponent, '0', format_info->base, format_info->first_symbol_after_9));
+    write(allocator, output, S("%"), f(fraction_value, -base_exponent, '0', format_info->base, format_info->first_symbol_after_9));
 }
 
 inline Format_Info_f64 f(f64 value, u32 max_fraction_digit_count = 4, u8 fraction_symbol = '.', u8 base = 10, u8 first_symbol_after_9 = 'A') {

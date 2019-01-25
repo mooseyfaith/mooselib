@@ -506,9 +506,8 @@ UI_Text_Info ui_text(UI_Context *context, area2f area, vec2f alignment, string t
 
 area2f ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_list params)
 {
-    u8_buffer buffer = {};
-    auto text = write_va(context->transient_allocator, &buffer, format, params);
-    defer { free(context->transient_allocator, &buffer); };
+    auto text = write_va(context->transient_allocator, format, params);
+    defer { free(context->transient_allocator, text); };
     
     area2f result = ui_text(context, info, text, context->font_rendering.do_render, context->font_rendering.color);
     

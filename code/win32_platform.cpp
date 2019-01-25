@@ -57,7 +57,7 @@ int main(int argc, const char **args)
     win32_platform_api.application_info.init_name      = S(WIN32_INIT_FUNCTION_NAME);
     win32_platform_api.application_info.main_loop_name = S(WIN32_MAIN_LOOP_FUNCTION_NAME);
     
-    win32_load_application(&win32_platform_api.application_info);
+    win32_load_application(&win32_transient_memory.allocator, &win32_platform_api.application_info);
     
     // try different xinput dlls for xbox360 controller support
     HMODULE xinput_dll = LoadLibraryA("xinput1_4.dll");
@@ -473,7 +473,7 @@ int main(int argc, const char **args)
             f64 delta_seconds = delta_time.QuadPart / cast_v(f64, win32_platform_api.ticks_per_second.QuadPart);
             win32_platform_api.last_time = time;
             
-            if (win32_load_application(&win32_platform_api.application_info))
+            if (win32_load_application(&win32_transient_memory.allocator, &win32_platform_api.application_info))
             {
                 // on dll relaod
                 // ivalidate title string

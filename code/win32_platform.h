@@ -251,11 +251,8 @@ struct Win32_Platform_File {
 };
 
 PLATFORM_OPEN_FILE_DEC(win32_open_file) {
-    u8 _file_path_buffer[MAX_PATH];
-    u8_buffer file_path_buffer = ARRAY_INFO(_file_path_buffer);
-    
-    write(null, &file_path_buffer, S("%\0"), f(file_path));
-    c_const_string c_file_path = cast_p(char, file_path_buffer.data);
+    char c_file_path[MAX_PATH];
+    write_c_string(ARRAY_WITH_COUNT(c_file_path), file_path);
     
     HANDLE handle = CreateFile(c_file_path, GENERIC_READ, FILE_SHARE_READ, null, OPEN_EXISTING, null, null);
     
@@ -322,10 +319,8 @@ PLATFORM_CLOSE_FILE_DEC(win32_close_file) {
 }
 
 PLATFORM_READ_ENTIRE_FILE_DEC(win32_read_entire_file) {
-    u8 _file_path_buffer[MAX_PATH];
-    u8_buffer file_path_buffer = ARRAY_INFO(_file_path_buffer);
-    write(null, &file_path_buffer, S("%\0"), f(file_path));
-    c_const_string c_file_path = cast_p(char, file_path_buffer.data);
+    char c_file_path[MAX_PATH];
+    write_c_string(ARRAY_WITH_COUNT(c_file_path), file_path);
     
     HANDLE file = CreateFile(c_file_path, GENERIC_READ, FILE_SHARE_READ, null, OPEN_EXISTING, null, null);
     
@@ -506,18 +501,19 @@ static void win32_update_button(Input_Button *button, WORD xinput_buttons, WORD 
 }
 
 
-bool win32_load_application(Application_Info *application_info) {
-    u8 _name_buffer[MAX_PATH * 2]; // can hold up to 2 paths
-    u8_buffer name_buffer = ARRAY_INFO(_name_buffer);
+bool win32_load_application(Memory_Allocator *temporary_allocator, Application_Info *application_info)
+{
+    string name_buffer = write(temporary_allocator, S("%compile_dll_lock.tmp\0"), f(application_info->dll_path));
     
-    string name = write(null, &name_buffer, S("%compile_dll_lock.tmp\0"), f(application_info->dll_path));
+    defer { free(temporary_allocator, name_buffer); };
     
     WIN32_FILE_ATTRIBUTE_DATA ignored;
-    if (GetFileAttributesEx(CAST_P(char, name.data), GetFileExInfoStandard, &ignored))
+    if (GetFileAttributesEx(TO_C_STR(&name_buffer), GetFileExInfoStandard, &ignored))
         return false;
     
-    name_buffer.count = 0;
-    name = write(null, &name_buffer, S("%%\0"), f(application_info->dll_path), f(application_info->dll_name));
+    free(temporary_allocator, name_buffer);
+    string name = write(temporary_allocator, S("%%\0"), f(application_info->dll_path), f(application_info->dll_name));
+    
     
     WIN32_FIND_DATA find_data;
     HANDLE find_handle = FindFirstFile(TO_C_STR(&name), &find_data);
@@ -535,7 +531,7 @@ bool win32_load_application(Application_Info *application_info) {
                 assert(result);
             }
             
-            string tmp_file_name = write(null, &name_buffer, S("%tmp_app.dll\0"), f(application_info->dll_path));
+            string tmp_file_name = write(temporary_allocator, &name_buffer, S("%tmp_app.dll\0"), f(application_info->dll_path));
             
             BOOL result = CopyFile(TO_C_STR(&name), TO_C_STR(&tmp_file_name), FALSE);
             if (!result) {
@@ -556,14 +552,12 @@ bool win32_load_application(Application_Info *application_info) {
             application_info->dll = LoadLibraryA(TO_C_STR(&tmp_file_name));
             assert(application_info->dll);
             
-            name_buffer.count = 0;
-            name = write(null, &name_buffer, S("%\0"), f(application_info->init_name));
-            application_info->init = (App_Init_Function)GetProcAddress(application_info->dll, TO_C_STR(&name));
+            string init_function_name = write(temporary_allocator, &name_buffer, S("%\0"), f(application_info->init_name));
+            application_info->init = (App_Init_Function)GetProcAddress(application_info->dll, TO_C_STR(&init_function_name));
             assert(application_info->init);
             
-            name_buffer.count = 0;
-            name = write(null, &name_buffer, S("%\0"), f(application_info->main_loop_name));
-            application_info->main_loop = (App_Main_Loop_Function)GetProcAddress(application_info->dll, TO_C_STR(&name));
+            string main_loop_function_name =write(temporary_allocator, &name_buffer, S("%\0"), f(application_info->main_loop_name));
+            application_info->main_loop = (App_Main_Loop_Function)GetProcAddress(application_info->dll, TO_C_STR(&main_loop_function_name));
             assert(application_info->main_loop);
             
             dll_reloaded = true;

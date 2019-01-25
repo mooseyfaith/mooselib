@@ -191,9 +191,9 @@ GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *unif
         { Vertex_Color_Index,    "vertex_color" },
     };
     
-    u8_buffer define_buffer = {};
+    string define_buffer = {};
     write(&state->transient_memory.allocator, &define_buffer, S("#version 150\n"));
-    defer { free(&state->transient_memory.allocator, &define_buffer); };
+    defer { free(&state->transient_memory.allocator, define_buffer); };
     
     {
         string options_it = options;

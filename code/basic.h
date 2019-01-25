@@ -64,6 +64,7 @@ const usize usize_max = -usize(1);
 
 
 #define UNREACHABLE_CODE assert(0);
+#define CASES_COMPLETE default: UNREACHABLE_CODE
 
 #define ARRAY_COUNT(array) CAST_V(u32, sizeof(array) / sizeof(*(array)))
 
