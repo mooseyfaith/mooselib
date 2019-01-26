@@ -185,25 +185,25 @@ void draw_end(Immediate_Render_Context *context) {
         return;
     
     glBindBuffer(GL_ARRAY_BUFFER, context->vertex_buffer_object);
-    glBufferData(GL_ARRAY_BUFFER, byte_count(context->vertices), context->vertices.data, GL_STREAM_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, byte_count_of(context->vertices), context->vertices.data, GL_STREAM_DRAW);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     
     glBindVertexArray(context->vertex_array_object);
     
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, context->index_buffer_object);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, byte_count(context->triangle_indices) + byte_count(context->line_indices), null, GL_STREAM_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, byte_count_of(context->triangle_indices) + byte_count_of(context->line_indices), null, GL_STREAM_DRAW);
     
     {
         GLsizei offset = 0;
         
         if (context->triangle_indices.count) {
-            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, offset, byte_count(context->triangle_indices), context->triangle_indices.data);
-            offset += byte_count(context->triangle_indices);
+            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, offset, byte_count_of(context->triangle_indices), context->triangle_indices.data);
+            offset += byte_count_of(context->triangle_indices);
         }
         
         if (context->line_indices.count) {
-            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, offset, byte_count(context->line_indices), context->line_indices.data);
-            offset += byte_count(context->line_indices);
+            glBufferSubData(GL_ELEMENT_ARRAY_BUFFER, offset, byte_count_of(context->line_indices), context->line_indices.data);
+            offset += byte_count_of(context->line_indices);
         }
     }
     
@@ -212,12 +212,12 @@ void draw_end(Immediate_Render_Context *context) {
         
         if (context->triangle_indices.count) {
             glDrawElements(GL_TRIANGLES, context->triangle_indices.count, GL_UNSIGNED_SHORT, cast_p(GLvoid, offset));
-            offset += byte_count(context->triangle_indices);
+            offset += byte_count_of(context->triangle_indices);
         }
         
         if (context->line_indices.count) {
             glDrawElements(GL_LINES, context->line_indices.count, GL_UNSIGNED_SHORT, cast_p(GLvoid, offset));
-            offset += byte_count(context->line_indices);
+            offset += byte_count_of(context->line_indices);
         }
     }
     

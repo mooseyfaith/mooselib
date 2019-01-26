@@ -57,7 +57,7 @@
 #define pack_items(buffer, type, count) cast_p(type, push(buffer, sizeof(type) * count))
 #define pack_item(buffer, value)        { *pack_items(buffer, decltype(value), 1) = value; }
 
-#define peek_item(buffer, type)           cast_p(type, (buffer)->data + (buffer)->count)
+#define peek_item(buffer, type)           cast_p(type, (buffer).data + (buffer).count - sizeof(type))
 #define unpack_items(buffer, type, count) cast_p(type, pop(buffer, sizeof(type) * count))
 #define unpack_item(buffer, type)         unpack_items(buffer, type, 1)
 

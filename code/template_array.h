@@ -123,7 +123,7 @@ free(Memory_Allocator *allocator, Template_Array_Type *array)
 }
 
 INTERNAL usize
-byte_count(Template_Array_Type array)
+byte_count_of(Template_Array_Type array)
 {
     return array.count * sizeof(Template_Array_Data_Type);
 }
@@ -164,7 +164,7 @@ remaining_count(Template_Array_Type buffer)
 }
 
 INTERNAL Template_Array_Size_Type
-remaining_byte_count(Template_Array_Type buffer)
+remaining_byte_count_of(Template_Array_Type buffer)
 {
     return (buffer.capacity - buffer.count) * sizeof(Template_Array_Data_Type);
 }

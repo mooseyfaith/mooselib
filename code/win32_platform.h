@@ -282,7 +282,7 @@ PLATFORM_READ_FILE_DEC(win32_read_file) {
         return false;
     }
     
-    while ((file->byte_count - file->byte_offset) && remaining_byte_count(*buffer)) {
+    while ((file->byte_count - file->byte_offset) && remaining_byte_count_of(*buffer)) {
         DWORD read_count;
         
         if (file->byte_count - file->byte_offset > u32_max)
@@ -290,7 +290,7 @@ PLATFORM_READ_FILE_DEC(win32_read_file) {
         else
             read_count = cast_v(u32, file->byte_count - file->byte_offset);
         
-        read_count = MIN(read_count, remaining_byte_count(*buffer));
+        read_count = MIN(read_count, remaining_byte_count_of(*buffer));
         
         DWORD bytes_read;
         

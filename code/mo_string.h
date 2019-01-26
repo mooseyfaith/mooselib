@@ -66,7 +66,7 @@ inline void write_c_string(char *destination, u32 destination_capacity, string s
 inline string make_string(Memory_Allocator *allocator, string other) {
     string buffer = ALLOCATE_ARRAY_INFO(allocator, u8, other.count);
     //copy(&buffer, other);
-    COPY(buffer.data, other.data, byte_count(other));
+    COPY(buffer.data, other.data, byte_count_of(other));
     
     return buffer;
 }
