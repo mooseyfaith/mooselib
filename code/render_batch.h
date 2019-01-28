@@ -123,7 +123,7 @@ struct Render_Batch_Command {
 };
 
 
-#define Template_Array_Type      Render_Batch_Command_Buffer
+#define Template_Array_Name      Render_Batch_Command_Buffer
 #define Template_Array_Data_Type Render_Batch_Command
 #define Template_Array_Is_Buffer
 #include "template_array.h"

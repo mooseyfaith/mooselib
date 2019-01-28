@@ -8,10 +8,9 @@ struct Memory_Stack {
     u8_buffer buffer;
 };
 
-#define Template_Allocator_Type Memory_Stack
-#define Template_Allocator_Name memory_stack
+#define Template_Allocator_Name Memory_Stack
 #define Template_Allocator_Kind Memory_Allocator_Stack_Kind
-#include "memory_allocator_template.h"
+#include "template_memory_allocator.h"
 
 // Info: You can also use any array_info to initialize a memory_stack, make shure the array data has the same lifetime
 // memory_stack = ARRAY_WITH_COUNT(my_static_array);

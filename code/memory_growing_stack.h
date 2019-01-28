@@ -3,12 +3,12 @@
 
 #include "memory_stack.h"
 
-#define LIST_TEMPLATE_NAME      Memory_Stack_List
-#define LIST_TEMPLATE_DATA_TYPE Memory_Stack
-#define LIST_TEMPLATE_DATA_NAME memory_stack
-#define LIST_TEMPLATE_HAS_TAIL
-#define LIST_TEMPLATE_HAS_DOUBLE_LINKS
-#include "list_template.h"
+#define Template_List_Name      Memory_Stack_List
+#define Template_List_Data_Type Memory_Stack
+#define Template_List_Data_Name memory_stack
+#define Template_List_With_Tail
+#define Template_List_With_Double_Links
+#include "template_list.h"
 
 struct Memory_Growing_Stack {
     Memory_Allocator allocator;
@@ -22,10 +22,9 @@ struct Memory_Growing_Stack {
     usize frame_byte_count;
 };
 
-#define Template_Allocator_Type Memory_Growing_Stack
-#define Template_Allocator_Name memory_growing_stack
+#define Template_Allocator_Name Memory_Growing_Stack
 #define Template_Allocator_Kind Memory_Allocator_Growing_Stack_Kind
-#include "memory_allocator_template.h"
+#include "template_memory_allocator.h"
 
 INTERNAL Memory_Growing_Stack make_memory_growing_stack(Memory_Allocator *internal_allocator, usize min_chunk_capacity = 4 << 10)
 {
@@ -183,7 +182,7 @@ INTERNAL void clear(Memory_Growing_Stack *stack)
     }
     
     while (stack->list.tail)
-        remove_tail(&stack->list, stack->internal_allocator);
+        remove_tail(stack->internal_allocator, &stack->list);
     
     // this will probaly fail, sicne there seems to be a bug in list_template
     assert(!stack->list.count && !stack->list.head && !stack->list.tail);

@@ -1,7 +1,7 @@
 #if !defined IMAGE_PROCCESSING_H
 #define IMAGE_PROCCESSING_H
 
-#define Template_Array_Type      rgba32_array
+#define Template_Array_Name      rgba32_array
 #define Template_Array_Data_Type rgba32
 #include "template_array.h"
 
@@ -16,7 +16,7 @@ inline rgba32 * color_at(Image *image, s16 x, s16 y) {
     return image->pixels + y * image->resolution.width + x;
 }
 
-#define Template_Array_Type      Pixel_Position_Buffer
+#define Template_Array_Name      Pixel_Position_Buffer
 #define Template_Array_Data_Type Pixel_Position
 #define Template_Array_Is_Buffer
 #include "template_array.h"
@@ -26,12 +26,12 @@ struct Pixel_Queue {
     Pixel_Position_Buffer queue;
 };
 
-#define Template_Array_Type      Pixel_Rectangle_Buffer
+#define Template_Array_Name      Pixel_Rectangle_Buffer
 #define Template_Array_Data_Type Pixel_Rectangle
 #define Template_Array_Is_Buffer
 #include "template_array.h"
 
-#define Template_Array_Type      UI_Panel_Buffer
+#define Template_Array_Name      UI_Panel_Buffer
 #define Template_Array_Data_Type UI_Panel
 #define Template_Array_Is_Buffer
 #include "template_array.h"

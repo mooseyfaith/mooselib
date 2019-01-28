@@ -9,8 +9,8 @@
 
 #include "basic.h"
 
-#if !defined Template_Array_Type
-#  error Template_Array_Type needs to be defined befor including buffer_template.h
+#if !defined Template_Array_Name
+#  error Template_Array_Name needs to be defined befor including buffer_template.h
 #endif
 
 #if !defined Template_Array_Data_Type
@@ -21,7 +21,7 @@
 #  define Template_Array_Size_Type usize
 #endif
 
-struct Template_Array_Type {
+struct Template_Array_Name {
     Template_Array_Data_Type *data;
     
 #if defined Template_Array_Is_Buffer
@@ -60,7 +60,7 @@ for(decltype((array).count) index = 0; index < (array).count; index++)
 for(auto iterator = (array) + 0; iterator != one_past_last(array); iterator++)
 
 INTERNAL Template_Array_Data_Type *
-grow(Memory_Allocator *allocator, Template_Array_Type *array, Template_Array_Size_Type capacity = 1)
+grow(Memory_Allocator *allocator, Template_Array_Name *array, Template_Array_Size_Type capacity = 1)
 {
     if (array->capacity)
         REALLOCATE_ARRAY(allocator, &array->data, array->capacity + capacity);
@@ -74,7 +74,7 @@ grow(Memory_Allocator *allocator, Template_Array_Type *array, Template_Array_Siz
 
 // how to prevent or warn bad usage of grow/shrink/push/pop ??
 #if 0
-struct CHAIN(Template_Array_Type, _Reference)  {
+struct CHAIN(Template_Array_Name, _Reference)  {
     Template_Array_Data_Type **array_data;
     Template_Array_Size_Type offset;
     
@@ -96,7 +96,7 @@ struct CHAIN(Template_Array_Type, _Reference)  {
 #endif
 
 INTERNAL void
-shrink(Memory_Allocator *allocator, Template_Array_Type *array, Template_Array_Size_Type capacity = 1)
+shrink(Memory_Allocator *allocator, Template_Array_Name *array, Template_Array_Size_Type capacity = 1)
 {
     assert(capacity <= array->capacity);
     
@@ -114,7 +114,7 @@ shrink(Memory_Allocator *allocator, Template_Array_Type *array, Template_Array_S
 }
 
 INTERNAL void
-free(Memory_Allocator *allocator, Template_Array_Type *array)
+free(Memory_Allocator *allocator, Template_Array_Name *array)
 {
     if (array->count) {
         free(allocator, array->data);
@@ -123,32 +123,32 @@ free(Memory_Allocator *allocator, Template_Array_Type *array)
 }
 
 INTERNAL usize
-byte_count_of(Template_Array_Type array)
+byte_count_of(Template_Array_Name array)
 {
     return array.count * sizeof(Template_Array_Data_Type);
 }
 
 INTERNAL usize
-byte_capacity(Template_Array_Type array)
+byte_capacity(Template_Array_Name array)
 {
     return array.capacity * sizeof(Template_Array_Data_Type);
 }
 
 INTERNAL Template_Array_Data_Type *
-one_past_last(Template_Array_Type array)
+one_past_last(Template_Array_Name array)
 {
     return array + array.count;
 }
 
 INTERNAL usize
-try_index_of(Template_Array_Type array, Template_Array_Data_Type *item)
+try_index_of(Template_Array_Name array, Template_Array_Data_Type *item)
 {
     usize index = cast_v(usize, item - array.data);
     return index;
 }
 
 INTERNAL Template_Array_Size_Type
-index_of(Template_Array_Type array, Template_Array_Data_Type *item)
+index_of(Template_Array_Name array, Template_Array_Data_Type *item)
 {
     usize index = try_index_of(array, item);
     assert(index < array.count);
@@ -158,19 +158,19 @@ index_of(Template_Array_Type array, Template_Array_Data_Type *item)
 #if defined Template_Array_Is_Buffer
 
 INTERNAL Template_Array_Size_Type
-remaining_count(Template_Array_Type buffer)
+remaining_count(Template_Array_Name buffer)
 {
     return buffer.capacity - buffer.count;
 }
 
 INTERNAL Template_Array_Size_Type
-remaining_byte_count_of(Template_Array_Type buffer)
+remaining_byte_count_of(Template_Array_Name buffer)
 {
     return (buffer.capacity - buffer.count) * sizeof(Template_Array_Data_Type);
 }
 
 INTERNAL Template_Array_Data_Type *
-push(Template_Array_Type *buffer, Template_Array_Size_Type count = 1)
+push(Template_Array_Name *buffer, Template_Array_Size_Type count = 1)
 {
     assert(buffer->count + count <= buffer->capacity);
     Template_Array_Data_Type *result = buffer->data + buffer->count;
@@ -179,7 +179,7 @@ push(Template_Array_Type *buffer, Template_Array_Size_Type count = 1)
 }
 
 INTERNAL Template_Array_Data_Type *
-push(Memory_Allocator *allocator, Template_Array_Type *buffer, Template_Array_Size_Type count = 1, bool double_capacity_on_grow = true)
+push(Memory_Allocator *allocator, Template_Array_Name *buffer, Template_Array_Size_Type count = 1, bool double_capacity_on_grow = true)
 {
     if (buffer->count + count > buffer->capacity)
     {
@@ -196,7 +196,7 @@ push(Memory_Allocator *allocator, Template_Array_Type *buffer, Template_Array_Si
 }
 
 INTERNAL Template_Array_Data_Type *
-pop(Template_Array_Type *buffer, Template_Array_Size_Type count = 1)
+pop(Template_Array_Name *buffer, Template_Array_Size_Type count = 1)
 {
     assert(count <= buffer->count);
     Template_Array_Data_Type *result = buffer->data + buffer->count;
@@ -207,7 +207,7 @@ pop(Template_Array_Type *buffer, Template_Array_Size_Type count = 1)
 
 
 INTERNAL void
-pop(Memory_Allocator *allocator, Template_Array_Type *buffer, Template_Array_Size_Type count = 1, bool half_capacity_on_quarter_count = true)
+pop(Memory_Allocator *allocator, Template_Array_Name *buffer, Template_Array_Size_Type count = 1, bool half_capacity_on_quarter_count = true)
 {
     pop(buffer, count);
     
@@ -225,7 +225,7 @@ pop(Memory_Allocator *allocator, Template_Array_Type *buffer, Template_Array_Siz
 #else
 
 INTERNAL Template_Array_Data_Type *
-advance(Template_Array_Type *iterator, Template_Array_Size_Type count = 1) {
+advance(Template_Array_Name *iterator, Template_Array_Size_Type count = 1) {
     assert(count <= iterator->count);
     Template_Array_Data_Type *result = iterator->data;
     iterator->data  += count;
@@ -235,6 +235,6 @@ advance(Template_Array_Type *iterator, Template_Array_Size_Type count = 1) {
 
 #endif
 
-#undef Template_Array_Type
+#undef Template_Array_Name
 #undef Template_Array_Data_Type
 #undef Template_Array_Size_Type

@@ -69,7 +69,8 @@ struct Template_List_Name {
 #define for_list_item(iterator, list) \
 for (auto iterator = (list).head; iterator; iterator = iterator->next)
 
-INTERNAL Template_List_Data_Type * _insert(Template_List_Name *list, u32 mark_index, Template_List_Name::Entry *entry, u32 insert_prev = 0)
+INTERNAL Template_List_Data_Type * 
+_insert(Template_List_Name *list, u32 mark_index, Template_List_Name::Entry *entry, u32 insert_prev = 0)
 {
     Template_List_Name::Entry **mark = list->marks + mark_index;
     u32 const forward = insert_prev;
@@ -102,24 +103,14 @@ INTERNAL Template_List_Data_Type * _insert(Template_List_Name *list, u32 mark_in
     return &entry->Template_List_Data_Name;
 }
 
-static inline Template_List_Data_Type * _insert(Template_List_Name *list, u32 mark_index, Template_List_Data_Type value, Memory_Allocator *allocator, u32 insert_prev = 0)
-{
-    Template_List_Name::Entry *entry = ALLOCATE(allocator, Template_List_Name::Entry);
-    entry->Template_List_Data_Name = value;
-    return _insert(list, mark_index, entry, insert_prev);
-}
-
-static inline Template_List_Data_Type * insert_head(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_prev = 0)
+INTERNAL Template_List_Data_Type * 
+insert_head(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_prev = 0)
 {
     return _insert(list, 0, entry, insert_prev);
 }
 
-static inline Template_List_Data_Type * insert_head(Template_List_Name *list, Template_List_Data_Type value, Memory_Allocator *allocator, u32 insert_after = 0)
-{
-    return _insert(list, 0, value, allocator, insert_after);
-}
-
-static inline Template_List_Name::Entry * _remove(Template_List_Name *list, u32 mark_index)
+INTERNAL Template_List_Name::Entry * 
+_remove(Template_List_Name *list, u32 mark_index)
 {
     Template_List_Name::Entry **mark = list->marks + mark_index;
     assert(*mark);
@@ -155,58 +146,30 @@ static inline Template_List_Name::Entry * _remove(Template_List_Name *list, u32 
     return entry;
 }
 
-static inline Template_List_Data_Type _remove(Template_List_Name *list, u32 mark_index, Memory_Allocator *allocator)
-{
-    Template_List_Name::Entry *entry = _remove(list, mark_index);
-    Template_List_Data_Type value = entry->Template_List_Data_Name;
-    free(allocator, entry);
-    
-    return value;
-}
-
-static inline Template_List_Name::Entry * remove_head(Template_List_Name *list)
+INTERNAL Template_List_Name::Entry * 
+remove_head(Template_List_Name *list)
 {
     return _remove(list, 0);
 }
 
-static inline Template_List_Data_Type remove_head(Template_List_Name *list, Memory_Allocator *allocator)
-{
-    return _remove(list, 0, allocator);
-}
-
 #if defined Template_List_With_Tail
 
-static inline Template_List_Data_Type * insert_tail(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_prev = 0)
+INTERNAL Template_List_Data_Type * 
+insert_tail(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_prev = 0)
 {
     return _insert(list, 1, entry, insert_prev);
 }
 
-static inline Template_List_Data_Type * insert_tail(Template_List_Name *list, Template_List_Data_Type value, Memory_Allocator *allocator, u32 insert_prev = 0)
-{
-    return _insert(list, 1, value, allocator, insert_prev);
-}
-
-static inline Template_List_Name::Entry * remove_tail(Template_List_Name *list)
+INTERNAL Template_List_Name::Entry * 
+remove_tail(Template_List_Name *list)
 {
     return _remove(list, 1);
 }
 
-static inline Template_List_Data_Type remove_tail(Template_List_Name *list, Memory_Allocator *allocator)
-{
-    return _remove(list, 1, allocator);
-}
-
 #endif // Template_List_With_Tail
 
-// NOTE: this will only work with a random access allocator
-// like c_allocator or memory_map
-static inline void clear(Template_List_Name *list, Memory_Allocator *allocator)
-{
-    while (list->head)
-        remove_head(list, allocator);
-}
-
-INTERNAL void insert_after(Template_List_Name *list, Template_List_Name::Entry *at_entry, Template_List_Name::Entry *new_entry)
+INTERNAL void 
+insert_after(Template_List_Name *list, Template_List_Name::Entry *at_entry, Template_List_Name::Entry *new_entry)
 {
     if (at_entry)
     {
@@ -254,6 +217,72 @@ INTERNAL void remove(Template_List_Name *list, Template_List_Name::Entry *it) {
 }
 
 #endif // Template_List_With_Double_Links
+
+
+#if defined MEMORY_H
+
+INTERNAL Template_List_Data_Type * 
+_insert(Memory_Allocator *allocator, Template_List_Name *list, u32 mark_index, Template_List_Data_Type value, u32 insert_prev = 0)
+{
+    Template_List_Name::Entry *entry = ALLOCATE(allocator, Template_List_Name::Entry);
+    entry->Template_List_Data_Name = value;
+    return _insert(list, mark_index, entry, insert_prev);
+}
+
+INTERNAL Template_List_Data_Type * 
+insert_head(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Data_Type value, u32 insert_after = 0)
+{
+    return _insert(allocator, list, 0, value, insert_after);
+}
+
+
+INTERNAL Template_List_Data_Type 
+_remove(Memory_Allocator *allocator, Template_List_Name *list, u32 mark_index)
+{
+    Template_List_Name::Entry *entry = _remove(list, mark_index);
+    Template_List_Data_Type value = entry->Template_List_Data_Name;
+    free(allocator, entry);
+    
+    return value;
+}
+
+INTERNAL Template_List_Data_Type
+remove_head(Memory_Allocator *allocator, Template_List_Name *list)
+{
+    return _remove(allocator, list, 0);
+}
+
+#  if defined Template_List_With_Tail
+
+INTERNAL Template_List_Data_Type * 
+insert_tail(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Data_Type value, u32 insert_prev = 0)
+{
+    return _insert(allocator, list, 1, value, insert_prev);
+}
+
+#    if defined Template_List_With_Double_Links
+
+INTERNAL Template_List_Data_Type 
+remove_tail(Memory_Allocator *allocator, Template_List_Name *list)
+{
+    return _remove(allocator, list, 1);
+}
+
+#    endif
+
+#  endif
+
+// NOTE: this will only work with a random access allocator
+// like c_allocator or memory_map
+INTERNAL void
+clear(Memory_Allocator *allocator, Template_List_Name *list)
+{
+    while (list->head)
+        remove_head(allocator, list);
+}
+
+#endif // MEMORY_H
+
 
 #undef Template_List_Name
 #undef Template_List_Data_Type

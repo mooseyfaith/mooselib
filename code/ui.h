@@ -31,11 +31,11 @@ struct UI_Command {
     };
 };
 
-#define Template_Array_Type      UI_Vertex_Array
+#define Template_Array_Name      UI_Vertex_Array
 #define Template_Array_Data_Type UI_Vertex
 #include "template_array.h"
 
-#define Template_Array_Type      UI_Command_Array
+#define Template_Array_Name      UI_Command_Array
 #define Template_Array_Data_Type UI_Command
 #include "template_array.h"
 

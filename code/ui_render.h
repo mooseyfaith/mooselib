@@ -13,12 +13,12 @@ struct UI_Vertex {
 #pragma pack(pop)
 
 
-#define Template_Array_Type      Render_Material_Buffer
+#define Template_Array_Name      Render_Material_Buffer
 #define Template_Array_Data_Type Render_Material *
 #define Template_Array_Is_Buffer
 #include "template_array.h"
 
-#define Template_Array_Type      Texture_Buffer
+#define Template_Array_Name      Texture_Buffer
 #define Template_Array_Data_Type Texture *
 #define Template_Array_Is_Buffer
 #include "template_array.h"

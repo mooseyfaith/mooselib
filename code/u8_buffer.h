@@ -9,38 +9,38 @@
 #if !defined U8_BUFFER_H
 #define U8_BUFFER_H
 
-#define Template_Array_Type      u8_array
+#define Template_Array_Name      u8_array
 #define Template_Array_Data_Type u8
 #include "template_array.h"
 
-#define Template_Array_Type      u8_buffer
+#define Template_Array_Name      u8_buffer
 #define Template_Array_Data_Type u8
 #define Template_Array_Is_Buffer
 #include "template_array.h"
 
-#define Template_Array_Type      u16_array
+#define Template_Array_Name      u16_array
 #define Template_Array_Data_Type u16
 #include "template_array.h"
 
-#define Template_Array_Type      u16_buffer
+#define Template_Array_Name      u16_buffer
 #define Template_Array_Data_Type u16
 #define Template_Array_Is_Buffer
 #include "template_array.h"
 
-#define Template_Array_Type      u32_array
+#define Template_Array_Name      u32_array
 #define Template_Array_Data_Type u32
 #include "template_array.h"
 
-#define Template_Array_Type      u32_buffer
+#define Template_Array_Name      u32_buffer
 #define Template_Array_Data_Type u32
 #define Template_Array_Is_Buffer
 #include "template_array.h"
 
-#define Template_Array_Type      u64_array
+#define Template_Array_Name      u64_array
 #define Template_Array_Data_Type u64
 #include "template_array.h"
 
-#define Template_Array_Type      u64_buffer
+#define Template_Array_Name      u64_buffer
 #define Template_Array_Data_Type u64
 #define Template_Array_Is_Buffer
 #include "template_array.h"

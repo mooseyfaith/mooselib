@@ -29,7 +29,7 @@ struct Win32_Window {
     WINDOWPLACEMENT placement_backup;
 };
 
-#define Template_Array_Type      Win32_Window_Buffer
+#define Template_Array_Name      Win32_Window_Buffer
 #define Template_Array_Data_Type Win32_Window
 #define Template_Array_Is_Buffer
 #include "template_array.h"

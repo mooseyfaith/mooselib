@@ -13,7 +13,7 @@ struct UI_Vertex {
 #pragma pack(pop)
 
 
-#define Template_Array_Type      UI_Vertex_Array
+#define Template_Array_Name      UI_Vertex_Array
 #define Template_Array_Data_Type UI_Vertex
 #include "template_array.h"
 

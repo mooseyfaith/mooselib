@@ -10,7 +10,7 @@ struct Immediate_Render_Vertex {
 };
 #pragma pack(pop)
 
-#define Template_Array_Type      Immediate_Render_Vertex_Buffer
+#define Template_Array_Name      Immediate_Render_Vertex_Buffer
 #define Template_Array_Data_Type Immediate_Render_Vertex
 #define Template_Array_Is_Buffer
 #include "template_array.h"

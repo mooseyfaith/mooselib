@@ -5,11 +5,11 @@
 
 typedef u8_array string;
 
-#define Template_Array_Type      string_array
+#define Template_Array_Name      string_array
 #define Template_Array_Data_Type string
 #include "template_array.h"
 
-#define Template_Array_Type      string_buffer
+#define Template_Array_Name      string_buffer
 #define Template_Array_Data_Type string
 #define Template_Array_Is_Buffer
 #include "template_array.h"

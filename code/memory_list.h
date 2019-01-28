@@ -15,10 +15,9 @@ struct Memory_List {
     Chunk_List used_list, free_list;
 };
 
-#define Template_Allocator_Type Memory_List
-#define Template_Allocator_Name memory_list
+#define Template_Allocator_Name Memory_List
 #define Template_Allocator_Kind Memory_Allocator_List_Kind
-#include "memory_allocator_template.h"
+#include "template_memory_allocator.h"
 
 INTERNAL Memory_List make_memory_list(Memory_Allocator *internal_allocator)
 {
