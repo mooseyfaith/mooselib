@@ -84,7 +84,7 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
     }
     
     FT_Face face;
-    FT_Error error = FT_New_Memory_Face(ft_library, CAST_P(const FT_Byte, chunk.data), CAST_V(FT_Long, chunk.count), 0, &face);
+    FT_Error error = FT_New_Memory_Face(ft_library, cast_p(const FT_Byte, chunk.data), cast_v(FT_Long, chunk.count), 0, &face);
     
     if (error == FT_Err_Unknown_File_Format)
         printf("Error (create_font): unsupported font format from file %.*s\n", FORMAT_S(&file_path));
@@ -93,7 +93,7 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
     
     error = FT_Set_Pixel_Sizes(face, 0, height);
     if (error)
-        printf("Error (create_font): could not set font size to %i\n", CAST_V(s32, height));
+        printf("Error (create_font): could not set font size to %i\n", cast_v(s32, height));
     
     result.glyph_count = char_count;
     result.glyphs = ALLOCATE_ARRAY(allocator, Font_Glyph, result.glyph_count);
@@ -163,29 +163,29 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
                 continue;
             }
             
-            if (y + CAST_V(s16, glyph_slot->bitmap.rows) >= result.texture.resolution.height) {
+            if (y + cast_v(s16, glyph_slot->bitmap.rows) >= result.texture.resolution.height) {
                 did_not_fit= true;
                 break;
             }
             
-            if (x + CAST_V(s16, glyph_slot->bitmap.width) >= result.texture.resolution.width) {
+            if (x + cast_v(s16, glyph_slot->bitmap.width) >= result.texture.resolution.width) {
                 x = 0;
                 y += current_max_char_height + 1;
                 current_max_char_height = 0;
                 
-                if (y + CAST_V(s16, glyph_slot->bitmap.rows) >= result.texture.resolution.height) {
+                if (y + cast_v(s16, glyph_slot->bitmap.rows) >= result.texture.resolution.height) {
                     did_not_fit= true;
                     break;
                 }
             }
             
-            if (current_max_char_height < CAST_V(s16, glyph_slot->bitmap.rows))
-                current_max_char_height = CAST_V(s16, glyph_slot->bitmap.rows);
+            if (current_max_char_height < cast_v(s16, glyph_slot->bitmap.rows))
+                current_max_char_height = cast_v(s16, glyph_slot->bitmap.rows);
             
             Font_Glyph glyph = {
                 first_char + c,
-                { x, y, CAST_V(s16, glyph_slot->bitmap.width), CAST_V(s16, glyph_slot->bitmap.rows) },
-                CAST_V(s16, glyph_slot->bitmap_left), CAST_V(s16, glyph_slot->bitmap_top - glyph_slot->bitmap.rows), glyph_slot->advance.x / 64.0f,
+                { x, y, cast_v(s16, glyph_slot->bitmap.width), cast_v(s16, glyph_slot->bitmap.rows) },
+                cast_v(s16, glyph_slot->bitmap_left), cast_v(s16, glyph_slot->bitmap_top - glyph_slot->bitmap.rows), glyph_slot->advance.x / 64.0f,
             };
             
             if (glyph_slot->bitmap.buffer) {
@@ -212,14 +212,14 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
                 u8 *bitmap = ALLOCATE_ARRAY(allocator, u8, glyph_slot->bitmap.pitch * glyph_slot->bitmap.rows);
                 
                 for (u32 y = 0; y < glyph_slot->bitmap.rows; ++y) {
-                    COPY(bitmap + glyph_slot->bitmap.pitch * y, glyph_slot->bitmap.buffer + (glyph_slot->bitmap.rows - y - 1) * glyph_slot->bitmap.pitch, glyph_slot->bitmap.pitch);
+                    copy(bitmap + glyph_slot->bitmap.pitch * y, glyph_slot->bitmap.buffer + (glyph_slot->bitmap.rows - y - 1) * glyph_slot->bitmap.pitch, glyph_slot->bitmap.pitch);
                 }
                 
                 glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, glyph_slot->bitmap.width, glyph_slot->bitmap.rows, GL_RED, GL_UNSIGNED_BYTE, bitmap);
                 free(allocator, bitmap);
 #endif
                 
-                x += CAST_V(s16, glyph_slot->bitmap.width) + 1;
+                x += cast_v(s16, glyph_slot->bitmap.width) + 1;
                 ++fill_count;
             }
             

@@ -140,7 +140,7 @@ int main(int argc, const char **args)
             glDebugMessageCallback(win32_gl_debug_callback, NULL);
         }
 #endif
-        win32_platform_api.application_info.data = win32_platform_api.application_info.init(CAST_P(Platform_API, &win32_platform_api), &win32_platform_api.input);
+        win32_platform_api.application_info.data = win32_platform_api.application_info.init(cast_p(Platform_API, &win32_platform_api), &win32_platform_api.input);
         
         win32_platform_api.sound_buffer = win32_init_dsound(dummy_window.handle, sound_buffer_samples_per_second, sound_buffer_byte_count);
         win32_platform_api.sound_buffer->Play(0, 0, DSBPLAY_LOOPING);
@@ -177,7 +177,7 @@ int main(int argc, const char **args)
 #endif
         
         {
-            Win32_Window *window = CAST_P(Win32_Window, GetWindowLongPtr(msg.hwnd, GWLP_USERDATA));
+            Win32_Window *window = cast_p(Win32_Window, GetWindowLongPtr(msg.hwnd, GWLP_USERDATA));
             
             switch (msg.message) {
                 case WM_QUIT: {
@@ -316,11 +316,11 @@ int main(int argc, const char **args)
 #endif
                 
                 case WM_MOUSEWHEEL: {
-                    win32_platform_api.input.mouse.vertical_wheel_delta += GET_WHEEL_DELTA_WPARAM(msg.wParam) / CAST_V(f32, WHEEL_DELTA);
+                    win32_platform_api.input.mouse.vertical_wheel_delta += GET_WHEEL_DELTA_WPARAM(msg.wParam) / cast_v(f32, WHEEL_DELTA);
                 } break;
                 
                 case WM_MOUSEHWHEEL: {
-                    win32_platform_api.input.mouse.horizontal_wheel_delta += GET_WHEEL_DELTA_WPARAM(msg.wParam) / CAST_V(f32, WHEEL_DELTA);
+                    win32_platform_api.input.mouse.horizontal_wheel_delta += GET_WHEEL_DELTA_WPARAM(msg.wParam) / cast_v(f32, WHEEL_DELTA);
                 } break;
                 
                 case WM_DROPFILES: {
@@ -522,24 +522,24 @@ int main(int argc, const char **args)
                     float dead_zone = XINPUT_GAMEPAD_LEFT_THUMB_DEADZONE / 32767.0f;
                     normalize_stick(win32_platform_api.input.gamepads + i, dead_zone);
                     
-                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.up, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_UP, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.down, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_DOWN, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.right, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_RIGHT, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.left, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_LEFT, CAST_V(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.up, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_UP, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.down, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_DOWN, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.right, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_RIGHT, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].digital_pad.left, state.Gamepad.wButtons, XINPUT_GAMEPAD_DPAD_LEFT, cast_v(f32, delta_seconds));
                     
-                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.down, state.Gamepad.wButtons, XINPUT_GAMEPAD_A, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.right, state.Gamepad.wButtons, XINPUT_GAMEPAD_B, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.left, state.Gamepad.wButtons, XINPUT_GAMEPAD_X, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.up, state.Gamepad.wButtons, XINPUT_GAMEPAD_Y, CAST_V(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.down, state.Gamepad.wButtons, XINPUT_GAMEPAD_A, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.right, state.Gamepad.wButtons, XINPUT_GAMEPAD_B, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.left, state.Gamepad.wButtons, XINPUT_GAMEPAD_X, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].action_pad.up, state.Gamepad.wButtons, XINPUT_GAMEPAD_Y, cast_v(f32, delta_seconds));
                     
-                    win32_update_button(&win32_platform_api.input.gamepads[i].left_shoulder, state.Gamepad.wButtons, XINPUT_GAMEPAD_LEFT_SHOULDER, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].right_shoulder, state.Gamepad.wButtons, XINPUT_GAMEPAD_RIGHT_SHOULDER, CAST_V(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].left_shoulder, state.Gamepad.wButtons, XINPUT_GAMEPAD_LEFT_SHOULDER, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].right_shoulder, state.Gamepad.wButtons, XINPUT_GAMEPAD_RIGHT_SHOULDER, cast_v(f32, delta_seconds));
                     
-                    win32_update_button(&win32_platform_api.input.gamepads[i].left_stick_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_LEFT_THUMB, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].right_stick_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_RIGHT_THUMB, CAST_V(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].left_stick_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_LEFT_THUMB, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].right_stick_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_RIGHT_THUMB, cast_v(f32, delta_seconds));
                     
-                    win32_update_button(&win32_platform_api.input.gamepads[i].select_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_BACK, CAST_V(f32, delta_seconds));
-                    win32_update_button(&win32_platform_api.input.gamepads[i].start_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_START, CAST_V(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].select_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_BACK, cast_v(f32, delta_seconds));
+                    win32_update_button(&win32_platform_api.input.gamepads[i].start_button, state.Gamepad.wButtons, XINPUT_GAMEPAD_START, cast_v(f32, delta_seconds));
                 }
                 else
                     win32_platform_api.input.gamepads[i].is_enabled = false;
@@ -639,7 +639,7 @@ int main(int argc, const char **args)
             LARGE_INTEGER frame_start;
             QueryPerformanceCounter(&frame_start);
             
-            auto main_loop_result = win32_platform_api.application_info.main_loop(CAST_P(Platform_API, &win32_platform_api), &win32_platform_api.input, &output_sound_buffer, win32_platform_api.application_info.data, delta_seconds);
+            auto main_loop_result = win32_platform_api.application_info.main_loop(cast_p(Platform_API, &win32_platform_api), &win32_platform_api.input, &output_sound_buffer, win32_platform_api.application_info.data, delta_seconds);
             
             if (main_loop_result == Platform_Main_Loop_Quit)
                 PostQuitMessage(0);
@@ -653,7 +653,7 @@ int main(int argc, const char **args)
                 if (win32_platform_api.sound_buffer->Lock(output_sound_buffer.frame * sound_buffer_bytes_per_sample, output_sound_buffer.output.count, &sound_buffer_region_data[0], &sound_buffer_region_count[0], &sound_buffer_region_data[1], &sound_buffer_region_count[1], 0) == DS_OK) {
                     
                     for (u32 region_index = 0; region_index < ARRAY_COUNT(sound_buffer_region_data); ++region_index) {
-                        COPY(sound_buffer_region_data[region_index], output_sound_buffer.output.data + output_offset, sound_buffer_region_count[region_index]);
+                        copy(sound_buffer_region_data[region_index], output_sound_buffer.output.data + output_offset, sound_buffer_region_count[region_index]);
                         output_offset += sound_buffer_region_count[region_index];
                     }
                     

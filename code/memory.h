@@ -37,10 +37,10 @@ _FREE_NAMED_DEC(free, allocator_param)
 // type macros
 
 #define ALLOCATE(allocator, type) \
-CAST_P(type, allocate(allocator, sizeof(type), alignof(type)))
+cast_p(type, allocate(allocator, sizeof(type), alignof(type)))
 
 #define ALLOCATE_ARRAY(allocator, type, count) \
-CAST_P(type, allocate(allocator, sizeof(type) * (count), alignof(type)))
+cast_p(type, allocate(allocator, sizeof(type) * (count), alignof(type)))
 
 #define ALLOCATE_ARRAY_WITH_COUNT(allocator, type, count) \
 ALLOCATE_ARRAY(allocator, type, count), count
@@ -49,7 +49,7 @@ ALLOCATE_ARRAY(allocator, type, count), count
 { ALLOCATE_ARRAY_WITH_COUNT(allocator, type, count) }
 
 #define REALLOCATE_ARRAY(allocator, data, count) \
-reallocate(allocator, CAST_P(any, data), sizeof(**(data)) * (count), alignof(decltype(**(data))))
+reallocate(allocator, cast_p(any, data), sizeof(**(data)) * (count), alignof(decltype(**(data))))
 
 // wrappers
 

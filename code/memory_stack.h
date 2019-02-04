@@ -32,7 +32,7 @@ INTERNAL Debug_Memory_Stack_Footer debug_make_footer(Memory_Stack stack, usize s
     Debug_Memory_Stack_Footer result;
     result.size = size;
     
-    usize padding = (alignment - (MEMORY_ADDRESS(one_past_last(stack.buffer)) % alignment)) % alignment;
+    usize padding = (alignment - (memory_address(one_past_last(stack.buffer)) % alignment)) % alignment;
     result.padding = padding;
     assert(result.padding == padding);
     
@@ -41,7 +41,7 @@ INTERNAL Debug_Memory_Stack_Footer debug_make_footer(Memory_Stack stack, usize s
 
 INTERNAL Memory_Stack make_memory_stack(Memory_Allocator *allocator, usize size, usize alignment = MEMORY_MAX_ALIGNMENT)
 {
-    return { Memory_Allocator_Stack_Kind, { CAST_P(u8, allocate(allocator, size, alignment)), size } };
+    return { Memory_Allocator_Stack_Kind, { cast_p(u8, allocate(allocator, size, alignment)), size } };
 }
 
 INTERNAL ALLOCATE_DEC(Memory_Stack *stack)
@@ -52,23 +52,9 @@ INTERNAL ALLOCATE_DEC(Memory_Stack *stack)
     auto info = debug_make_footer(*stack, size, alignment);
     push(&stack->buffer, info.padding);
     u8 *data = push(&stack->buffer, size);
-    //u8 *data = one_past_last(stack->buffer); + info.padding;
     
 #if defined DEBUG
-    
-    //assert(stack->buffer.count + info.size + info.padding + sizeof(info) <= stack->buffer.capacity);
-    //stack->buffer.count += info.size + info.padding + sizeof(info);
-    //*debug_footer(*stack) = info;
     *push_item(&stack->buffer, Debug_Memory_Stack_Footer) = info;
-    
-    //assert(stack->buffer.count >= info.size + info.padding + sizeof(info));
-    
-#else
-    
-    //assert(stack->buffer.count + info.size + info.padding <= stack->buffer.capacity);
-    //stack->buffer.count += info.size + info.padding;
-    //push(&stack->buffer, info.padding);
-    
 #endif
     
     return data;
@@ -85,7 +71,7 @@ INTERNAL REALLOCATE_DEC(Memory_Stack *stack)
 {
     assert_bounds(stack->buffer);
     assert(size);
-    assert((MEMORY_ADDRESS(*data) % alignment) == 0);
+    assert((memory_address(*data) % alignment) == 0);
     
 #if defined DEBUG
     

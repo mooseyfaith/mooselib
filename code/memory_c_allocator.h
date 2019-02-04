@@ -14,9 +14,9 @@ Memory_Allocator *C_Allocator = &_C_Allocator;
 _ALLOCATE_WRAPPER_DEC(c)
 {
     assert(allocator->kind == Memory_Allocator_C_Kind);
-    u8 *data = CAST_P(u8, malloc(size));
+    u8 *data = cast_p(u8, malloc(size));
     assert(data, "malloc failed, out of memmory");
-    assert((MEMORY_ADDRESS(data) % alignment) == 0, "malloc can not provide your required alignment");
+    assert((memory_address(data) % alignment) == 0, "malloc can not provide your required alignment");
     return data;
 }
 

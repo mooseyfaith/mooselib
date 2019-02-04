@@ -295,7 +295,7 @@ void draw(Static_Render_Batch *batch, Render_Material **materials, u32 material_
             last_material = material;
         }
         
-        glDrawElements(it->draw_mode, CAST_V(GLsizei, it->index_count), batch->index_type, CAST_P(GLvoid, index_offset));
+        glDrawElements(it->draw_mode, cast_v(GLsizei, it->index_count), batch->index_type, cast_p(GLvoid, index_offset));
         index_offset += it->index_count * batch->bytes_per_index;
     }
 }
@@ -312,7 +312,7 @@ void draw(Static_Render_Batch batch, u32 material_index) {
          )
     {
         if (it->material_index == material_index)
-            glDrawElements(it->draw_mode, CAST_V(GLsizei, it->index_count), batch.index_type, CAST_P(GLvoid, index_offset));
+            glDrawElements(it->draw_mode, cast_v(GLsizei, it->index_count), batch.index_type, cast_p(GLvoid, index_offset));
         
         index_offset += it->index_count * batch.bytes_per_index;
     }

@@ -71,7 +71,7 @@ INTERNAL ALLOCATE_DEC(Memory_List *list)
         usize required_size = size + sizeof(Chunk_List::Entry);
         auto data = it->chunk.data + sizeof(Chunk_List::Entry);
         
-        usize offset = MOD(alignment - MOD(MEMORY_ADDRESS(data), alignment), alignment);
+        usize offset = MOD(alignment - MOD(memory_address(data), alignment), alignment);
         required_size += offset;
         data += offset;
         
@@ -102,7 +102,7 @@ INTERNAL ALLOCATE_DEC(Memory_List *list)
     insert_head(&list->used_list, new_entry);
     
     auto data = new_entry->chunk.data + sizeof(Chunk_List::Entry);
-    data += MOD(alignment - MOD(MEMORY_ADDRESS(data), alignment), alignment);
+    data += MOD(alignment - MOD(memory_address(data), alignment), alignment);
     
     return data;
 }

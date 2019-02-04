@@ -320,22 +320,22 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     
     init(&state->im);
     
-    state->camera.to_world = make_transform(make_quat(VEC3_X_AXIS, PIf * -0.25f));
+    state->camera.to_world = make_transform(make_quat(VEC3_X_AXIS, Pi32 * -0.25f));
     state->camera.to_world.translation = transform_direction(state->camera.to_world, vec3f{0, 0, 40});
     
     state->debug.speed = 1.0f;
     state->debug.backup_speed = 1.0f;
     
     state->debug.camera_movement_speed    = 50.0f;
-    state->debug.camera_mouse_sensitivity = 2.0f * PIf / 2048.0f;;
+    state->debug.camera_mouse_sensitivity = 2.0f * Pi32 / 2048.0f;;
     
     state->debug.camera.alpha_axis = VEC3_Y_AXIS;
     state->debug.camera.beta_axis = VEC3_X_AXIS;
-    state->debug.camera.beta_min = -PIf * 0.5f;
-    state->debug.camera.beta_max =  PIf * 0.5f;
+    state->debug.camera.beta_min = -Pi32 * 0.5f;
+    state->debug.camera.beta_max =  Pi32 * 0.5f;
     
     state->debug.camera.alpha = 0.0f;
-    state->debug.camera.beta = PIf * -0.25f;
+    state->debug.camera.beta = Pi32 * -0.25f;
     debug_update_camera(&state->debug.camera);
     state->debug.camera.to_world.translation = transform_direction(state->debug.camera.to_world, vec3f{ 0, 0, 20.f });
 }
@@ -420,7 +420,7 @@ void upload_camera_block(Default_State *state) {
 
 UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64 delta_seconds, bool allways_update, Platform_Window window, Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
 {
-    bool do_update = !ARE_EQUAL(window_rect, &new_window_rect, sizeof(*window_rect));
+    bool do_update = !are_equal(window_rect, &new_window_rect, sizeof(*window_rect));
     *window_rect = new_window_rect;
     
     Pixel_Dimensions render_resolution = window_rect->size; //get_auto_render_resolution(state->main_window_area.size, Reference_Resolution);
@@ -448,7 +448,7 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     
     draw_begin(&state->im, C_Allocator, MAT4X3_IDENTITY);
     
-    state->camera.to_clip_projection = make_perspective_fov_projection((f32)(60 * DEG_TO_RAD), width_over_height(render_resolution));
+    state->camera.to_clip_projection = make_perspective_fov_projection((f32)(60 * Degree_To_Radian32), width_over_height(render_resolution));
     state->camera.clip_to_camera_projection = make_inverse_perspective_projection(state->camera.to_clip_projection);
     
     upload_camera_block(state->camera_uniform_buffer_object, state->camera.world_to_camera, state->camera.to_clip_projection, state->camera.to_world.translation);

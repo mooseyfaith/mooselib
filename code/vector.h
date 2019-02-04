@@ -147,7 +147,7 @@ inline VEC_NAME normalize(VEC_NAME a) {
 inline VEC_NAME normalize_or_zero(VEC_NAME a) {
     REAL l2 = squared_length(a);
     
-    if (l2 != CAST_V(REAL, 0))
+    if (l2 != cast_v(REAL, 0))
         return a / sqrt(l2);
     
     return a;

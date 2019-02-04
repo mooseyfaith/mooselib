@@ -7,6 +7,10 @@
 #error Template_Area_Vector_Type needs to be defined befor including area_template.h
 #endif
 
+#if !defined Template_Area_Data_Type
+#error Template_Area_Data_Type needs to be defined befor including area_template.h
+#endif
+
 #if !defined Template_Area_Struct_Is_Declared
 
 struct Template_Area_Name {
@@ -17,6 +21,17 @@ struct Template_Area_Name {
 #undef Template_Area_Struct_Is_Declared
 
 #endif
+
+INTERNAL Template_Area_Name CHAIN(make_empty_, Template_Area_Name) () {
+    Template_Area_Name result;
+    
+    for (u32 i = 0; i < ARRAY_COUNT(result.size.values); i++) {
+        result.min.values[i] = CHAIN(Template_Area_Data_Type, _max);
+        result.size.values[i] = 0;
+    }
+    
+    return result;
+}
 
 INTERNAL auto volume(Template_Area_Name area) {
     auto result = area.size[0];

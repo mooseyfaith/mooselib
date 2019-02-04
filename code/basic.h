@@ -2,6 +2,7 @@
 #define BASIC_H
 
 #include <stdarg.h>
+#include <climits>
 
 // parameter annotations
 #define OPTIONAL
@@ -32,18 +33,41 @@ typedef u32 usize;
 typedef void * any;
 typedef char const * c_const_string; 
 
+
+#define HALF_RANGE(bit_count) (u64(1) << (bit_count - 1))
+
+#define DEF_SIGNED_INTEGER_MIN_MAX(bit_count) \
+const auto s ## bit_count ## _min = - s ## bit_count (HALF_RANGE(bit_count)); \
+const auto s ## bit_count ## _max =   s ## bit_count (HALF_RANGE(bit_count) - 1);
+
+DEF_SIGNED_INTEGER_MIN_MAX(8);
+DEF_SIGNED_INTEGER_MIN_MAX(16);
+DEF_SIGNED_INTEGER_MIN_MAX(32);
+
+#define DEF_UNSIGNED_INTEGER_MIN_MAX(bit_count) \
+const auto u ## bit_count ## _min =  u ## bit_count (0); \
+const auto u ## bit_count ## _max = -u ## bit_count (1);
+
+DEF_UNSIGNED_INTEGER_MIN_MAX(8);
+DEF_UNSIGNED_INTEGER_MIN_MAX(16);
+DEF_UNSIGNED_INTEGER_MIN_MAX(32);
+DEF_UNSIGNED_INTEGER_MIN_MAX(64);
+
+const auto usize_min = usize(0);
+const auto usize_max = -usize(1);
+
+#include <float.h>
+
+const f32 f32_min     = FLT_MIN;
+const f32 f32_max     = FLT_MAX;
+const f32 f32_epsilon = FLT_EPSILON;
+
+const f64 f64_min     = DBL_MIN;
+const f64 f64_max     = DBL_MAX;
+const f64 f64_epsilon = DBL_EPSILON;
+
 // it just looks nicer?
 #define null 0
-
-const usize u32_min = 0;
-const usize u32_max = -u32(1);
-
-const usize u64_min = 0;
-const usize u64_max = -u64(1);
-
-const usize usize_min = 0;
-const usize usize_max = -usize(1);
-
 
 #if defined(DEBUG)
 
@@ -62,11 +86,10 @@ const usize usize_max = -usize(1);
 
 #endif
 
-
-#define UNREACHABLE_CODE assert(0);
+#define UNREACHABLE_CODE assert(0, "unreachbale code");
 #define CASES_COMPLETE default: UNREACHABLE_CODE
 
-#define ARRAY_COUNT(array) CAST_V(u32, sizeof(array) / sizeof(*(array)))
+#define ARRAY_COUNT(array) cast_v(usize, sizeof(array) / sizeof(*(array)))
 
 #define ARRAY_WITH_COUNT(array) array, ARRAY_COUNT(array)
 #define COUNT_WITH_ARRAY(array) ARRAY_COUNT(array), array
@@ -78,15 +101,10 @@ const usize usize_max = -usize(1);
 #define MEGA(m) ((usize)m << 20)
 #define GIGA(g) ((usize)g << 30)
 
-#define CAST_P(type, pointer) reinterpret_cast<type *> (pointer)
-#define CAST_V(type, value) static_cast<type> (value)
-#define CAST_ANY(pointer) reinterpret_cast<any> (pointer)
-#define MEMORY_ADDRESS(pointer) reinterpret_cast<usize> (CAST_P(u8, pointer))
-
-#define cast_p(type, pointer)   CAST_P(type, pointer)
-#define cast_v(type, value)     CAST_V(type, value)
-#define cast_any(pointer)       CAST_ANY(pointer)
-#define memory_address(pointer) MEMORY_ADDRESS(pointer)
+#define cast_p(type, pointer)   reinterpret_cast<type *> (pointer)
+#define cast_v(type, value)     static_cast     <type>   (value)
+#define cast_any(pointer)       reinterpret_cast<any>    (pointer)
+#define memory_address(pointer) reinterpret_cast<usize>  (cast_p(u8, pointer))
 
 #define ABS(a) ((a) < 0 ? -(a) : (a))
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
@@ -97,7 +115,6 @@ const usize usize_max = -usize(1);
 #define FLAG(bit) (1 << bit)
 #define CHECK_FLAG(value, flags) ((value) & (flags))
 #define CHECK_MASK(value, mask) (CHECK_FLAG(value, mask) == (mask))
-
 
 #define STRINGIFY__(a) # a
 #define STRINGIFY_(a)  STRINGIFY__(a)
@@ -163,20 +180,18 @@ use f->a, f->b
 
 #define new_kind(allocator, type, k, ...) (&(*ALLOCATE(allocator, type) = make_kind(type, k, __VA_ARGS__)))
 
-
-#define COPY(destination, source, size_in_bytes) copy(CAST_ANY(destination), CAST_ANY(source), CAST_V(usize, size_in_bytes))
 INTERNAL void copy(any destination, any source, usize size_in_bytes) {
     if (destination > source) {
-        u8 *dest_end = CAST_P(u8, destination) - 1;
-        u8 *src = CAST_P(u8, source) + size_in_bytes - 1;
+        u8 *dest_end = cast_p(u8, destination) - 1;
+        u8 *src = cast_p(u8, source) + size_in_bytes - 1;
         u8 *dest = dest_end + size_in_bytes;
         
         while (dest != dest_end) {
             *(dest--) = *(src--);
         }
     } else {
-        u8 *dest = CAST_P(u8, destination);
-        u8 *src = CAST_P(u8, source);
+        u8 *dest = cast_p(u8, destination);
+        u8 *src = cast_p(u8, source);
         u8 *dest_end = dest + size_in_bytes;
         
         while (dest != dest_end) {
@@ -185,20 +200,21 @@ INTERNAL void copy(any destination, any source, usize size_in_bytes) {
     }
 }
 
-INTERNAL void reset(any destination, usize size_in_bytes, u8 value = 0) {
-    u8 *dest = CAST_P(u8, destination);
-    u8 *end = dest + size_in_bytes;
+INTERNAL void reset(any destination, usize byte_count, u8 value = 0) {
+    u8 *dest = cast_p(u8, destination);
+    u8 *end = dest + byte_count;
     for (u8 *it = dest; it != end; ++it)
         *it = value;
 }
 
-#define ARE_EQUAL(a, b, size_in_bytes) are_equal(cast_p(u8, a), cast_p(u8, b), CAST_V(usize, size_in_bytes))
-
-INTERNAL bool are_equal(u8 *a, u8 *b, usize size_in_bytes) {
-    u8 *a_end = a + size_in_bytes;
+INTERNAL bool are_equal(any a, any b, usize byte_count) {
+    auto a_it = cast_p(u8, a);
+    auto b_it = cast_p(u8, b);
     
-    while (a != a_end) {
-        if (*(a++) != *(b++))
+    u8 *a_end = a_it + byte_count;
+    
+    while (a_it != a_end) {
+        if (*(a_it++) != *(b_it++))
             return false;
     }
     
@@ -271,11 +287,11 @@ INTERNAL Pixel_Rectangle merge(Pixel_Rectangle a, Pixel_Rectangle b) {
 }
 
 INTERNAL f32 width_over_height(Pixel_Dimensions dimensions) {
-    return dimensions.width / CAST_V(f32, dimensions.height);
+    return dimensions.width / cast_v(f32, dimensions.height);
 }
 
 INTERNAL f32 height_over_width(Pixel_Dimensions dimensions) {
-    return dimensions.height / CAST_V(f32, dimensions.width);
+    return dimensions.height / cast_v(f32, dimensions.width);
 }
 
 // converts
@@ -305,7 +321,7 @@ struct Indices {
 INTERNAL void push_index(Indices *indices, u32 index) {
     u8 *dest = push(&indices->buffer, indices->bytes_per_index);
     // should work because of endieness
-    COPY(dest, cast_p(u8, &index), indices->bytes_per_index);
+    copy(dest, &index, indices->bytes_per_index);
     //push(&indices->buffer, cast_p(u8, &index), indices->bytes_per_index);
 }
 

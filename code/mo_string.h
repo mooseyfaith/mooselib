@@ -16,15 +16,15 @@ typedef u8_array string;
 
 #define EMPTY_STRING string{}
 
-#define S(c_string_literal_or_char_array) string{ CAST_P(u8, const_cast<char *> (c_string_literal_or_char_array)), ARRAY_COUNT(c_string_literal_or_char_array) - 1 }
+#define S(c_string_literal_or_char_array) string{ cast_p(u8, const_cast<char *> (c_string_literal_or_char_array)), ARRAY_COUNT(c_string_literal_or_char_array) - 1 }
 
 //#define S(c_string_literal_or_char_array) MAKE_STRING(c_string_literal_or_char_array)
 
 // plaese make shure your string->data is 0-terminated
-#define TO_C_STR(string) CAST_P(char, (string)->data)
+#define TO_C_STR(string) cast_p(char, (string)->data)
 
 // printf("%.s", FORMAT_S(&string));
-#define FORMAT_S(string) CAST_V(int, (string)->count), CAST_P(char, (string)->data)
+#define FORMAT_S(string) cast_v(int, (string)->count), cast_p(char, (string)->data)
 
 inline usize c_string_length(c_const_string text) {
     assert(text);
@@ -33,7 +33,7 @@ inline usize c_string_length(c_const_string text) {
     while (*it)
         ++it;
     
-    return CAST_V(u32, it - text);
+    return cast_v(u32, it - text);
 }
 
 // use S(..) macro if you pass string literal or char array
@@ -48,7 +48,7 @@ inline string write_string(u8 *buffer, c_const_string text, usize debug_buffer_c
     while (*c_it) 
         *(it++) = *(c_it++);
     
-    assert(CAST_V(u32, c_it - text) <= debug_buffer_count);
+    assert(cast_v(u32, c_it - text) <= debug_buffer_count);
     return { buffer, cast_v(usize, c_it - text) };
 }
 
@@ -66,7 +66,7 @@ inline void write_c_string(char *destination, u32 destination_capacity, string s
 inline string make_string(Memory_Allocator *allocator, string other) {
     string buffer = ALLOCATE_ARRAY_INFO(allocator, u8, other.count);
     //copy(&buffer, other);
-    COPY(buffer.data, other.data, byte_count_of(other));
+    copy(buffer.data, other.data, byte_count_of(other));
     
     return buffer;
 }
@@ -171,7 +171,7 @@ u32 utf8_head(string text, OPTIONAL u32 *byte_count = null) {
     if (byte_count)
         *byte_count = part_count + 1;
     
-	    assert(text.count >= part_count + 1);
+    assert(text.count >= part_count + 1);
     
     u32 result = (text[0] & ~mask) << (6 * part_count);
     u32 index = 1;
@@ -449,11 +449,11 @@ inline string parse_quoted_string(string *it, u32 quot_symbol = '\"', u32 escape
     return result;
 }
 
-#define PARSE_UNSIGNED_INTEGER(it, bits, ...) CAST_V(CHAIN(u, bits), parse_unsigned_integer(it, bits, ##__VA_ARGS__))
-#define PARSE_SIGNED_INTEGER(it, bits, ...) CAST_V(CHAIN(s, bits), parse_signed_integer(it, bits, ##__VA_ARGS__))
+#define PARSE_UNSIGNED_INTEGER(it, bits, ...) cast_v(CHAIN(u, bits), parse_unsigned_integer(it, bits, ##__VA_ARGS__))
+#define PARSE_SIGNED_INTEGER(it, bits, ...) cast_v(CHAIN(s, bits), parse_signed_integer(it, bits, ##__VA_ARGS__))
 
-#define TRY_PARSE_UNSIGNED_INTEGER(it, ok, bits, ...) CAST_V(CHAIN(u, bits), try_parse_unsigned_integer(it, ok, bits, ##__VA_ARGS__))
-#define TRY_PARSE_SIGNED_INTEGER(it, ok, bits, ...) CAST_V(CHAIN(s, bits), try_parse_signed_integer(it, ok, bits, ##__VA_ARGS__))
+#define TRY_PARSE_UNSIGNED_INTEGER(it, ok, bits, ...) cast_v(CHAIN(u, bits), try_parse_unsigned_integer(it, ok, bits, ##__VA_ARGS__))
+#define TRY_PARSE_SIGNED_INTEGER(it, ok, bits, ...) cast_v(CHAIN(s, bits), try_parse_signed_integer(it, ok, bits, ##__VA_ARGS__))
 
 inline u8 try_get_digit(u8 c, bool *ok, u8 base = 10) {
     u8 digit;
@@ -483,9 +483,9 @@ inline u64 try_parse_unsigned_integer(string *it, bool *ok, u8 bits = 64, u8 bas
     // if bits == 64 => 1 << 64 == 0 => 0 - 1 is highest value, should work
     u64 max_value;
     if (bits < 64)
-        max_value = (CAST_V(u64, 1) << bits) - 1;
+        max_value = (cast_v(u64, 1) << bits) - 1;
     else
-        max_value = ~CAST_V(u64, 0);
+        max_value = ~cast_v(u64, 0);
     
     u64 value = try_get_digit(head[0], ok, base);
     advance(&head);
@@ -547,27 +547,27 @@ inline s64 try_parse_signed_integer(string *it, bool *ok, u8 bits = 64, u32 *opt
     u64 value = try_parse_unsigned_integer(&head, ok, bits, 10, optional_digit_count);
     
     if (!*ok)
-        return CAST_V(s64, value);
+        return cast_v(s64, value);
     
     if (is_negative) {
-        if (value > (CAST_V(u64, 1) << (bits - 1))) {
+        if (value > (cast_v(u64, 1) << (bits - 1))) {
             *ok = false;
             return -1;
         }
         
         *it = head;
         
-        return -CAST_V(s64, value);
+        return -cast_v(s64, value);
     }
     else {
-        if (value >= (CAST_V(u64, 1) << (bits - 1))) {
+        if (value >= (cast_v(u64, 1) << (bits - 1))) {
             *ok = false;
             return -1;
         }
         
         *it = head;
         
-        return CAST_V(s64, value);
+        return cast_v(s64, value);
     }
 }
 
@@ -596,7 +596,7 @@ inline f64 try_parse_f64(string *it, bool *ok) {
     if (!*ok)
         return 0.0;
     
-    result = CAST_V(f64, hole_part);
+    result = cast_v(f64, hole_part);
     
     if (test_it.data[0] == '.') {
         advance(&test_it);
@@ -605,7 +605,7 @@ inline f64 try_parse_f64(string *it, bool *ok) {
         if (!*ok)
             return 0.0;
         
-        f64 fraction = CAST_V(f64, fractional_part);		
+        f64 fraction = cast_v(f64, fractional_part);		
         
         while (fractional_part_digit_count) {
             fraction /= 10.0;
@@ -818,15 +818,15 @@ inline Format_Info_integer64 f(u64 value, u32 max_digit_count = 0, u8 padding_sy
 }
 
 inline Format_Info_integer64 f(u32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+    return f(cast_v(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 inline Format_Info_integer64 f(u16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+    return f(cast_v(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 inline Format_Info_integer64 f(u8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+    return f(cast_v(u64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 inline Format_Info_integer64 f(s64 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A')
@@ -843,16 +843,16 @@ inline Format_Info_integer64 f(s64 value, u32 max_digit_count = 0, u8 padding_sy
 }
 
 inline Format_Info_integer64 f(s32 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+    return f(cast_v(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 
 inline Format_Info_integer64 f(s16 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+    return f(cast_v(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 inline Format_Info_integer64 f(s8 value, u32 max_digit_count = 0, u8 padding_symbol = '0', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
+    return f(cast_v(s64, value), max_digit_count, padding_symbol, base, first_symbol_after_9);
 }
 
 struct Format_Info_string {
@@ -1042,7 +1042,7 @@ inline Format_Info_f64 f(f64 value, u32 max_fraction_digit_count = 4, u8 fractio
 }
 
 inline Format_Info_f64 f(f32 value, u32 max_fraction_digit_count = 4, u8 fraction_symbol = '.', u8 base = 10, u8 first_symbol_after_9 = 'A') {
-    return f(CAST_V(f64, value), max_fraction_digit_count, fraction_symbol, base, first_symbol_after_9);
+    return f(cast_v(f64, value), max_fraction_digit_count, fraction_symbol, base, first_symbol_after_9);
 }
 
 #endif

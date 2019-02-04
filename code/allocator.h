@@ -134,7 +134,7 @@ Allocator_Resize_Interface(resize, Stack_Allocator *stack)
         assert(byte_alignment);
         
         auto high = low;
-        auto padding = MOD(byte_alignment - MOD(MEMORY_ADDRESS(high), byte_alignment), byte_alignment);
+        auto padding = MOD(byte_alignment - MOD(memory_address(high), byte_alignment), byte_alignment);
         high += padding + new_byte_count;
         
         assert(high > low, "well, you passed a negative or very high new_byte_count");
@@ -200,7 +200,7 @@ struct Chain_Allocator : Allocator_Header {
 };
 
 INTERNAL usize padding_of(u8 *data, usize byte_alignment) {
-    usize padding = MEMORY_ADDRESS(data) % byte_alignment;
+    usize padding = memory_address(data) % byte_alignment;
     if (padding)
         padding = byte_alignment - padding;
     

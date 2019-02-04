@@ -60,9 +60,11 @@ struct UI_Group {
 #define Template_List_With_Double_Links
 #include "template_list.h"
 
-struct UI_Context {
-    //Render_Queue render_queue;
+struct UI_Layout {
     
+};
+
+struct UI_Context {
     GLuint vertex_array_object;
     union {
         struct { GLuint vertex_buffer_object, index_buffer_object; };
@@ -562,12 +564,6 @@ UI_Text_Info ui_text(UI_Context *context, s16 x, s16 y, string text, bool do_ren
     assert(context->font_rendering.font);
     auto font = context->font_rendering.font;
     
-    Texture *backup;
-    if (do_render)
-        backup = ui_set_texture(context, &font->texture);
-    
-    defer { if (do_render) ui_set_texture(context, backup); };
-    
     UI_Text_Info info;
     info.text_area = {};
     info.line_count = 1;
@@ -649,7 +645,7 @@ INTERNAL bool ui_control(UI_Context *context, area2f cursor_area, bool cursor_wa
     if (control->cursor_was_released)
         control->active_id = -1;
     
-    bool needs_update = force_update || cursor_was_pressed || cursor_was_released || !ARE_EQUAL(&cursor_area, &control->cursor_area, sizeof(cursor_area));
+    bool needs_update = force_update || cursor_was_pressed || cursor_was_released || !are_equal(&cursor_area, &control->cursor_area, sizeof(cursor_area));
     
     if (needs_update)
     {
@@ -877,8 +873,9 @@ struct UI_Command {
 
 #define ui_begin_layout(context, layout, x, y, margin) _ui_begin_layout(context, layout, x, y, margin, __FUNCTION__, __LINE__)
 
+#if 0
 void ui_begin_item(UI_Context *context, UI_Layout *layout) {
-    context->current_item.command_byte_index = context->render_queue_byte_index;
+    
     context->current_item_area = {};
     
     auto command = ui_item(context, Render_Queue_Command);
@@ -917,8 +914,11 @@ void ui_end_item(UI_Context *context, UI_Layout *layout) {
     
     layout->item_count++;
 }
+#endif
 
 void _ui_begin_layout(UI_Context *context, UI_Layout *layout, s16 x, s16 y, s16 margin, char *function_name, u32 line) {
+    auto layout = insert_tail(&context->memory_stack.allocator, &context->layouts);
+    
     layout->render_queue_byte_index = context->render_queue_byte_index;
     
     layout->margin = margin;

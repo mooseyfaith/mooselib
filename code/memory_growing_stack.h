@@ -78,7 +78,7 @@ INTERNAL ALLOCATE_DEC(Memory_Growing_Stack *stack)
         
         u8 *internal_data = cast_p(u8, allocate(stack->internal_allocator, internal_size, alignof(Memory_Stack_List::Entry)));
         
-        Memory_Stack_List::Entry *entry = CAST_P(Memory_Stack_List::Entry, internal_data);
+        Memory_Stack_List::Entry *entry = cast_p(Memory_Stack_List::Entry, internal_data);
         internal_data += sizeof(Memory_Stack_List::Entry);
         internal_size -= sizeof(Memory_Stack_List::Entry);
         
@@ -149,7 +149,7 @@ INTERNAL REALLOCATE_DEC(Memory_Growing_Stack *stack) {
     }
     
     auto new_data = allocate(stack, size, alignment);
-    COPY(new_data, *data, MIN(old_size, size));
+    copy(new_data, *data, MIN(old_size, size));
     *data = new_data;
     
     // now its ok to free empty stacks

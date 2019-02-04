@@ -592,8 +592,8 @@ inline VEC3 get_clip_to_world_direction(MAT4X3 camera_to_world_transform, MAT4 c
 }
 
 inline REAL get_clip_to_world_up_scale(MAT4X3 camera_to_world_transform, MAT4 clip_to_camera_projection, REAL clip_z) {
-    VEC3 clip_center_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, { CAST_V(REAL, 0.0), CAST_V(REAL, 0.0), clip_z });
-    VEC3 clip_up_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, { CAST_V(REAL, 0.0), CAST_V(REAL, 1.0), clip_z });
+    VEC3 clip_center_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, { cast_v(REAL, 0.0), cast_v(REAL, 0.0), clip_z });
+    VEC3 clip_up_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, { cast_v(REAL, 0.0), cast_v(REAL, 1.0), clip_z });
     return length(clip_up_to_world - clip_center_to_world);
 }
 

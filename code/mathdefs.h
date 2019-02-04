@@ -5,11 +5,11 @@
 
 #include "basic.h"
 
-#define PI 3.14159265358979323846
-#define DEG_TO_RAD (PI / 180.0)
+#define Pi64 3.14159265358979323846
+#define Degree_To_Radian64 (Pi64 / 180.0)
 
-#define PIf (float)PI
-#define DEG_TO_RADf (float)DEG_TO_RAD
+#define Pi32 cast_v(f32, Pi64)
+#define Degree_To_Radian32 cast_v(f32, Degree_To_Radian64)
 
 #define MAX_ULP_DIFF_DEFAULT 7
 
@@ -20,28 +20,28 @@ inline bool are_close(float a, float b, s32 max_ulp_diff = MAX_ULP_DIFF_DEFAULT)
     if ((a > 0.0f) != (b > 0.0f))
         return a == b;
     
-    return abs(*CAST_P(s32, &a) - *CAST_P(s32, &b)) <= max_ulp_diff;
+    return abs(*cast_p(s32, &a) - *cast_p(s32, &b)) <= max_ulp_diff;
 }
 
 inline bool are_close(double a, double b, s64 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
     if ((a > 0.0) != (b > 0.0))
         return a == b;
     
-    return abs(*CAST_P(s64, &a) - *CAST_P(s64, &b)) <= max_ulp_diff;
+    return abs(*cast_p(s64, &a) - *cast_p(s64, &b)) <= max_ulp_diff;
 }
 
 u32 binary_distance(float a, float b) {
     if ((a > 0.0f) != (b > 0.0f))
         return -1;
     
-    return abs(*CAST_P(s32, &a) - *CAST_P(s32, &b));
+    return abs(*cast_p(s32, &a) - *cast_p(s32, &b));
 }
 
 u64 binary_distance(double a, double b) {
     if ((a > 0.0) != (b > 0.0))
         return -1;
     
-    return abs(*CAST_P(s64, &a) - *CAST_P(s64, &b));
+    return abs(*cast_p(s64, &a) - *cast_p(s64, &b));
 }
 
 inline float sign(float a) {

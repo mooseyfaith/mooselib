@@ -114,7 +114,7 @@ INTERNAL HWND win32_create_window(WNDCLASS *window_class, string title, s16 widt
 {
     char name_buffer[MAX_PATH];
     write_c_string(name_buffer, ARRAY_COUNT(name_buffer), title);
-    HWND window = CreateWindow(window_class->lpszClassName, name_buffer, WS_MINIMIZE | WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, CAST_V(s32, width), CAST_V(s32, height), 0, 0, instance, 0);
+    HWND window = CreateWindow(window_class->lpszClassName, name_buffer, WS_MINIMIZE | WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, cast_v(s32, width), cast_v(s32, height), 0, 0, instance, 0);
     if (!window)
         printf("CreateWindow error: %d\n", GetLastError());
     
@@ -228,9 +228,9 @@ void init_win32_allocator() {
 }
 
 PLATFORM_SYNC_ALLOCATORS_DEC(win32_sync_allocators) {
-    COPY(allocate_functions,   global_allocate_functions,   sizeof(global_allocate_functions));
-    COPY(reallocate_functions, global_reallocate_functions, sizeof(global_reallocate_functions));
-    COPY(free_functions,       global_free_functions,       sizeof(global_free_functions));
+    copy(allocate_functions,   global_allocate_functions,   sizeof(global_allocate_functions));
+    copy(reallocate_functions, global_reallocate_functions, sizeof(global_reallocate_functions));
+    copy(free_functions,       global_free_functions,       sizeof(global_free_functions));
 }
 
 Memory_Allocator make_win32_allocator() {
@@ -571,7 +571,7 @@ bool win32_load_application(Memory_Allocator *temporary_allocator, Application_I
 
 LRESULT CALLBACK win32_window_callback(HWND window_handle, UINT message, WPARAM w_param, LPARAM l_param)
 {
-    Win32_Window *window = CAST_P(Win32_Window, GetWindowLongPtr(window_handle, GWLP_USERDATA));
+    Win32_Window *window = cast_p(Win32_Window, GetWindowLongPtr(window_handle, GWLP_USERDATA));
     
     switch (message)
     {
@@ -621,7 +621,7 @@ LRESULT CALLBACK win32_window_callback(HWND window_handle, UINT message, WPARAM 
                 
                 assert(!window->is_fullscreen);
                 
-                RECT *window_rect = CAST_P(RECT, l_param);
+                RECT *window_rect = cast_p(RECT, l_param);
                 
                 s16 width  = window_rect->right - window_rect->left - border_width;
                 s16 height = window_rect->bottom - window_rect->top - border_height;
@@ -735,7 +735,7 @@ void wait_for_event(HANDLE event) {
 #endif
 
 PLATFORM_DISPLAY_WINDOW_DEC(win32_display_window) {
-    auto api = CAST_P(Win32_Platform_API, platform_api);
+    auto api = cast_p(Win32_Platform_API, platform_api);
     
     Platform_Window result;
     
@@ -888,7 +888,7 @@ PLATFORM_DISPLAY_WINDOW_DEC(win32_display_window) {
 
 PLATFORM_SKIP_WINDOW_UPDATE_DEC(win32_skip_window_update)
 {
-    auto api = CAST_P(Win32_Platform_API, platform_api);
+    auto api = cast_p(Win32_Platform_API, platform_api);
     assert(api->current_window);
     
     // will skip SwapBuffers for this window

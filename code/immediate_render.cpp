@@ -85,7 +85,7 @@ draw_circle(vec3f center, f32 radius, vec3f plane_normal, rgba32 color, bool is_
     auto context = Global_Immediate_Render_Context;
     u32 vertex_offset = Global_Immediate_Render_Context->vertices.count;
     
-    mat4x3f rotation = make_transform(make_quat(plane_normal, PIf * 2.0f / cast_v(f32, corner_count)));
+    mat4x3f rotation = make_transform(make_quat(plane_normal, Pi32 * 2.0f / cast_v(f32, corner_count)));
     
     vec3f corner;
     if (are_close(abs(dot(plane_normal, VEC3_Y_AXIS)), 1.0f))

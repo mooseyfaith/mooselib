@@ -223,11 +223,11 @@ struct rgb32 {
 };
 
 inline rgb32 make_rgb32(float gray) {
-    return rgb32{ CAST_V(u8, 255 * gray), CAST_V(u8, 255 * gray), CAST_V(u8, 255 * gray) };
+    return rgb32{ cast_v(u8, 255 * gray), cast_v(u8, 255 * gray), cast_v(u8, 255 * gray) };
 }
 
 inline rgb32 make_rgb32(f32 red, f32 green, f32 blue) {
-    return rgb32{ CAST_V(u8, 255 * red), CAST_V(u8, 255 * green), CAST_V(u8, 255 * blue) };
+    return rgb32{ cast_v(u8, 255 * red), cast_v(u8, 255 * green), cast_v(u8, 255 * blue) };
 }
 
 inline rgb32 make_rgb32(vec3f color) {
@@ -255,11 +255,11 @@ inline bool operator!=(rgba32 a, rgba32 b) {
 }
 
 inline rgba32 make_rgba32(f32 gray) {
-    return rgba32{ CAST_V(u8, 255 * gray), CAST_V(u8, 255 * gray), CAST_V(u8, 255 * gray), 255 };
+    return rgba32{ cast_v(u8, 255 * gray), cast_v(u8, 255 * gray), cast_v(u8, 255 * gray), 255 };
 }
 
 inline rgba32 make_rgba32(f32 red, f32 green, f32 blue, f32 alpha = 1.0f) {
-    return rgba32{ CAST_V(u8, 255 * red), CAST_V(u8, 255 * green), CAST_V(u8, 255 * blue), CAST_V(u8, 255 * alpha)  };
+    return rgba32{ cast_v(u8, 255 * red), cast_v(u8, 255 * green), cast_v(u8, 255 * blue), cast_v(u8, 255 * alpha)  };
 }
 
 inline rgba32 make_rgba32(vec3f color, f32 alpha = 1.0f) {
@@ -293,14 +293,15 @@ union area2f {
 #define Template_Area_Name area2f
 #define Template_Area_Struct_Is_Declared
 #define Template_Area_Vector_Type vec2f
+#define Template_Area_Data_Type f32
 #include "template_area.h"
 
 area2f make_uv_rect(Texture *texture, Pixel_Rectangle rect) {
     return {
-        rect.x / CAST_V(f32, texture->resolution.width), 
-        rect.y / CAST_V(f32, texture->resolution.height), 
-        rect.width / CAST_V(f32, texture->resolution.width), 
-        rect.height / CAST_V(f32, texture->resolution.height)
+        rect.x / cast_v(f32, texture->resolution.width), 
+        rect.y / cast_v(f32, texture->resolution.height), 
+        rect.width / cast_v(f32, texture->resolution.width), 
+        rect.height / cast_v(f32, texture->resolution.height)
     };
 }
 
@@ -363,7 +364,7 @@ void set_texture_filter_level(GLuint texture_object, u32 filter_level) {
 
 Texture make_alpha_texture(GLsizei width, GLsizei height, u32 filter_level = Texture_Filter_Level_Linear) {
     Texture result;
-    result.resolution = { CAST_V(s16, width), CAST_V(s16, height) };
+    result.resolution = { cast_v(s16, width), cast_v(s16, height) };
     
     glGenTextures(1, &result.object);
     glBindTexture(GL_TEXTURE_2D, result.object);
@@ -489,8 +490,8 @@ GLuint make_shader_object(GLenum type, string *shader_sources, u32 source_count,
     GLchar **sources = ALLOCATE_ARRAY(temporary_allocator, GLchar *, source_count);
     GLint *source_lengths = ALLOCATE_ARRAY(temporary_allocator, GLint, source_count);
     for (u32 source_index = 0; source_index < source_count; ++source_index) {
-        sources[source_index] = CAST_P(GLchar, shader_sources[source_index].data);
-        source_lengths[source_index] = CAST_V(GLint, shader_sources[source_index].count);
+        sources[source_index] = cast_p(GLchar, shader_sources[source_index].data);
+        source_lengths[source_index] = cast_v(GLint, shader_sources[source_index].count);
     }
     
     glShaderSource(shader_object, source_count, sources, source_lengths);
@@ -537,7 +538,7 @@ void  get_uniforms(GLint *uniform_locations, u32 uniform_count, GLuint program_o
         // convert to c string
         // add c string terminator
         char *c_uniform_name = ALLOCATE_ARRAY(temporary_allocator, char, uniform_name.count + 1);
-        COPY(c_uniform_name, uniform_name.data, uniform_name.count);
+        copy(c_uniform_name, uniform_name.data, uniform_name.count);
         c_uniform_name[uniform_name.count] = '\0';
         
         uniform_locations[i] = glGetUniformLocation(program_object, c_uniform_name);
@@ -611,14 +612,14 @@ Pixel_Dimensions get_auto_render_resolution(Pixel_Dimensions window_resolution, 
     Pixel_Dimensions render_resolution;
     
     {
-        f32 height_ratio = reference_resolution.height / CAST_V(f32, window_resolution.height);
-        f32 width_ratio  = reference_resolution.width  / CAST_V(f32, window_resolution.width);
+        f32 height_ratio = reference_resolution.height / cast_v(f32, window_resolution.height);
+        f32 width_ratio  = reference_resolution.width  / cast_v(f32, window_resolution.width);
         
         f32 referenceaspect_ratio = width_over_height(reference_resolution);
         f32 window_aspect_ratio = width_over_height(window_resolution);
         
         if (height_ratio >= width_ratio) {
-            render_resolution.width = CAST_V(s16, window_resolution.width * referenceaspect_ratio / window_aspect_ratio + 0.5f);
+            render_resolution.width = cast_v(s16, window_resolution.width * referenceaspect_ratio / window_aspect_ratio + 0.5f);
             render_resolution.height = window_resolution.height;
             
             // if the difference results in a 1 pixel border on both sides, ignore it
@@ -627,7 +628,7 @@ Pixel_Dimensions get_auto_render_resolution(Pixel_Dimensions window_resolution, 
         }
         else {
             render_resolution.width = window_resolution.width;
-            render_resolution.height = CAST_V(s16, window_resolution.height * window_aspect_ratio / referenceaspect_ratio + 0.5f);
+            render_resolution.height = cast_v(s16, window_resolution.height * window_aspect_ratio / referenceaspect_ratio + 0.5f);
             
             // if the difference results in a 1 pixel border on both sides, ignore it
             if ((render_resolution.height - window_resolution.height) % 4)
@@ -661,11 +662,11 @@ void set_auto_viewport(Pixel_Dimensions window_resolution, Pixel_Dimensions rend
 }
 
 vec2f get_clip_mouse_position(vec2f window_mouse_position, Pixel_Dimensions window_resolution, Pixel_Dimensions render_resolution) {
-    vec2f viewport_mouse_pos = window_mouse_position - vec2f{ CAST_V(f32, window_resolution.width - render_resolution.width >> 1), CAST_V(f32, window_resolution.height - render_resolution.height >> 1) };
+    vec2f viewport_mouse_pos = window_mouse_position - vec2f{ cast_v(f32, window_resolution.width - render_resolution.width >> 1), cast_v(f32, window_resolution.height - render_resolution.height >> 1) };
     
-    vec2f relative_mouse_pos = ((viewport_mouse_pos - vec2f{ CAST_V(f32, render_resolution.width), CAST_V(f32, render_resolution.height) } * 0.5f) / CAST_V(f32, render_resolution.height)) * vec2f { 2.0f, -2.0f };
+    vec2f relative_mouse_pos = ((viewport_mouse_pos - vec2f{ cast_v(f32, render_resolution.width), cast_v(f32, render_resolution.height) } * 0.5f) / cast_v(f32, render_resolution.height)) * vec2f { 2.0f, -2.0f };
     
-    return viewport_mouse_pos / vec2f{ CAST_V(f32, render_resolution.width), CAST_V(f32, -render_resolution.height) } * 2.0f - vec2f{ 1.0f, -1.0f };
+    return viewport_mouse_pos / vec2f{ cast_v(f32, render_resolution.width), cast_v(f32, -render_resolution.height) } * 2.0f - vec2f{ 1.0f, -1.0f };
 }
 
 #endif // ENGINE_OPEN_GL_H
