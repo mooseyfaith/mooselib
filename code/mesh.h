@@ -188,7 +188,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
                     assert(0);  // vertex attribute index not supported or implemented yet
                 }
                 
-                vertex_attribute_infos[vertex_attribute_info_count].length = CAST_V(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
+                vertex_attribute_infos[vertex_attribute_info_count].length = cast_v(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
                 skip_white_space(&it);
                 
                 if (try_skip(&it, S("f32"))) {
@@ -205,7 +205,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
                 vertex_attribute_infos[vertex_attribute_info_count].do_normalize = parse_unsigned_integer(&it, 1) ? GL_TRUE : GL_FALSE;
                 skip_white_space(&it);
                 
-                vertex_attribute_infos[vertex_attribute_info_count].padding_length = CAST_V(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
+                vertex_attribute_infos[vertex_attribute_info_count].padding_length = cast_v(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
                 skip_white_space(&it);
                 
                 ++vertex_attribute_info_count;
@@ -249,7 +249,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
                     continue;
                 }
                 
-                f32 value = CAST_V(f32, parse_f64(&it)); skip_white_space(&it);
+                f32 value = cast_v(f32, parse_f64(&it)); skip_white_space(&it);
                 *push_item(&buffer, f32) = value;
             }
             
@@ -307,7 +307,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             break;
         }
         
-        push_index(&indices, CAST_V(u32, parse_unsigned_integer(&it, indices.bytes_per_index << 3)));
+        push_index(&indices, cast_v(u32, parse_unsigned_integer(&it, indices.bytes_per_index << 3)));
         skip_white_space(&it);
     }
     
@@ -368,7 +368,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             f32 *transform_end = transform_it + 12;
             while (transform_it != transform_end) {
                 assert(it.count);
-                *transform_it++ = CAST_V(f32, parse_f64(&it)); skip_white_space(&it);
+                *transform_it++ = cast_v(f32, parse_f64(&it)); skip_white_space(&it);
             }
             
             //if (bone_it->parent) {
@@ -542,7 +542,7 @@ Sampled_Bone_Animation animation_load_sampled(string source, Dictionary *bones, 
             }
             
             assert(data_it != data_end);
-            *data_it++ = CAST_V(f32, parse_f64(&it));
+            *data_it++ = cast_v(f32, parse_f64(&it));
             skip_white_space(&it);
         }
     }

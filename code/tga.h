@@ -219,7 +219,7 @@ TGA_Header * tga_load_sub_texture(OUTPUT Pixel_Rectangle *area, Texture *texture
         glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, header->image_info.width, header->image_info.height, format, GL_UNSIGNED_BYTE, image_data);
     }
     
-    *area = { x, y, CAST_V(s16, header->image_info.width), CAST_V(s16, header->image_info.height) };
+    *area = { x, y, cast_v(s16, header->image_info.width), cast_v(s16, header->image_info.height) };
     
     return header;
 }
