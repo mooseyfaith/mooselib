@@ -189,7 +189,7 @@ int main(int argc, const char **args)
                     message->kind = Platform_Message_Kind_Character;
                     message->code = msg.wParam;
                     
-                    insert_tail(&win32_transient_memory.allocator, &win32_messages, cast_p(Platform_Message, message));
+                    *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                 } break;
                 
                 case WM_UNICHAR: {
@@ -197,7 +197,7 @@ int main(int argc, const char **args)
                     message->kind = Platform_Message_Kind_Character;
                     message->code = msg.wParam;
                     
-                    insert_tail(&win32_transient_memory.allocator, &win32_messages, cast_p(Platform_Message, message));
+                    *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                 } break;
                 
                 case WM_SYSKEYDOWN:
@@ -242,7 +242,7 @@ int main(int argc, const char **args)
                             message->kind = Platform_Message_Kind_Character;
                             message->code = code;
                             
-                            insert_tail(&win32_transient_memory.allocator, &win32_messages, cast_p(Platform_Message, message));
+                            *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                         }
                     }
                     
@@ -376,7 +376,7 @@ int main(int argc, const char **args)
                             }
                         }
                         
-                        insert_tail(&win32_transient_memory.allocator, &win32_messages, cast_p(Platform_Message, message));
+                        *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                         
                         printf("file: %.*s\n", FORMAT_S(&message->full_path));
                     }
@@ -488,7 +488,7 @@ int main(int argc, const char **args)
                 
                 auto message = ALLOCATE(&win32_transient_memory.allocator, Platform_Message);
                 message->kind = Platform_Message_Kind_Reload;
-                insert_tail(&win32_transient_memory.allocator, &win32_messages, cast_p(Platform_Message, message));
+                *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
             }
             
             button_poll_update(&win32_platform_api.input.mouse.left, GetKeyState(VK_LBUTTON) & 0x8000);

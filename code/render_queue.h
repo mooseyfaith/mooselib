@@ -3,13 +3,13 @@
 
 #include "render_batch.h"
 
-enum Render_Queue_Command_Kind {
-    Render_Queue_Command_Kind_Draw,
-    Render_Queue_Command_Kind_Bind_Texture,
-};
-
 struct Render_Queue_Command {
-    u32 kind;
+    enum Kind {
+        Kind_draw,
+        Kind_bind_texture,
+        Kind_custom,
+        Kind_Count
+    } kind;
     
     union {
         struct {
@@ -22,6 +22,10 @@ struct Render_Queue_Command {
             Texture *texture;
             u32 index;
         } bind_texture;
+        
+        struct {
+            usize byte_count;
+        } custom;
     };
 };
 
@@ -71,8 +75,7 @@ void upload(Render_Queue *queue)
             auto command = next_item(&it, Render_Queue_Command);
             
             switch (command->kind) {
-                case Render_Queue_Command_Kind_Draw:
-                {
+                case_kind(Render_Queue_Command, draw) {
                     usize byte_count = queue->vertex_byte_count * command->draw.vertex_count;
                     
                     auto dest = grow(queue->allocator, &vertices, byte_count);
@@ -82,11 +85,14 @@ void upload(Render_Queue *queue)
                     next_items(&it, u32, command->draw.index_count);
                 } break;
                 
-                case Render_Queue_Command_Kind_Bind_Texture:
-                break;
+                case_kind(Render_Queue_Command, bind_texture) {
+                } break;
                 
-                default:
-                UNREACHABLE_CODE;
+                case_kind(Render_Queue_Command, custom) {
+                    advance(&it, command->custom.byte_count);
+                } break;
+                
+                CASES_COMPLETE;
             }
         }
         
@@ -107,8 +113,7 @@ void upload(Render_Queue *queue)
             auto command = next_item(&it, Render_Queue_Command);
             
             switch (command->kind) {
-                case Render_Queue_Command_Kind_Draw:
-                {
+                case_kind(Render_Queue_Command, draw) {
                     advance(&it, queue->vertex_byte_count * command->draw.vertex_count);
                     
                     auto src = next_items(&it, u32, command->draw.index_count);
@@ -122,11 +127,14 @@ void upload(Render_Queue *queue)
                     vertex_offset += command->draw.vertex_count;
                 } break;
                 
-                case Render_Queue_Command_Kind_Bind_Texture:
-                break;
+                case_kind(Render_Queue_Command, bind_texture) {
+                } break;
                 
-                default:
-                UNREACHABLE_CODE;
+                case_kind(Render_Queue_Command, custom) {
+                    advance(&it, command->custom.byte_count);
+                } break;
+                
+                CASES_COMPLETE;
             }
         }
         
@@ -139,12 +147,12 @@ void upload(Render_Queue *queue)
     }
 }
 
-void render(Render_Queue *queue)
+void render(Render_Queue queue)
 {
-    glBindVertexArray(queue->vertex_array_object);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, queue->index_buffer_object);
+    glBindVertexArray(queue.vertex_array_object);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, queue.index_buffer_object);
     
-    auto it = queue->data;
+    auto it = queue.data;
     usize index_offset = 0;
     
     Render_Queue_Command current_draw_command;
@@ -155,8 +163,7 @@ void render(Render_Queue *queue)
         auto command = next_item(&it, Render_Queue_Command);
         
         switch (command->kind) {
-            case Render_Queue_Command_Kind_Draw:
-            {
+            case_kind(Render_Queue_Command, draw) {
                 if (current_draw_command.draw.mode == -1) {
                     current_draw_command = *command;
                 } else if (current_draw_command.draw.mode == command->draw.mode) {
@@ -169,12 +176,11 @@ void render(Render_Queue *queue)
                     current_draw_command = *command;
                 }
                 
-                advance(&it, queue->vertex_byte_count * command->draw.vertex_count);
+                advance(&it, queue.vertex_byte_count * command->draw.vertex_count);
                 next_items(&it, u32, command->draw.index_count);
             } break;
             
-            case Render_Queue_Command_Kind_Bind_Texture:
-            {
+            case_kind(Render_Queue_Command, bind_texture) {
                 if (current_draw_command.draw.mode != -1) {
                     glDrawElements(current_draw_command.draw.mode, current_draw_command.draw.index_count, GL_UNSIGNED_INT, cast_p(GLvoid, index_offset));
                     index_offset += current_draw_command.draw.index_count * sizeof(u32);
@@ -185,8 +191,11 @@ void render(Render_Queue *queue)
                 glBindTexture(GL_TEXTURE_2D, command->bind_texture.texture->object);
             } break;
             
-            default:
-            UNREACHABLE_CODE;
+            case_kind(Render_Queue_Command, custom) {
+                advance(&it, command->custom.byte_count);
+            } break;
+            
+            CASES_COMPLETE;
         }
     }
     
@@ -206,7 +215,7 @@ void clear(Render_Queue *queue)
 void upload_render_and_clear(Render_Queue *queue)
 {
     upload(queue);
-    render(queue);
+    render(*queue);
     clear(queue);
 }
 

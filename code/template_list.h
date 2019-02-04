@@ -13,7 +13,7 @@
 
 #if !defined Template_List_Without_Count
 #   if !defined Template_List_Count_Type
-#      define Template_List_Count_Type u32
+#      define Template_List_Count_Type usize
 #   endif
 #else
 #   if defined Template_List_Count_Type
@@ -42,7 +42,7 @@ struct Template_List_Name {
 #endif
         };
         
-        // maybe add optinal index?
+        // maybe add optioal index?
     };
     
     union {
@@ -69,46 +69,96 @@ struct Template_List_Name {
 #define for_list_item(iterator, list) \
 for (auto iterator = (list).head; iterator; iterator = iterator->next)
 
-INTERNAL Template_List_Data_Type * 
-_insert(Template_List_Name *list, u32 mark_index, Template_List_Name::Entry *entry, u32 insert_prev = 0)
+INTERNAL Template_List_Data_Type *
+_insert(Template_List_Name *list, Template_List_Name::Entry *at, Template_List_Name::Entry *entry, u32 insert_after_at = 0)
 {
-    Template_List_Name::Entry **mark = list->marks + mark_index;
-    u32 const forward = insert_prev;
-    
-#if defined Template_List_With_Double_Links
-    u32 const backwards = 1 - insert_prev;
-#else
-    assert(insert_prev == 0);
+#if !defined Template_List_With_Double_Links
+    assert(insert_after_at == 0);
 #endif
     
-    entry->links[forward] = null;
+    u32 next = insert_after_at;
+    u32 prev = 1 - next;
     
 #if defined Template_List_With_Double_Links
-    entry->links[backwards] = *mark;
-#endif
-    
-    if (*mark) {
-        (*mark)->links[forward] = entry;
-        *mark = entry;
+    if (at) {
+        if (at->links[prev])
+            at->links[prev]->links[next] = entry;
+        
+        entry->links[prev] = at->links[prev];
+        at->links[prev] = entry;
     }
     else {
-        for (u32 i = 0; i < ARRAY_COUNT(list->marks); ++i)
+        entry->links[prev] = null;
+    }
+#endif
+    
+    entry->links[next] = at;
+    
+    if (!list->head) {
+        assert(at == null);
+        for (u32 i = 0; i < ARRAY_COUNT(list->marks); i++) {
+            assert(!list->marks[i]);
             list->marks[i] = entry;
+        }
+    }
+    else {
+        if (entry->next == list->head)
+            list->head = entry;
+        
+#if defined Template_List_With_Tail
+        if (list->tail->next)
+            list->tail = list->tail->next;
+#endif
     }
     
 #if defined Template_List_Count_Type
-    ++list->count;
+    list->count++;
 #endif
     
     return &entry->Template_List_Data_Name;
 }
 
 INTERNAL Template_List_Data_Type * 
-insert_head(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_prev = 0)
+insert_head(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_after_head = 0)
 {
-    return _insert(list, 0, entry, insert_prev);
+    return _insert(list, list->head, entry, insert_after_head);
 }
 
+INTERNAL Template_List_Name::Entry * 
+_remove(Template_List_Name *list, Template_List_Name::Entry *at)
+{
+#if defined Template_List_With_Double_Links
+    
+    if (at->prev)
+        at->prev->next = at->next;
+    
+    if (at->next)
+        at->next->prev = at->prev;
+    
+    if (list->head == at)
+        list->head = at->next;
+    
+    if (list->tail == at)
+        list->tail = at->prev;
+    
+#else
+    
+    // for singly linked list only removing at head is allowed
+    // removing at tail would require iteration through the whole list
+    assert(at == list->head);
+    assert(list->head);
+    list->head = list->head->next;
+    
+#endif
+    
+#if defined Template_List_Count_Type
+    list->count--;
+#endif
+    
+    return at;
+}
+
+#if 0
 INTERNAL Template_List_Name::Entry * 
 _remove(Template_List_Name *list, u32 mark_index)
 {
@@ -145,6 +195,7 @@ _remove(Template_List_Name *list, u32 mark_index)
     
     return entry;
 }
+#endif
 
 INTERNAL Template_List_Name::Entry * 
 remove_head(Template_List_Name *list)
@@ -155,46 +206,18 @@ remove_head(Template_List_Name *list)
 #if defined Template_List_With_Tail
 
 INTERNAL Template_List_Data_Type * 
-insert_tail(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_prev = 0)
+insert_tail(Template_List_Name *list, Template_List_Name::Entry *entry, u32 insert_after_tail = 1)
 {
-    return _insert(list, 1, entry, insert_prev);
+    return _insert(list, list->tail, entry, insert_after_tail);
 }
 
 INTERNAL Template_List_Name::Entry * 
 remove_tail(Template_List_Name *list)
 {
-    return _remove(list, 1);
+    return _remove(list, list->tail);
 }
 
 #endif // Template_List_With_Tail
-
-INTERNAL void 
-insert_after(Template_List_Name *list, Template_List_Name::Entry *at_entry, Template_List_Name::Entry *new_entry)
-{
-    if (at_entry)
-    {
-        
-#if defined Template_List_With_Double_Links
-        if (at_entry->next)
-            at_entry->next->prev = new_entry;
-        
-        new_entry->prev = at_entry;
-#endif
-        
-        new_entry->next = at_entry->next;
-        at_entry->next = new_entry;
-    }
-    else {
-        new_entry->next = null;
-        
-        list->head = new_entry;
-        
-#if defined Template_List_With_Tail
-        list->tail = new_entry;
-#endif
-        
-    }
-}
 
 #if defined Template_List_With_Double_Links
 
@@ -222,24 +245,24 @@ INTERNAL void remove(Template_List_Name *list, Template_List_Name::Entry *it) {
 #if defined MEMORY_H
 
 INTERNAL Template_List_Data_Type * 
-_insert(Memory_Allocator *allocator, Template_List_Name *list, u32 mark_index, Template_List_Data_Type value, u32 insert_prev = 0)
+_insert(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Name::Entry *at, u32 insert_after_at = 0)
 {
     Template_List_Name::Entry *entry = ALLOCATE(allocator, Template_List_Name::Entry);
-    entry->Template_List_Data_Name = value;
-    return _insert(list, mark_index, entry, insert_prev);
+    return _insert(list, at, entry, insert_after_at);
 }
 
 INTERNAL Template_List_Data_Type * 
-insert_head(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Data_Type value, u32 insert_after = 0)
+insert_head(Memory_Allocator *allocator, Template_List_Name *list, u32 insert_after_head = 0)
 {
-    return _insert(allocator, list, 0, value, insert_after);
+    return _insert(allocator, list, list->head, insert_after_head);
 }
 
 
 INTERNAL Template_List_Data_Type 
-_remove(Memory_Allocator *allocator, Template_List_Name *list, u32 mark_index)
+_remove(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Name::Entry *at)
 {
-    Template_List_Name::Entry *entry = _remove(list, mark_index);
+    Template_List_Name::Entry *entry = _remove(list, at);
+    assert(entry == at);
     Template_List_Data_Type value = entry->Template_List_Data_Name;
     free(allocator, entry);
     
@@ -255,9 +278,9 @@ remove_head(Memory_Allocator *allocator, Template_List_Name *list)
 #  if defined Template_List_With_Tail
 
 INTERNAL Template_List_Data_Type * 
-insert_tail(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Data_Type value, u32 insert_prev = 0)
+insert_tail(Memory_Allocator *allocator, Template_List_Name *list, u32 insert_after_tail = 1)
 {
-    return _insert(allocator, list, 1, value, insert_prev);
+    return _insert(allocator, list, list->tail, insert_after_tail);
 }
 
 #    if defined Template_List_With_Double_Links
@@ -265,7 +288,7 @@ insert_tail(Memory_Allocator *allocator, Template_List_Name *list, Template_List
 INTERNAL Template_List_Data_Type 
 remove_tail(Memory_Allocator *allocator, Template_List_Name *list)
 {
-    return _remove(allocator, list, 1);
+    return _remove(allocator, list, list->tail);
 }
 
 #    endif

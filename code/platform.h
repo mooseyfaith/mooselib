@@ -117,6 +117,7 @@ struct Platform_Message {
 
 #define Template_List_Name      Platform_Messages
 #define Template_List_Data_Type Platform_Message *
+#define Template_List_With_Double_Links
 #define Template_List_With_Tail
 #include "template_list.h"
 

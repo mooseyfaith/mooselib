@@ -12,7 +12,7 @@
 typedef char                    s8;
 typedef short                  s16; // pixel/texel sizes, coordinates
 typedef int                    s32; // default signed type
-typedef long int               s64;
+typedef long long int          s64;
 
 typedef unsigned char           u8;
 typedef unsigned short         u16; // pixel/texel sizes, coordinates
@@ -122,6 +122,47 @@ const usize usize_max = -usize(1);
 #define RANGE_SUM(count) ((count) * ((count) + 1) / 2)
 
 #define LOOP for(;;)
+
+// for tagged unions
+// example
+#if 0
+struct A {
+    enum Kind {
+        Kind_foo,
+        Kind_bar,
+        Kind_Count
+    } kind;
+    
+    union {
+        struct {
+            u32 a, b;
+        } foo;
+        
+        struct {
+            f32 c;
+            string d;
+        } bar;
+    }
+};
+
+A x = make_kind(A, foo, 1, 2); // a = 1, b = 2
+asssert(is_kind(x, foo));
+auto f = kind(x, foo);
+use f->a, f->b
+#endif
+
+#define make_kind(type, k, ...) [&]() { type result = {}; result.kind = type::Kind_ ## k; result.k = { __VA_ARGS__ }; return result; }()
+#define make_null_kind(type) { type::Kind_Count }
+
+#define is_kind(a, k) ((a).kind == (a).Kind_ ## k)
+#define is_kind_null(a) is_kind(a, Count)
+#define try_kind(a, k) (is_kind(a, k) ? &(a).k : null)
+#define kind(a, k) [&]() { assert(is_kind(a, k)); return &(a).k; }()
+
+#define case_kind(type, kind) case type::Kind_ ## kind:
+
+#define new_kind(allocator, type, k, ...) (&(*ALLOCATE(allocator, type) = make_kind(type, k, __VA_ARGS__)))
+
 
 #define COPY(destination, source, size_in_bytes) copy(CAST_ANY(destination), CAST_ANY(source), CAST_V(usize, size_in_bytes))
 INTERNAL void copy(any destination, any source, usize size_in_bytes) {

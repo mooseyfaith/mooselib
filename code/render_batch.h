@@ -122,7 +122,6 @@ struct Render_Batch_Command {
     u32 index_count;
 };
 
-
 #define Template_Array_Name      Render_Batch_Command_Buffer
 #define Template_Array_Data_Type Render_Batch_Command
 #define Template_Array_Is_Buffer

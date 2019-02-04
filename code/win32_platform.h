@@ -569,53 +569,6 @@ bool win32_load_application(Memory_Allocator *temporary_allocator, Application_I
     return dll_reloaded;
 }
 
-void win32_paint(Win32_Platform_API *api) {
-    LARGE_INTEGER time;
-    QueryPerformanceCounter(&time);
-    
-    LARGE_INTEGER delta_time;
-    delta_time.QuadPart = time.QuadPart - api->last_time.QuadPart;
-    
-    f64 delta_seconds = delta_time.QuadPart / cast_v(f64, api->ticks_per_second.QuadPart);
-    api->last_time = time;
-    
-    for (u32 i = 0; i < api->window_buffer.count; ++i) {
-        api->window_buffer[i].is_active = false;
-    }
-    
-    api->platform_api.messages = {};
-    
-    if (!api->application_info.main_loop(cast_p(Platform_API, api), &api->input, null, api->application_info.data, delta_seconds))
-        PostQuitMessage(0);
-    
-    {
-        if (api->current_window && api->current_window->is_active)
-        {
-            SwapBuffers(api->current_window->device_context);
-            api->current_window = null;
-        }
-        
-        u32 i = 0;
-        while (i < api->window_buffer.count) {
-            if (!api->window_buffer[i].is_active)
-                DestroyWindow(api->window_buffer[i].handle);
-            
-            if (api->window_buffer[i].was_destroyed) {
-                api->window_buffer[i] = api->window_buffer[api->window_buffer.count - 1];
-                api->window_buffer.count--;
-                
-                // update handle to window maping, after swap
-                if (i < api->window_buffer.count) {
-                    SetWindowLongPtr(api->window_buffer[i].handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(api->window_buffer + i));
-                }
-            }
-            else {
-                ++i;
-            }
-        }
-    }
-}
-
 LRESULT CALLBACK win32_window_callback(HWND window_handle, UINT message, WPARAM w_param, LPARAM l_param)
 {
     Win32_Window *window = CAST_P(Win32_Window, GetWindowLongPtr(window_handle, GWLP_USERDATA));
@@ -629,7 +582,6 @@ LRESULT CALLBACK win32_window_callback(HWND window_handle, UINT message, WPARAM 
             
             window->new_area.x = LOWORD(l_param);
             window->new_area.y = HIWORD(l_param);
-            //win32_paint(global_win32_api);
         }
         break;
         
@@ -645,7 +597,6 @@ LRESULT CALLBACK win32_window_callback(HWND window_handle, UINT message, WPARAM 
             window->new_area.y = rect.top;
             window->new_area.width  = rect.right - rect.left;
             window->new_area.height = rect.bottom - rect.top;
-            //win32_paint(global_win32_api);
         }
         break;
         
@@ -712,8 +663,6 @@ LRESULT CALLBACK win32_window_callback(HWND window_handle, UINT message, WPARAM 
                 window->new_area.width = width;
                 window->new_area.height = height;
                 
-                //win32_paint(global_win32_api);
-                
                 return TRUE;
             }
         } break;
@@ -721,7 +670,6 @@ LRESULT CALLBACK win32_window_callback(HWND window_handle, UINT message, WPARAM 
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(window_handle, &ps); 
-            //win32_paint(global_win32_api);
             EndPaint(window_handle, &ps);
         }; break;
         

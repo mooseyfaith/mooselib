@@ -1,7 +1,8 @@
-#if !defined UI_H
-#define UI_H
+#if !defined YAUI_H
+#define YAUI_H
 
-#include "render_queue.h"
+#include "memory_growing_stack.h"
+#include "render_batch.h"
 #include "font.h"
 
 #pragma pack(push, 1)
@@ -24,18 +25,59 @@ enum UI_Control_State {
     UI_Control_State_Triggered
 };
 
-struct UI_Layout {
-    vec2f offset;
-    f32 margin;
-    u32 render_queue_byte_index;
-    u32 item_count;
-    area2f area;
-    vec2f cursor;
+struct UI_Command {
+    enum Kind {
+        Kind_draw,
+        Kind_Count,
+    } kind;
+    
+    union {
+        struct {
+            GLenum mode;
+            UI_Vertex_Array vertices;
+            u32_array       indices;
+        } draw;
+    };
 };
 
+#define Template_List_Name      UI_Command_List
+#define Template_List_Data_Type UI_Command
+#define Template_List_Data_Name command
+#define Template_List_With_Tail
+#define Template_List_With_Double_Links
+#include "template_list.h"
+
+struct UI_Group {
+    Texture *texture;
+    
+    UI_Command_List commands;
+};
+
+#define Template_List_Name      UI_Group_List
+#define Template_List_Data_Type UI_Group
+#define Template_List_Data_Name group
+#define Template_List_With_Tail
+#define Template_List_With_Double_Links
+#include "template_list.h"
+
 struct UI_Context {
-    Render_Queue render_queue;
-    Memory_Allocator *transient_allocator;
+    //Render_Queue render_queue;
+    
+    GLuint vertex_array_object;
+    union {
+        struct { GLuint vertex_buffer_object, index_buffer_object; };
+        GLuint buffer_objects[2];
+    };
+    
+    Memory_Growing_Stack memory_stack;
+    Memory_Allocator *transient_allocator; // for text formatting and rendering
+    
+    UI_Group_List groups;
+    UI_Group *current_group;
+    
+    // area of all successive draws
+    area2f current_area;
+    
     union { mat4x3f world_to_camera_transform, transform; };
     f32 depth;
     
@@ -50,7 +92,7 @@ struct UI_Context {
     s16 border_thickness;
     
     usize last_texture_command_offset;
-    Texture *texture;
+    //Texture *texture;
     
     struct {
         Font *font;
@@ -76,6 +118,7 @@ struct UI_Context {
         f32 next_hot_priority;
     } control;
     
+#if 0
     u32 layout_count;
     UI_Layout *current_layout;
     
@@ -86,9 +129,40 @@ struct UI_Context {
     area2f current_item_area;
     u32 render_queue_byte_index;
     bool has_cashed_commands;
+#endif
+    
 };
 
-UI_Context make_ui_context(Memory_Allocator *allocator) {
+Texture * ui_set_texture(UI_Context *context, Texture *texture) {
+    assert(texture);
+    
+    UI_Group *group = null;
+    for_list_item(it, context->groups) {
+        if (it->group.texture == texture) {
+            group = &it->group;
+            break;
+        }
+    }
+    
+    if (!group) {
+        group = insert_tail(&context->memory_stack.allocator, &context->groups);
+        *group = {};
+        group->texture = texture;
+    }
+    
+    Texture *old_texture;
+    if (context->current_group)
+        old_texture = context->current_group->texture;
+    else
+        old_texture = null;
+    
+    context->current_group = group;
+    
+    return old_texture;
+}
+
+
+UI_Context make_ui_context(Memory_Allocator *internal_allocator) {
     UI_Context context = {};
     
     Vertex_Attribute_Info attribute_infos[] = {
@@ -96,7 +170,20 @@ UI_Context make_ui_context(Memory_Allocator *allocator) {
         { Vertex_Color_Index,    4, GL_UNSIGNED_BYTE, GL_TRUE },
         { Vertex_UV_Index,       2, GL_FLOAT, GL_FALSE },
     };
-    context.render_queue = make_render_queue(allocator, ARRAY_WITH_COUNT(attribute_infos));
+    
+    glGenVertexArrays(1, &context.vertex_array_object);
+    glGenBuffers(COUNT_WITH_ARRAY(context.buffer_objects));
+    
+    glBindVertexArray(context.vertex_array_object);
+    
+    set_vertex_attributes(context.vertex_buffer_object, ARRAY_WITH_COUNT(attribute_infos));
+    assert(get_vertex_byte_count( ARRAY_WITH_COUNT(attribute_infos)) == sizeof(UI_Vertex));
+    
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    
+    //context.render_queue = make_render_queue(allocator, ARRAY_WITH_COUNT(attribute_infos));
+    context.memory_stack = make_memory_growing_stack(internal_allocator);
     
     context.world_to_camera_transform = MAT4X3_IDENTITY;
     context.depth = 0.0f;
@@ -109,9 +196,9 @@ UI_Context make_ui_context(Memory_Allocator *allocator) {
     context.font_rendering.do_render = true;
     
     context.last_texture_command_offset = -1;
-    context.texture = null;
-    context.has_cashed_commands = false;
-    context.render_queue_byte_index = 0;
+    //context.texture = null;
+    //context.has_cashed_commands = false;
+    //context.render_queue_byte_index = 0;
     
     auto control = &context.control;
     
@@ -163,26 +250,14 @@ void ui_set_font(UI_Context *context, Font *font, f32 scale = 1.0f) {
 
 vec2f _uv_from_position(UI_Context *context, s16 origin_x, s16 origin_y, s16 x, s16 y)
 {
-    assert(context->texture);
+    assert(context->current_group && context->current_group->texture);
+    auto texture = context->current_group->texture;
     
-    return { cast_v(f32, x - origin_x) / context->texture->resolution.width, cast_v(f32, y - origin_y) / context->texture->resolution.height };
+    return { cast_v(f32, x - origin_x) / texture->resolution.width, cast_v(f32, y - origin_y) / texture->resolution.height };
     
 }
 
-u8 * ui_push_size(UI_Context *context, usize byte_count) {
-    defer { context->render_queue_byte_index += byte_count; };
-    
-    if (context->render_queue_byte_index + byte_count > byte_count_of(context->render_queue.data)) {
-        context->has_cashed_commands = false;
-        grow(context->render_queue.allocator, &context->render_queue.data, context->render_queue_byte_index + byte_count - byte_count_of(context->render_queue.data));
-    }
-    
-    return context->render_queue.data + context->render_queue_byte_index;
-}
-
-#define ui_items(context, type, count) cast_p(type, ui_push_size(context, sizeof(type) * count))
-#define ui_item(context, type)         ui_items(context, type, 1)
-
+#if 0
 Texture * ui_set_texture(UI_Context *context, Texture *texture)
 {
     Render_Queue_Command *last_texture_command;
@@ -212,6 +287,7 @@ Texture * ui_set_texture(UI_Context *context, Texture *texture)
     
     return old_texture;
 }
+#endif
 
 bool ui_clip(UI_Context *context, area2f *draw_area, area2f *texture_area = null) {
     if (context->sissor_area.is_valid) {
@@ -270,7 +346,10 @@ void ui_set_vertex(UI_Context
 
 void ui_set_quad_vertices(UI_Context *context, UI_Vertex vertices[4], area2f draw_rect, area2f texture_rect, rgba32 color, f32 offset = 0.0f)
 {
-    vec2f texel_size = { 1.0f / context->texture->resolution.width, 1.0f / context->texture->resolution.height };
+    assert(context->current_group && context->current_group->texture);
+    auto texture = context->current_group->texture;
+    
+    vec2f texel_size = { 1.0f / texture->resolution.width, 1.0f / texture->resolution.height };
     
     // 3---2
     // |   |
@@ -321,7 +400,7 @@ void ui_set_quad_triangles_indices(u32 indices[4], u32 a, u32 b, u32 c, u32 d)
 
 void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true)
 {
-    context->current_item_area = merge(context->current_item_area, draw_rect);
+    context->current_area = merge(context->current_area, draw_rect);
     
     s16 thickness = context->border_thickness;
     
@@ -331,77 +410,55 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
     else
         offset = 0.0f;
     
-    auto command = ui_item(context, Render_Queue_Command);
-    *command = make_kind(Render_Queue_Command, draw);
+    auto command = insert_tail(&context->memory_stack.allocator, &context->current_group->commands);
+    *command = make_kind(UI_Command, draw);
     
     if (is_filled)
     {
         command->draw.mode = GL_TRIANGLES;
-        command->draw.vertex_count = 4;
-        command->draw.index_count = 6;
+        command->draw.vertices = ALLOCATE_ARRAY_INFO(&context->memory_stack, UI_Vertex, 4);
+        command->draw.indices = ALLOCATE_ARRAY_INFO(&context->memory_stack, u32, 6);
         
-        // grow_items might invalidad comand, so we copy it
-        Render_Queue_Command command_backup = *command;
-        
-        auto vertices = ui_items(context, UI_Vertex, command_backup.draw.vertex_count);
-        ui_set_quad_vertices(context, vertices, draw_rect, texture_rect, color, offset);
+        ui_set_quad_vertices(context, command->draw.vertices, draw_rect, texture_rect, color, offset);
         
         // 3--2   l - counter clockwise (left)
         // |l/|
         // |/l|
         // 0--1
         
-        auto indices = ui_items(context, u32, command_backup.draw.index_count);
-        
-        ui_set_quad_triangles_indices(indices, 0, 1, 2, 3);
+        ui_set_quad_triangles_indices(command->draw.indices, 0, 1, 2, 3);
     }
     else if (thickness <= 1.0f)
     {
         command->draw.mode = GL_LINES;
-        command->draw.vertex_count = 4;
-        command->draw.index_count = 8;
+        command->draw.vertices = ALLOCATE_ARRAY_INFO(&context->memory_stack, UI_Vertex, 4);
+        command->draw.indices = ALLOCATE_ARRAY_INFO(&context->memory_stack, u32, 8);
         
-        // grow_items might invalidad comand, so we copy it
-        Render_Queue_Command command_backup = *command;
+        ui_set_quad_vertices(context, command->draw.vertices, draw_rect, texture_rect, color, offset);
         
-        auto vertices = ui_items(context, UI_Vertex, command_backup.draw.vertex_count);
-        ui_set_quad_vertices(context, vertices, draw_rect, texture_rect, color, offset);
-        
-        auto indices = ui_items(context, u32, command_backup.draw.index_count);
-        
-        indices[0] = 0;
-        indices[1] = 1;
-        indices[2] = 1;
-        indices[3] = 2;
-        indices[4] = 2;
-        indices[5] = 3;
-        indices[6] = 3;
-        indices[7] = 0;
+        command->draw.indices[0] = 0;
+        command->draw.indices[1] = 1;
+        command->draw.indices[2] = 1;
+        command->draw.indices[3] = 2;
+        command->draw.indices[4] = 2;
+        command->draw.indices[5] = 3;
+        command->draw.indices[6] = 3;
+        command->draw.indices[7] = 0;
     }
     else
     {
         command->draw.mode = GL_TRIANGLES;
-        command->draw.vertex_count = 8;
-        command->draw.index_count = 24;
+        command->draw.vertices = ALLOCATE_ARRAY_INFO(&context->memory_stack, UI_Vertex, 8);
+        command->draw.indices = ALLOCATE_ARRAY_INFO(&context->memory_stack, u32, 24);
         
-        // grow_items might invalidad comand, so we copy it
-        Render_Queue_Command command_backup = *command;
+        ui_set_quad_vertices(context, command->draw.vertices, draw_rect, texture_rect, color, offset);
         
-        auto vertices = ui_items(context, UI_Vertex, command_backup.draw.vertex_count);
-        ui_set_quad_vertices(context, vertices, draw_rect, texture_rect, color, offset);
-        
-#if 1        
         draw_rect.x += thickness;
         draw_rect.y += thickness;
         draw_rect.width  -= 2 * thickness;
         draw_rect.height -= 2 * thickness;
-#else
-        draw_rect.x += thickness;
-        draw_rect.y += thickness;
-        draw_rect.width  -= 2 * thickness; 
-        draw_rect.height -= 2 * thickness;
-#endif
-        ui_set_quad_vertices(context, vertices + 4, draw_rect, texture_rect, color, offset);
+        
+        ui_set_quad_vertices(context, command->draw.vertices + 4, draw_rect, texture_rect, color, offset);
         
         // 3-------2
         // | 7---6 |
@@ -410,16 +467,14 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
         // | 4---5 |
         // 0-------1
         
-        auto indices = ui_items(context, u32, command_backup.draw.index_count);
-        
         // bottom border
-        ui_set_quad_triangles_indices(indices + 0, 0, 1, 5, 4);
+        ui_set_quad_triangles_indices(command->draw.indices + 0, 0, 1, 5, 4);
         // right border
-        ui_set_quad_triangles_indices(indices + 6, 5, 1, 2, 6);
+        ui_set_quad_triangles_indices(command->draw.indices + 6, 5, 1, 2, 6);
         // top border
-        ui_set_quad_triangles_indices(indices + 12, 7, 6, 2, 3);
+        ui_set_quad_triangles_indices(command->draw.indices + 12, 7, 6, 2, 3);
         // left border
-        ui_set_quad_triangles_indices(indices + 18, 0, 4, 7, 3);
+        ui_set_quad_triangles_indices(command->draw.indices + 18, 0, 4, 7, 3);
     }
 }
 
@@ -697,20 +752,113 @@ INTERNAL UI_Control_State ui_selectable(UI_Context *context, area2f area, u32 se
 }
 
 void ui_end(UI_Context *context) {
-    shrink(context->render_queue.allocator, &context->render_queue.data, byte_count_of(context->render_queue.data) - context->render_queue_byte_index);
     
-    upload(&context->render_queue);
-    render(context->render_queue);
+    // upload vertices to GPU
+    {
+        u8_array vertices = {};
+        defer { free(&context->memory_stack.allocator, &vertices); };
+        
+        for_list_item(group_it, context->groups) {
+            for_list_item(command_it, group_it->group.commands) {
+                auto draw = try_kind(command_it->command, draw);
+                if (draw) {
+                    auto dest = grow(&context->memory_stack.allocator, &vertices, byte_count_of(draw->vertices));
+                    copy(dest, draw->vertices, byte_count_of(draw->vertices));
+                }
+            }
+        }
+        
+        glBindBuffer(GL_ARRAY_BUFFER, context->vertex_buffer_object);
+        glBufferData(GL_ARRAY_BUFFER, byte_count_of(vertices), vertices.data, GL_STREAM_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
     
-    assert(!context->layout_count, "forget a ui_end_layout");
+    // upload indices to GPU
+    {
+        u32_array indices = {};
+        defer { free(&context->memory_stack.allocator, &indices); };
+        
+        u32 vertex_offset = 0;
+        
+        for_list_item(group_it, context->groups) {
+            for_list_item(command_it, group_it->group.commands) {
+                auto draw = try_kind(command_it->command, draw);
+                if (draw) {
+                    auto dest = grow(&context->memory_stack.allocator, &indices, draw->indices.count);
+                    copy(dest, draw->indices, byte_count_of(draw->indices));
+                    
+                    for (u32 i = 0; i < draw->indices.count; i++)
+                        dest[i] += vertex_offset;
+                    
+                    vertex_offset += draw->vertices.count;
+                }
+            }
+        }
+        
+        glBindVertexArray(context->vertex_array_object);
+        
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, context->index_buffer_object);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, byte_count_of(indices), indices.data, GL_STREAM_DRAW);
+    }
+    
+    // render
+    {
+        glBindVertexArray(context->vertex_array_object);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, context->index_buffer_object);
+        
+        usize index_offset = 0;
+        auto current_draw_command = make_kind(UI_Command, draw);
+        current_draw_command.draw.mode = -1;
+        
+        glActiveTexture(GL_TEXTURE0 + 0);
+        
+        for_list_item(group_it, context->groups) {
+            if (current_draw_command.draw.mode != -1) {
+                glDrawElements(current_draw_command.draw.mode, current_draw_command.draw.indices.count, GL_UNSIGNED_INT, cast_p(GLvoid, index_offset));
+                index_offset += byte_count_of(current_draw_command.draw.indices);
+                current_draw_command.draw.mode = -1;
+            }
+            
+            glBindTexture(GL_TEXTURE_2D, group_it->group.texture->object);
+            
+            for_list_item(command_it, group_it->group.commands) {
+                auto draw = try_kind(command_it->command, draw);
+                if (draw) {
+                    if (current_draw_command.draw.mode == -1) {
+                        current_draw_command = command_it->command;
+                    } else if (current_draw_command.draw.mode == draw->mode) {
+                        // ok since we are not using the actual data, we only need the count
+                        current_draw_command.draw.vertices.count += draw->vertices.count;
+                        current_draw_command.draw.indices.count += draw->indices.count;
+                    } else {
+                        glDrawElements(current_draw_command.draw.mode, current_draw_command.draw.indices.count, GL_UNSIGNED_INT, cast_p(GLvoid, index_offset));
+                        index_offset += byte_count_of(current_draw_command.draw.indices);
+                        current_draw_command = command_it->command;
+                    }
+                }
+            }
+        }
+        
+        if (current_draw_command.draw.mode != -1) {
+            glDrawElements(current_draw_command.draw.mode, current_draw_command.draw.indices.count, GL_UNSIGNED_INT, cast_p(GLvoid, index_offset));
+        }
+    }
+    
+    clear(&context->memory_stack);
+    //render(context->render_queue);
+    
+    //assert(!context->layout_count, "forget a ui_end_layout");
     //clear(&context->render_queue);
     
     context->last_texture_command_offset = -1;
-    context->texture = null;
-    context->has_cashed_commands = true;
-    context->render_queue_byte_index = 0;
+    context->current_group = null;
+    context->groups = {};
+    //context->texture = null;
+    //context->has_cashed_commands = true;
+    //context->render_queue_byte_index = 0;
 }
 
+#if 0
 struct UI_Command {
     enum Kind {
         Kind_layout,
@@ -813,4 +961,6 @@ void ui_end_layout(UI_Context *context, UI_Layout *layout) {
     context->current_item_area = layout->area;
 }
 
-#endif // UI_H
+#endif
+
+#endif // YAUI_H

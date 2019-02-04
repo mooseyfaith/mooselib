@@ -287,6 +287,7 @@ union area2f {
         f32 width, height;
     };
     
+    bool is_valid;
 };
 
 #define Template_Area_Name area2f

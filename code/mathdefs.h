@@ -90,6 +90,9 @@ typedef quatf quat;
 
 const quat QUAT_IDENTITY = { 1, 0, 0, 0 };
 
+const vec2 vec2_zero     = { 0, 0 };
+const vec2 vec2_one      = { 1, 1 };
+
 const vec3 VEC3_ZERO     = { 0, 0, 0 };
 const vec3 VEC3_ONE      = { 1, 1, 1 };
 

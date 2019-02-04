@@ -54,12 +54,12 @@
 #define item_count(buffer, type)     ((buffer).count / sizeof(type))
 #define item_at(buffer, type, index) cast_p(type, (buffer).data + sizeof(type) * index)
 
-#define pack_items(buffer, type, count) cast_p(type, push(buffer, sizeof(type) * count))
-#define pack_item(buffer, value)        { *pack_items(buffer, decltype(value), 1) = value; }
+#define push_items(buffer, type, count) cast_p(type, push(buffer, sizeof(type) * count))
+#define push_item(buffer, type)         push_items(buffer, type, 1)
 
-#define peek_item(buffer, type)           cast_p(type, (buffer).data + (buffer).count - sizeof(type))
-#define unpack_items(buffer, type, count) cast_p(type, pop(buffer, sizeof(type) * count))
-#define unpack_item(buffer, type)         unpack_items(buffer, type, 1)
+#define peek_item(buffer, type)        cast_p(type, (buffer).data + (buffer).count - sizeof(type))
+#define pop_items(buffer, type, count) cast_p(type, pop(buffer, sizeof(type) * count))
+#define pop_item(buffer, type)         pop_items(buffer, type, 1)
 
 #define next_items(iterator, type, count) cast_p(type, advance(iterator, sizeof(type) * count))
 #define next_item(iterator, type)         next_items(iterator, type, 1)

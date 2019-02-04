@@ -22,14 +22,14 @@ struct Memory_Stack {
 
 #define assert_bounds(buffer) defer { assert((buffer).count <= (buffer).capacity); };
 
-struct DEBUG_Memory_Stack_Footer {
+struct Debug_Memory_Stack_Footer {
     usize size;
     u16 padding;
 };
 
-INTERNAL DEBUG_Memory_Stack_Footer debug_make_footer(Memory_Stack stack, usize size, usize alignment)
+INTERNAL Debug_Memory_Stack_Footer debug_make_footer(Memory_Stack stack, usize size, usize alignment)
 {
-    DEBUG_Memory_Stack_Footer result;
+    Debug_Memory_Stack_Footer result;
     result.size = size;
     
     usize padding = (alignment - (MEMORY_ADDRESS(one_past_last(stack.buffer)) % alignment)) % alignment;
@@ -37,12 +37,6 @@ INTERNAL DEBUG_Memory_Stack_Footer debug_make_footer(Memory_Stack stack, usize s
     assert(result.padding == padding);
     
     return result;
-}
-
-INTERNAL DEBUG_Memory_Stack_Footer * debug_footer(Memory_Stack stack)
-{
-    assert(stack.buffer.count >= sizeof(DEBUG_Memory_Stack_Footer));
-    return cast_p(DEBUG_Memory_Stack_Footer, one_past_last(stack.buffer)) - 1;
 }
 
 INTERNAL Memory_Stack make_memory_stack(Memory_Allocator *allocator, usize size, usize alignment = MEMORY_MAX_ALIGNMENT)
@@ -56,25 +50,35 @@ INTERNAL ALLOCATE_DEC(Memory_Stack *stack)
     assert(size && alignment);
     
     auto info = debug_make_footer(*stack, size, alignment);
-    u8 *data = one_past_last(stack->buffer) + info.padding;
+    push(&stack->buffer, info.padding);
+    u8 *data = push(&stack->buffer, size);
+    //u8 *data = one_past_last(stack->buffer); + info.padding;
     
 #if defined DEBUG
     
-    assert(stack->buffer.count + info.size + info.padding + sizeof(info) <= stack->buffer.capacity);
-    stack->buffer.count += info.size + info.padding + sizeof(info);
+    //assert(stack->buffer.count + info.size + info.padding + sizeof(info) <= stack->buffer.capacity);
+    //stack->buffer.count += info.size + info.padding + sizeof(info);
+    //*debug_footer(*stack) = info;
+    *push_item(&stack->buffer, Debug_Memory_Stack_Footer) = info;
     
-    *debug_footer(*stack) = info;
-    
-    assert(stack->buffer.count >= info.size + info.padding + sizeof(info));
+    //assert(stack->buffer.count >= info.size + info.padding + sizeof(info));
     
 #else
     
-    assert(stack->buffer.count + info.size + info.padding <= stack->buffer.capacity);
-    stack->buffer.count += info.size + info.padding;
+    //assert(stack->buffer.count + info.size + info.padding <= stack->buffer.capacity);
+    //stack->buffer.count += info.size + info.padding;
+    //push(&stack->buffer, info.padding);
     
 #endif
     
     return data;
+}
+
+Debug_Memory_Stack_Footer debug_get_footer(Memory_Stack stack, u8 *data) {
+    auto info = peek_item(stack.buffer, Debug_Memory_Stack_Footer);
+    assert(data + info->size == cast_p(u8, info), "you possibly override the footer information, maybe you copy to much?");
+    assert(stack.buffer.count >= info->size + info->padding + sizeof(*info));
+    return *info;
 }
 
 INTERNAL REALLOCATE_DEC(Memory_Stack *stack)
@@ -85,20 +89,21 @@ INTERNAL REALLOCATE_DEC(Memory_Stack *stack)
     
 #if defined DEBUG
     
-    auto info = debug_footer(*stack);
-    assert(cast_p(u8, *data) + info->size == cast_p(u8, info));
-    assert(stack->buffer.count >= info->size + info->padding + sizeof(*info));
+    auto info = debug_get_footer(*stack, cast_p(u8, *data));
     
-    if (remaining_count(stack->buffer) + info->size >= size) {
-        stack->buffer.count -= info->size;
-        stack->buffer.count += size;
+    if (remaining_count(stack->buffer) + info.size >= size) {
         
-        auto new_info = *info;
-        new_info.size = size;
-        *debug_footer(*stack) = new_info;
+        {
+            pop_item(&stack->buffer, Debug_Memory_Stack_Footer);
+            pop(&stack->buffer, info.size);
+            
+            info.size = size;
+            push(&stack->buffer, size);
+            *push_item(&stack->buffer, Debug_Memory_Stack_Footer) = info;
+        }
         
-        assert(cast_p(u8, *data) + new_info.size == cast_p(u8, debug_footer(*stack)));
-        assert(stack->buffer.count >= new_info.size + new_info.padding + sizeof(new_info));
+        // just checks if is okay
+        debug_get_footer(*stack, cast_p(u8, *data));
         
         return true;
     }
@@ -122,16 +127,15 @@ INTERNAL FREE_DEC(Memory_Stack *stack) {
     assert_bounds(stack->buffer);
     assert(data);
     
-    u8 *u8_data = CAST_P(u8, data);
+    u8 *u8_data = cast_p(u8, data);
     
 #if defined DEBUG
     
-    auto info = debug_footer(*stack);
+    auto info = debug_get_footer(*stack, u8_data);
     
-    assert(u8_data + info->size == cast_p(u8, info));
-    assert(stack->buffer.count >= info->size + info->padding + sizeof(*info));
-    
-    stack->buffer.count -= info->size + info->padding + sizeof(*info);
+    usize byte_count = info.size + info.padding;
+    pop_item(&stack->buffer, Debug_Memory_Stack_Footer);
+    pop(&stack->buffer, byte_count);
     
 #else
     

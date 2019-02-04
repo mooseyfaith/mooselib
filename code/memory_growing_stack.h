@@ -19,7 +19,6 @@ struct Memory_Growing_Stack {
     usize count;
     usize capacity;
     usize max_count;
-    usize frame_byte_count;
 };
 
 #define Template_Allocator_Name Memory_Growing_Stack
@@ -72,7 +71,7 @@ INTERNAL ALLOCATE_DEC(Memory_Growing_Stack *stack)
     
     if (allocate_new_entry) {
 #if defined DEBUG
-        usize internal_size = MAX(stack->min_chunk_capacity, size + sizeof(Memory_Stack_List::Entry) + alignment + sizeof(DEBUG_Memory_Stack_Footer));
+        usize internal_size = MAX(stack->min_chunk_capacity, size + sizeof(Memory_Stack_List::Entry) + alignment + sizeof(Debug_Memory_Stack_Footer));
 #else
         usize internal_size = MAX(stack->min_chunk_capacity, size + sizeof(Memory_Stack_List::Entry) + alignment);
 #endif
@@ -93,8 +92,6 @@ INTERNAL ALLOCATE_DEC(Memory_Growing_Stack *stack)
     
     SCOPE_UPDATE_COUNT(stack, stack->list.tail);
     any data = allocate(&stack->list.tail->memory_stack, size, alignment);
-    
-    stack->frame_byte_count += size;
     
     return data;
 }
@@ -139,8 +136,8 @@ INTERNAL REALLOCATE_DEC(Memory_Growing_Stack *stack) {
             return true;
         
 #if defined DEBUG
-        auto info = debug_footer(stack->list.tail->memory_stack);
-        old_size = info->size;
+        auto info = debug_get_footer(stack->list.tail->memory_stack, cast_p(u8, *data));
+        old_size = info.size;
 #endif
         
         // don't use own free or we might free empty stacks
@@ -155,9 +152,6 @@ INTERNAL REALLOCATE_DEC(Memory_Growing_Stack *stack) {
     COPY(new_data, *data, MIN(old_size, size));
     *data = new_data;
     
-    if (size > old_size)
-        stack->frame_byte_count += size - old_size;
-    
     // now its ok to free empty stacks
     auto real_tail = remove_tail(&stack->list);
     _free_empty_tails(stack, true);
@@ -171,8 +165,6 @@ INTERNAL void clear(Memory_Growing_Stack *stack)
 {
     assert_bounds(*stack);
     
-    defer { stack->frame_byte_count = 0; };
-    
     if ((stack->capacity >= stack->max_count) && (stack->list.count <= 1)) {
         if (stack->list.head)
             stack->list.head->memory_stack.buffer.count = 0;
@@ -181,8 +173,10 @@ INTERNAL void clear(Memory_Growing_Stack *stack)
         return;
     }
     
-    while (stack->list.tail)
+    while (stack->list.tail) {
+        // no need to free tail->memory_stack since every entry is allocated contiguous with its memory_stack
         remove_tail(stack->internal_allocator, &stack->list);
+    }
     
     // this will probaly fail, sicne there seems to be a bug in list_template
     assert(!stack->list.count && !stack->list.head && !stack->list.tail);

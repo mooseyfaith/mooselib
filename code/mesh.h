@@ -250,7 +250,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
                 }
                 
                 f32 value = CAST_V(f32, parse_f64(&it)); skip_white_space(&it);
-                pack_item(&buffer, value);
+                *push_item(&buffer, f32) = value;
             }
             
             assert(buffer.count == buffer.capacity);

@@ -171,7 +171,7 @@ u32 utf8_head(string text, OPTIONAL u32 *byte_count = null) {
     if (byte_count)
         *byte_count = part_count + 1;
     
-    assert(text.count >= part_count + 1);
+	    assert(text.count >= part_count + 1);
     
     u32 result = (text[0] & ~mask) << (6 * part_count);
     u32 index = 1;

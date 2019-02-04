@@ -2,7 +2,8 @@
 #include <platform.h>
 #include <memory_growing_stack.h>
 #include <memory_c_allocator.h>
-#include <ui_queue.h>
+//#include <ui_queue.h>
+#include <yaui.h>
 
 #include <immediate_render.cpp>
 
@@ -49,7 +50,7 @@ struct Default_State
     Memory_Growing_Stack work_memory;
     Memory_Stack *worker_thread_stacks;
     
-    Memory_Growing_Stack ui_memory;
+    //Memory_Growing_Stack ui_memory;
     
     FT_MemoryRec_ font_allocator;
     FT_Library font_library;
@@ -285,8 +286,8 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     state->blank_normal_map = make_single_color_texture({ 128, 128, 255 });
     
     
-    state->ui_memory = make_memory_growing_stack(&platform_api->allocator);
-    state->ui = make_ui_context(&state->ui_memory.allocator);
+    //state->ui_memory = make_memory_growing_stack(&platform_api->allocator);
+    state->ui = make_ui_context(&platform_api->allocator);
     
     {
         glGenBuffers(COUNT_WITH_ARRAY(state->uniform_buffer_objects));
@@ -437,7 +438,7 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     //if (!allways_update && !do_update)
     //return null;
     
-    ui_clear(ui);
+    //ui_clear(ui);
     
     ui_set_transform(ui, render_resolution, scale);
     ui_set_texture(ui, &state->blank_texture);
@@ -530,6 +531,6 @@ void default_end_frame(Default_State *state)
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         
-        upload_render_and_clear(&state->ui.render_queue);
+        ui_end(&state->ui);
     }
 }

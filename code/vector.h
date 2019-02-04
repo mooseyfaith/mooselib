@@ -177,12 +177,44 @@ inline VEC_NAME reflect(VEC_NAME mirror_normal, VEC_NAME ray) {
     return ray - mirror_normal * (2 * dot(mirror_normal, ray));
 }
 
-inline VEC_NAME linear_interpolation(const VEC_NAME &a, const VEC_NAME &b, REAL blend_factor) {
+INTERNAL VEC_NAME linear_interpolation(VEC_NAME a, VEC_NAME b, REAL blend_factor) {
     return a * ((REAL)1 - blend_factor) + b * blend_factor;
+}
+
+INTERNAL VEC_NAME linear_interpolation(VEC_NAME a, VEC_NAME b, VEC_NAME blend_factor) {
+    VEC_NAME one;
+    set_all(&one, (REAL)1.0);
+    return a * (one - blend_factor) + b * blend_factor;
 }
 
 inline bool is_unit_length(const VEC_NAME &vector) {
     return are_close(length(vector), (REAL)1);
+}
+
+INTERNAL VEC_NAME abs(VEC_NAME vector) {
+    VEC_NAME result;
+    for (u32 i = 0; i < ARRAY_COUNT(vector.values); ++i)
+        result[i] = ABS(vector[i]);
+    
+    return result;
+}
+
+// converts
+// to: -1.0 <= interval_minus_one_to_one <= 1.0
+// from: 0 <= interval_zero_to_one <= 1.0
+INTERNAL VEC_NAME interval_zero_to_one(VEC_NAME interval_minus_one_to_plus_one) {
+    VEC_NAME one;
+    set_all(&one, (REAL)1.0);
+    return (interval_minus_one_to_plus_one + one) * (REAL)0.5;
+}
+
+// converts
+// from: 0 <= interval_zero_to_one <= 1.0
+// to: -1.0 <= interval_minus_one_to_plus_one <= 1.0
+INTERNAL VEC_NAME interval_minus_one_to_plus_one(VEC_NAME interval_zero_to_one) {
+    VEC_NAME one;
+    set_all(&one, (REAL)1.0);
+    return interval_zero_to_one * (REAL)2.0 - one;
 }
 
 #undef VEC_NAME

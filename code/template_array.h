@@ -155,6 +155,14 @@ index_of(Template_Array_Name array, Template_Array_Data_Type *item)
     return cast_v(Template_Array_Size_Type, index);
 }
 
+INTERNAL Template_Array_Name sub(Template_Array_Name array, Template_Array_Size_Type offset, Template_Array_Size_Type count = -1) {
+    if (count == -1)
+        count = array.count - offset;
+    
+    assert(array.count >= count + offset);
+    return { array.data + offset, count };
+}
+
 #if defined Template_Array_Is_Buffer
 
 INTERNAL Template_Array_Size_Type
