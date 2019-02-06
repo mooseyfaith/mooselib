@@ -52,8 +52,6 @@ struct Default_State
     
     //Memory_Growing_Stack ui_memory;
     
-    FT_MemoryRec_ font_allocator;
-    FT_Library font_library;
     Font default_font;
     UI_Context ui;
     Immediate_Render_Context im;
@@ -176,7 +174,7 @@ GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *unif
     string shader_source = platform_api->read_entire_file(file, &state->transient_memory.allocator);
     assert(shader_source.count);
     
-    defer { free(&state->transient_memory.allocator, shader_source.data); };
+    defer { free(&state->transient_memory.allocator, &shader_source); };
     
     Shader_Attribute_Info attributes[] = {
         { Vertex_Position_Index, "a_position" },
@@ -194,7 +192,7 @@ GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *unif
     
     string define_buffer = {};
     write(&state->transient_memory.allocator, &define_buffer, S("#version 150\n"));
-    defer { free(&state->transient_memory.allocator, define_buffer); };
+    defer { free(&state->transient_memory.allocator, &define_buffer); };
     
     {
         string options_it = options;
@@ -277,10 +275,16 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
         state->work_memory = make_memory_growing_stack(&platform_api->allocator);
     }
     
-    init_font_allocator(&state->font_allocator, C_Allocator);
-    state->font_library = make_font_library(&state->font_allocator);
-    
-    state->default_font = make_font(state->font_library, S("C:/Windows/Fonts/consola.ttf"), 16, ' ', 256 - ' ', platform_api->read_entire_file, &state->persistent_memory.allocator);
+    {
+        auto ft_library = begin_font_loading();
+        
+        auto source = platform_api->read_entire_file(S("C:/Windows/Fonts/consola.ttf"), &state->transient_memory.allocator);
+        defer { free(&state->transient_memory.allocator, &source); };
+        
+        state->default_font = make_font(&state->persistent_memory.allocator, ft_library, source, 16, ' ', 256 - ' ');
+        
+        end_font_loading(ft_library);
+    }
     
     state->blank_texture = make_blank_texture();
     state->blank_normal_map = make_single_color_texture({ 128, 128, 255 });
@@ -347,7 +351,7 @@ bool default_begin_frame(Default_State *state, const Game_Input *input, Platform
     for (auto it = platform_api->messages.head; it; it = it->next) {
         if (it->value->kind == Platform_Message_Kind_Reload) {
             default_reload_global_functions(platform_api);
-            init_font_allocator(&state->font_allocator, cast_p(Memory_Allocator, state->font_allocator.user));
+            //init_font_allocator(&state->font_allocator, cast_p(Memory_Allocator, state->font_allocator.user));
             break;
         }
     }

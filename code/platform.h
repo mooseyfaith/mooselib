@@ -121,17 +121,28 @@ struct Platform_Message {
 #define Template_List_With_Tail
 #include "template_list.h"
 
+// WARNING make shure this don't overlap
+// also they dont overlap with visible characters
 enum Platform_Character {
     Platform_Character_Backspace = 8,
+    Platform_Character_Tab       = 9,
+    Platform_Character_Return    = 13,
     
-    Platform_Character_Return = 13,
-    
-    Platform_Character_Left = 17,
+    Platform_Character_Left,
     Platform_Character_Right,
     Platform_Character_Down,
     Platform_Character_Up,
     
-    Platform_Character_Delete = 127,
+    Platform_Character_Page_Up,
+    Platform_Character_Page_Down,
+    
+    Platform_Character_End,
+    Platform_Character_Home,
+    Platform_Character_Insert,
+    
+    Platform_Character_Delete,
+    
+    Platform_Character_Escape    = 27,
 };
 
 struct Platform_Message_Character {

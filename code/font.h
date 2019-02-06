@@ -1,5 +1,5 @@
-#if !defined(_ENGINE_FONT_H_)
-#define _ENGINE_FONT_H_
+#if !defined(FONT_H)
+#define FONT_H
 
 #include <ft2build.h>
 #include FT_FREETYPE_H
@@ -55,45 +55,54 @@ void init_font_allocator(FT_MemoryRec_ *memory_rec, Memory_Allocator *allocator)
     memory_rec->realloc = ft_reallocate;
 }
 
-FT_Library make_font_library(FT_MemoryRec_ *allocator) {
+FT_Library begin_font_loading() {
     FT_Library library;
-    //FT_Error error = FT_Init_FreeType(&library);
+    
+#if 1
+    
+    FT_Error error = FT_Init_FreeType(&library);
+    
+#else    
     
     FT_Error error = FT_New_Library(allocator, &library);
     FT_Add_Default_Modules(library);
     FT_Set_Default_Properties(library);
     
+#endif
+    
     if (error) {
-        printf("Error (init_fonts): could not init freetype2 lib\n");
+        printf("Error: %s failed\n", __FUNCTION__);
         return {};
     }
     
     return library;
 }
 
-Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_char, u32 char_count, Platform_Read_Entire_File_Function read_file, Memory_Allocator *allocator)
+void end_font_loading(FT_Library ft_library) {
+    FT_Error error = FT_Done_FreeType(ft_library);
+    
+    if (error) {
+        printf("Error: %s failed\n", __FUNCTION__);
+    }
+}
+
+Font make_font(Memory_Allocator *allocator, FT_Library ft_library, u8_array source, s16 height, u32 first_char, u32 char_count, bool smooth = true)
 {
     Font result = {};
     result.pixel_height = height;
     result.texture = {};
     
-    u8_array chunk = read_file(file_path, allocator);
-    if (!chunk.count) {
-        printf("Error (create_font): could not open file %.*s\n", FORMAT_S(&file_path));
-        return {};
-    }
-    
     FT_Face face;
-    FT_Error error = FT_New_Memory_Face(ft_library, cast_p(const FT_Byte, chunk.data), cast_v(FT_Long, chunk.count), 0, &face);
+    FT_Error error = FT_New_Memory_Face(ft_library, cast_p(const FT_Byte, source.data), cast_v(FT_Long, source.count), 0, &face);
     
     if (error == FT_Err_Unknown_File_Format)
-        printf("Error (create_font): unsupported font format from file %.*s\n", FORMAT_S(&file_path));
+        printf("Error: %s failed, unsupported font format from source.\n", __FUNCTION__);
     else if (error) 
-        printf("Error (create_font): could not open file %.*s as a font\n", FORMAT_S(&file_path));
+        printf("Error: %s failed, could not open source as a font\n", __FUNCTION__);
     
     error = FT_Set_Pixel_Sizes(face, 0, height);
     if (error)
-        printf("Error (create_font): could not set font size to %i\n", cast_v(s32, height));
+        printf("Error: %s failed, could not set font size to %i\n", __FUNCTION__, cast_v(s32, height));
     
     result.glyph_count = char_count;
     result.glyphs = ALLOCATE_ARRAY(allocator, Font_Glyph, result.glyph_count);
@@ -111,6 +120,10 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
             estimated_area += (glyph_slot->bitmap.width + 1) * (glyph_slot->bitmap.rows + 1);
     }
     
+    u8_array bitmap = {};
+    defer { free(allocator, &bitmap); };
+    Pixel_Dimensions bitmap_resolution = {};
+    
     bool did_not_fit;
     do {
         did_not_fit = false;
@@ -119,7 +132,7 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
         resolution.height = 1 << bit_count(2 * height);
         resolution.width = 1 << bit_count(estimated_area / resolution.height + 1);
         
-        Pixel_Dimensions min_resolution = resolution;
+        bitmap_resolution = resolution;
         u32 min_area = resolution.width * resolution.height;
         u32 min_side_diff = abs(resolution.width - resolution.height);
         while (resolution.width > height * 2) {
@@ -128,52 +141,45 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
             u32 area = resolution.width * resolution.height;
             u32 side_diff = abs(resolution.width - resolution.height);
             if ((area < min_area) || ((area == min_area) && (side_diff < min_side_diff))) {
-                min_resolution = resolution;
+                bitmap_resolution = resolution;
                 min_area = area;
                 min_side_diff = side_diff;
             }
         }
         
-        if (result.texture.object) {
-            glBindTexture(GL_TEXTURE_2D, 0);
-            glDeleteTextures(1, &result.texture.object);
-        }
-        
-        result.texture = make_alpha_texture(min_resolution.width, min_resolution.height, Texture_Filter_Level_Nearest);
-        //TODO: check if texture is valid
-        glBindTexture(GL_TEXTURE_2D, result.texture.object);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+        free(allocator, &bitmap);
+        grow(allocator, &bitmap, bitmap_resolution.width * bitmap_resolution.height);
+        reset(bitmap, byte_count_of(bitmap));
         
         s16 x = 0;
         s16 y = 0;
         s16 current_max_char_height = 0;
         u32 fill_count = 0;
         
-        for (u32 c = 0; c < char_count; ++c) {
+        u32 flags = FT_LOAD_RENDER;
+        if (!smooth)
+            flags |= FT_LOAD_MONOCHROME;
+        
+        for (u32 c = 0; c < char_count; ++c)
+        {
             
-#define BLACK_AND_WHITE 0
-            
-#if BLACK_AND_WHITE
-            if (FT_Load_Char(face, first_char + c, FT_LOAD_RENDER| FT_LOAD_MONOCHROME)) 
-#else
-                if (FT_Load_Char(face, first_char + c, FT_LOAD_RENDER)) 
-#endif
+            if (FT_Load_Char(face, first_char + c, flags))
             {
                 printf("could not load char %u\n", first_char + c);
                 continue;
             }
             
-            if (y + cast_v(s16, glyph_slot->bitmap.rows) >= result.texture.resolution.height) {
-                did_not_fit= true;
+            if (y + cast_v(s16, glyph_slot->bitmap.rows) >= bitmap_resolution.height) {
+                did_not_fit = true;
                 break;
             }
             
-            if (x + cast_v(s16, glyph_slot->bitmap.width) >= result.texture.resolution.width) {
+            if (x + cast_v(s16, glyph_slot->bitmap.width) >= bitmap_resolution.width) {
                 x = 0;
                 y += current_max_char_height + 1;
                 current_max_char_height = 0;
                 
-                if (y + cast_v(s16, glyph_slot->bitmap.rows) >= result.texture.resolution.height) {
+                if (y + cast_v(s16, glyph_slot->bitmap.rows) >= bitmap_resolution.height) {
                     did_not_fit= true;
                     break;
                 }
@@ -189,35 +195,31 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
             };
             
             if (glyph_slot->bitmap.buffer) {
-#if BLACK_AND_WHITE                
-                u8 *buffer = ALLOCATE_ARRAY(allocator, u8, glyph_slot->bitmap.width * glyph_slot->bitmap.rows);
-                for (u32 y = 0; y < glyph_slot->bitmap.rows; ++y) {
-                    
-                    for (u32 x = 0; x < glyph_slot->bitmap.width; ++x) {
-                        u32 p = glyph_slot->bitmap.width - x - 1;
-                        if (glyph_slot->bitmap.buffer[y * glyph_slot->bitmap.pitch + p/8] & (1 << ((8 - p - 1) % 8))) {
-                            buffer[y * glyph_slot->bitmap.width + glyph_slot->bitmap.width - x - 1] = 255;
-                        }
-                        else {
-                            buffer[y * glyph_slot->bitmap.width + glyph_slot->bitmap.width - x - 1] = 0;
+                
+                if (!smooth) 
+                {
+                    // copy flipped and expand bits to bytes
+                    for (u32 row = 0; row < glyph_slot->bitmap.rows; ++row) {
+                        for (u32 glyph_x = 0; glyph_x < glyph_slot->bitmap.width; ++glyph_x) {
+                            u32 p = glyph_slot->bitmap.width - glyph_x - 1;
+                            u8 value;
+                            if (glyph_slot->bitmap.buffer[row * glyph_slot->bitmap.pitch + p / 8] & (1 << ((8 - p - 1) % 8)))
+                                value = 255;
+                            else 
+                                value = 0;
+                            
+                            bitmap[x + p + (y + glyph_slot->bitmap.rows - row - 1) * bitmap_resolution.width] = value;
                         }
                     }
+                    
+                } else {
+                    
+                    // copy flipped
+                    for (u32 row = 0; row < glyph_slot->bitmap.rows; row++) {
+                        copy(bitmap + x + (y + row) * bitmap_resolution.width, glyph_slot->bitmap.buffer + (glyph_slot->bitmap.rows - row - 1) * glyph_slot->bitmap.pitch, glyph_slot->bitmap.pitch);
+                    }
+                    
                 }
-                
-                glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, glyph_slot->bitmap.width, glyph_slot->bitmap.rows, GL_RED, GL_UNSIGNED_BYTE, buffer);
-                free(allocator, buffer);
-                
-#else
-                // flip bitmap
-                u8 *bitmap = ALLOCATE_ARRAY(allocator, u8, glyph_slot->bitmap.pitch * glyph_slot->bitmap.rows);
-                
-                for (u32 y = 0; y < glyph_slot->bitmap.rows; ++y) {
-                    copy(bitmap + glyph_slot->bitmap.pitch * y, glyph_slot->bitmap.buffer + (glyph_slot->bitmap.rows - y - 1) * glyph_slot->bitmap.pitch, glyph_slot->bitmap.pitch);
-                }
-                
-                glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, glyph_slot->bitmap.width, glyph_slot->bitmap.rows, GL_RED, GL_UNSIGNED_BYTE, bitmap);
-                free(allocator, bitmap);
-#endif
                 
                 x += cast_v(s16, glyph_slot->bitmap.width) + 1;
                 ++fill_count;
@@ -229,6 +231,9 @@ Font make_font(FT_Library ft_library, string file_path, s16 height, u32 first_ch
         estimated_area = estimated_area * 1.2f;
     } while (did_not_fit);
     
+    result.texture = make_alpha_texture(bitmap_resolution.width, bitmap_resolution.height, Texture_Filter_Level_Nearest);
+    glBindTexture(GL_TEXTURE_2D, result.texture.object);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, bitmap_resolution.width, bitmap_resolution.height, 0, GL_RED, GL_UNSIGNED_BYTE, bitmap.data);
     
     FT_Done_Face(face);
     

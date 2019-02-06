@@ -107,31 +107,31 @@ INTERNAL bool operator!=(string a, string b) {
     
 }
 
-u32 write_utf8(u8_buffer *buffer, u32 utf32_code)
+u32 write_utf8(u8 buffer[4], u32 utf32_code)
 {
     if (utf32_code <= 0x7F) {
-        *push(buffer) = utf32_code;
+        buffer[0] = utf32_code;
         return 1;
     }
     
     if (utf32_code <= 0x7FF) {
-        *push(buffer) = 0xC0 | (utf32_code >> 6);            /* 110xxxxx */
-        *push(buffer) = 0x80 | (utf32_code & 0x3F);          /* 10xxxxxx */
+        buffer[0] = 0xC0 | (utf32_code >> 6);            /* 110xxxxx */
+        buffer[1] = 0x80 | (utf32_code & 0x3F);          /* 10xxxxxx */
         return 2;
     }
     
     if (utf32_code <= 0xFFFF) {
-        *push(buffer) = 0xE0 | (utf32_code >> 12);           /* 1110xxxx */
-        *push(buffer) = 0x80 | ((utf32_code >> 6) & 0x3F);   /* 10xxxxxx */
-        *push(buffer) = 0x80 | (utf32_code & 0x3F);          /* 10xxxxxx */
+        buffer[1] = 0xE0 | (utf32_code >> 12);           /* 1110xxxx */
+        buffer[2] = 0x80 | ((utf32_code >> 6) & 0x3F);   /* 10xxxxxx */
+        buffer[3] = 0x80 | (utf32_code & 0x3F);          /* 10xxxxxx */
         return 3;
     }
     
     if (utf32_code <= 0x10FFFF) {
-        *push(buffer) = 0xF0 | (utf32_code >> 18);           /* 11110xxx */
-        *push(buffer) = 0x80 | ((utf32_code >> 12) & 0x3F);  /* 10xxxxxx */
-        *push(buffer) = 0x80 | ((utf32_code >> 6) & 0x3F);   /* 10xxxxxx */
-        *push(buffer) = 0x80 | (utf32_code & 0x3F);          /* 10xxxxxx */
+        buffer[0] = 0xF0 | (utf32_code >> 18);           /* 11110xxx */
+        buffer[1] = 0x80 | ((utf32_code >> 12) & 0x3F);  /* 10xxxxxx */
+        buffer[2] = 0x80 | ((utf32_code >> 6) & 0x3F);   /* 10xxxxxx */
+        buffer[3] = 0x80 | (utf32_code & 0x3F);          /* 10xxxxxx */
         return 4;
     }
     
@@ -140,12 +140,11 @@ u32 write_utf8(u8_buffer *buffer, u32 utf32_code)
 }
 
 void write_utf8(Memory_Allocator *allocator, string *text, u32 utf32_code) {
-    u8 _buffer[4];
-    u8_buffer buffer = ARRAY_INFO(_buffer);
-    write_utf8(&buffer, utf32_code);
+    u8 buffer[4];
+    u32 byte_count = write_utf8(buffer, utf32_code);
     
-    auto dest = grow(allocator, text, buffer.count);
-    copy(dest, buffer.data, buffer.count);
+    auto dest = grow(allocator, text, byte_count);
+    copy(dest, buffer, byte_count);
 }
 
 u32 utf8_head(string text, OPTIONAL u32 *byte_count = null) {
@@ -866,7 +865,12 @@ STRING_WRITE_DEC(write_string_info)
 {
     auto format_info = &va_arg(*va_args, Format_Info_string);
     
-    auto it = grow(allocator, output, format_info->prepend_symbol_count + format_info->text.count);
+    auto byte_count = format_info->prepend_symbol_count + format_info->text.count;
+    
+    if (!byte_count)
+        return;
+    
+    auto it = grow(allocator, output, byte_count);
     reset(it, format_info->prepend_symbol_count, format_info->prepend_symbol);
     copy(it + format_info->prepend_symbol_count, format_info->text.data, format_info->text.count);
 }

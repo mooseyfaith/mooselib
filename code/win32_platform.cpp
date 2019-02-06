@@ -208,9 +208,12 @@ int main(int argc, const char **args)
                         key_event_update(&win32_platform_api.input, (char)msg.wParam, true);
                     
                     {
-                        // HACK!
-                        // HACK!
-                        // using device codes 0-3 for arrow keys
+                        // WARNING ignoring characters that are also send be WM_UNICHAR
+                        // Platform_Character_Backspace = 8,
+                        // Platform_Character_Tab       = 9,
+                        // Platform_Character_Return    = 13,
+                        // Platform_Character_Escape    = 27,
+                        
                         u32 code;
                         switch (msg.wParam) {
                             case VK_RIGHT: {
@@ -229,8 +232,28 @@ int main(int argc, const char **args)
                                 code = Platform_Character_Down;
                             } break;
                             
+                            case VK_INSERT: {
+                                code = Platform_Character_Insert;
+                            } break;
+                            
                             case VK_DELETE: {
                                 code = Platform_Character_Delete;
+                            } break;
+                            
+                            case VK_PRIOR: {
+                                code = Platform_Character_Page_Up;
+                            } break;
+                            
+                            case VK_NEXT: {
+                                code = Platform_Character_Page_Down;
+                            } break;
+                            
+                            case VK_END: {
+                                code = Platform_Character_End;
+                            } break;
+                            
+                            case VK_HOME: {
+                                code = Platform_Character_Home;
                             } break;
                             
                             default:

@@ -44,7 +44,7 @@ struct UI_Command {
 #define Template_List_Data_Type UI_Command
 #define Template_List_Data_Name command
 #define Template_List_With_Tail
-#define Template_List_With_Double_Links
+//#define Template_List_With_Double_Links
 #include "template_list.h"
 
 struct UI_Group {
@@ -57,7 +57,7 @@ struct UI_Group {
 #define Template_List_Data_Type UI_Group
 #define Template_List_Data_Name group
 #define Template_List_With_Tail
-#define Template_List_With_Double_Links
+//#define Template_List_With_Double_Links
 #include "template_list.h"
 
 struct UI_Layout {
@@ -323,6 +323,7 @@ INTERNAL area2f rect(s16 x, s16 y, s16 width, s16 height)
     result.y = y;
     result.width = width;
     result.height = height;
+    result.is_valid = true;
     
     return result;
 }
@@ -334,6 +335,7 @@ INTERNAL area2f border(s16 left, s16 bottom, s16 right, s16 top, s16 margin = 0)
     result.y = bottom + margin;
     result.width  = right - left - 2 * margin;
     result.height = top - bottom - 2 * margin;
+    result.is_valid = true;
     
     return result;
 }
@@ -481,7 +483,7 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
 }
 
 struct UI_Text_Info {
-    area2f text_area;
+    area2f area;
     u32 line_count;
     f32 start_x, start_y;
     f32 current_x;
@@ -500,7 +502,7 @@ area2f ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_ren
     
     defer { if (do_render) ui_set_texture(context, backup); };
     
-    area2f text_area = {};
+    area2f area = {};
     
     s16 line_y = info->start_y + (info->line_count - 1) * (context->font_rendering.line_spacing) * context->font_rendering.line_grow_direction;
     
@@ -545,7 +547,7 @@ area2f ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_ren
         
         bool do_merge = ui_clip(context, &draw_area, &texture_area);
         if (do_merge) {
-            text_area = merge(text_area, draw_area);
+            area = merge(area, draw_area);
             
             if (do_render)
                 ui_rect(context, draw_area, texture_area, color);
@@ -554,9 +556,9 @@ area2f ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_ren
         info->current_x += glyph->draw_x_advance * context->font_rendering.scale;
     }
     
-    info->text_area = merge(info->text_area, text_area);
+    info->area = merge(info->area, area);
     
-    return text_area;
+    return area;
 }
 
 UI_Text_Info ui_text(UI_Context *context, s16 x, s16 y, string text, bool do_render = true, rgba32 color = { 0, 0, 0, 255 })
@@ -565,15 +567,15 @@ UI_Text_Info ui_text(UI_Context *context, s16 x, s16 y, string text, bool do_ren
     auto font = context->font_rendering.font;
     
     UI_Text_Info info;
-    info.text_area = {};
+    info.area = {};
     info.line_count = 1;
     info.start_x = x;
     info.start_y = y;
     info.current_x = x;
-    info.is_initialized = true; //volume(info.text_area) > 0.0f
+    info.is_initialized = true; //volume(info.area) > 0.0f
     
-    // because ui_text will merge text_areas but first text_area is empty
-    info.text_area = ui_text(context, &info, text, do_render, color);
+    // because ui_text will merge areas but first area is empty
+    info.area = ui_text(context, &info, text, do_render, color);
     
     return info;
 }
@@ -582,7 +584,7 @@ UI_Text_Info ui_text(UI_Context *context, area2f area, vec2f alignment, string t
 {
     auto info = ui_text(context, 0, 0, text, false);
     
-    return ui_text(context, area.x - info.text_area.x + (area.width - info.text_area.width) * alignment.x, area.y - info.text_area.y + (area.height - info.text_area.height) * alignment.y, text, true, color);
+    return ui_text(context, area.x - info.area.x + (area.width - info.area.width) * alignment.x, area.y - info.area.y + (area.height - info.area.height) * alignment.y, text, true, color);
 }
 
 
@@ -756,7 +758,7 @@ void ui_end(UI_Context *context) {
         
         for_list_item(group_it, context->groups) {
             for_list_item(command_it, group_it->group.commands) {
-                auto draw = try_kind(command_it->command, draw);
+                auto draw = try_kind_of(command_it->command, draw);
                 if (draw) {
                     auto dest = grow(&context->memory_stack.allocator, &vertices, byte_count_of(draw->vertices));
                     copy(dest, draw->vertices, byte_count_of(draw->vertices));
@@ -778,7 +780,7 @@ void ui_end(UI_Context *context) {
         
         for_list_item(group_it, context->groups) {
             for_list_item(command_it, group_it->group.commands) {
-                auto draw = try_kind(command_it->command, draw);
+                auto draw = try_kind_of(command_it->command, draw);
                 if (draw) {
                     auto dest = grow(&context->memory_stack.allocator, &indices, draw->indices.count);
                     copy(dest, draw->indices, byte_count_of(draw->indices));
@@ -818,7 +820,7 @@ void ui_end(UI_Context *context) {
             glBindTexture(GL_TEXTURE_2D, group_it->group.texture->object);
             
             for_list_item(command_it, group_it->group.commands) {
-                auto draw = try_kind(command_it->command, draw);
+                auto draw = try_kind_of(command_it->command, draw);
                 if (draw) {
                     if (current_draw_command.draw.mode == -1) {
                         current_draw_command = command_it->command;

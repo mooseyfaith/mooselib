@@ -60,7 +60,7 @@ INTERNAL void insert_to_free_list(Memory_List *list, Chunk_List::Entry *new_entr
         }
     }
     
-    _insert(&list->free_list, prev_entry, new_entry, 1);
+    insert(&list->free_list, prev_entry, new_entry, 1);
     //insert_after(&list->free_list, prev_entry, new_entry);
 }
 
