@@ -580,11 +580,14 @@ UI_Text_Info ui_text(UI_Context *context, s16 x, s16 y, string text, bool do_ren
     return info;
 }
 
-UI_Text_Info ui_text(UI_Context *context, area2f area, vec2f alignment, string text, rgba32 color = { 0, 0, 0, 255 })
+UI_Text_Info ui_fitt_text(UI_Context *context, area2f area, vec2f alignment, string text, rgba32 color = { 0, 0, 0, 255 }, bool sissor_area = true)
 {
     auto info = ui_text(context, 0, 0, text, false);
     
-    return ui_text(context, area.x - info.area.x + (area.width - info.area.width) * alignment.x, area.y - info.area.y + (area.height - info.area.height) * alignment.y, text, true, color);
+    area.is_valid = true;
+    SCOPE_PUSH(context->sissor_area, sissor_area ? area : context->sissor_area);
+    
+    return ui_text(context, area.x - info.area.x + MAX(0, area.width - info.area.width) * alignment.x, area.y - info.area.y + MAX(0, area.height - info.area.height) * alignment.y, text, true, color);
 }
 
 

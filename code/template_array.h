@@ -33,12 +33,14 @@ struct Template_Array_Name {
     inline Template_Array_Data_Type &
         operator[](Template_Array_Size_Type offset)
     {
+        assert(offset < count);
         return *(data + offset);
     }
     
     inline Template_Array_Data_Type
         operator[](Template_Array_Size_Type offset) const
     {
+        assert(offset < count);
         return *(data + offset);
     }
     
