@@ -173,8 +173,8 @@ use f->a, f->b
 
 #define is_kind(a, k) ((a).kind == (a).Kind_ ## k)
 #define is_kind_null(a) is_kind(a, Count)
-#define try_kind_of(a, k) (is_kind(a, k) ? &(a).k : null)
-#define kind_of(a, k) [&]() { assert(is_kind(a, k)); return &(a).k; }()
+#define try_kind_of(a, k) (is_kind(*(a), k) ? &((a)->k) : null)
+#define kind_of(a, k) [&]() { assert(is_kind(*(a), k)); return &((a)->k); }()
 
 #define case_kind(type, kind) case type::Kind_ ## kind:
 

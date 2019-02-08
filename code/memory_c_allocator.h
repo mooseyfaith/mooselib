@@ -23,7 +23,7 @@ _ALLOCATE_WRAPPER_DEC(c)
 _REALLOCATE_WRAPPER_DEC(c)
 {
     assert(allocator->kind == Memory_Allocator_C_Kind);
-    *data = realloc(*data, size);
+   *data = realloc(*data, size);
     assert(*data, "realloc failed, out of memmory");
     return *data;
 }

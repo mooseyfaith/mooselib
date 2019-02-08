@@ -761,7 +761,7 @@ void ui_end(UI_Context *context) {
         
         for_list_item(group_it, context->groups) {
             for_list_item(command_it, group_it->group.commands) {
-                auto draw = try_kind_of(command_it->command, draw);
+                auto draw = try_kind_of(&command_it->command, draw);
                 if (draw) {
                     auto dest = grow(&context->memory_stack.allocator, &vertices, byte_count_of(draw->vertices));
                     copy(dest, draw->vertices, byte_count_of(draw->vertices));
@@ -783,7 +783,7 @@ void ui_end(UI_Context *context) {
         
         for_list_item(group_it, context->groups) {
             for_list_item(command_it, group_it->group.commands) {
-                auto draw = try_kind_of(command_it->command, draw);
+                auto draw = try_kind_of(&command_it->command, draw);
                 if (draw) {
                     auto dest = grow(&context->memory_stack.allocator, &indices, draw->indices.count);
                     copy(dest, draw->indices, byte_count_of(draw->indices));
@@ -823,7 +823,7 @@ void ui_end(UI_Context *context) {
             glBindTexture(GL_TEXTURE_2D, group_it->group.texture->object);
             
             for_list_item(command_it, group_it->group.commands) {
-                auto draw = try_kind_of(command_it->command, draw);
+                auto draw = try_kind_of(&command_it->command, draw);
                 if (draw) {
                     if (current_draw_command.draw.mode == -1) {
                         current_draw_command = command_it->command;
