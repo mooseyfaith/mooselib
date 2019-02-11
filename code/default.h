@@ -522,7 +522,6 @@ void default_end_frame(Default_State *state)
         
         glUniformMatrix4x3fv(state->im_shader.uniform.Object_To_World, 1, GL_FALSE, MAT4X3_IDENTITY);
         
-        glDisable(GL_BLEND);
         draw_end(&state->im);
     }
     
@@ -534,7 +533,11 @@ void default_end_frame(Default_State *state)
         
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        //glDisable(GL_DEPTH_TEST);
         
         ui_end(&state->ui);
+        
+        glDisable(GL_BLEND);
+        //glEnable(GL_DEPTH_TEST);
     }
 }

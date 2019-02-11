@@ -70,11 +70,19 @@ INTERNAL ALLOCATE_DEC(Memory_Growing_Stack *stack)
     }
     
     if (allocate_new_entry) {
+        // TODO: maybe allocate ceil(log_2(chunk_count))² (double the chunk_count for every log_2 change) to minimize allocations??
+        
 #if defined DEBUG
-        usize internal_size = MAX(stack->min_chunk_capacity, size + sizeof(Memory_Stack_List::Entry) + alignment + sizeof(Debug_Memory_Stack_Footer));
+        usize min_byte_count = size + sizeof(Memory_Stack_List::Entry) + alignment + sizeof(Debug_Memory_Stack_Footer);
 #else
-        usize internal_size = MAX(stack->min_chunk_capacity, size + sizeof(Memory_Stack_List::Entry) + alignment);
+        usize min_byte_count = size + sizeof(Memory_Stack_List::Entry) + alignment);
 #endif
+        
+        auto chunk_count = min_byte_count / stack->min_chunk_capacity;
+        if (min_byte_count % stack->min_chunk_capacity)
+            chunk_count++;
+        
+        usize internal_size = chunk_count * stack->min_chunk_capacity;
         
         u8 *internal_data = cast_p(u8, allocate(stack->internal_allocator, internal_size, alignof(Memory_Stack_List::Entry)));
         

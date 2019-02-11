@@ -44,7 +44,6 @@ struct UI_Command {
 #define Template_List_Data_Type UI_Command
 #define Template_List_Data_Name command
 #define Template_List_With_Tail
-//#define Template_List_With_Double_Links
 #include "template_list.h"
 
 struct UI_Group {
@@ -57,7 +56,6 @@ struct UI_Group {
 #define Template_List_Data_Type UI_Group
 #define Template_List_Data_Name group
 #define Template_List_With_Tail
-//#define Template_List_With_Double_Links
 #include "template_list.h"
 
 struct UI_Layout {
