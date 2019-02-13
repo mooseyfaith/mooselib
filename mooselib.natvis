@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?> 
 <AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
 
-  <Type Name="u8_array,*u8_array, string">
+  <Type Name="u8_array,*u8_array,string,*string">
     <DisplayString>[{count}] {data, [count]}</DisplayString>
     <StringView>data, [count]</StringView>
   </Type>

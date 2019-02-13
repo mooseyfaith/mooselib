@@ -116,7 +116,7 @@ shrink(Memory_Allocator *allocator, Template_Array_Name *array, Template_Array_S
 }
 
 INTERNAL void
-free(Memory_Allocator *allocator, Template_Array_Name *array)
+free_array(Memory_Allocator *allocator, Template_Array_Name *array)
 {
     if (array->count) {
         free(allocator, array->data);

@@ -1,0 +1,11 @@
+
+coroutine u32 factorial(u32 n) {
+	if (n < 1)
+		co_return 1;
+
+	u32 p;
+	co_yield p = factorial(n - 1);
+	n = n * p;
+	
+	co_return n;
+}
