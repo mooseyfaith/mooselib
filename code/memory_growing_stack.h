@@ -75,7 +75,7 @@ INTERNAL ALLOCATE_DEC(Memory_Growing_Stack *stack)
 #if defined DEBUG
         usize min_byte_count = size + sizeof(Memory_Stack_List::Entry) + alignment + sizeof(Debug_Memory_Stack_Footer);
 #else
-        usize min_byte_count = size + sizeof(Memory_Stack_List::Entry) + alignment);
+        usize min_byte_count = size + sizeof(Memory_Stack_List::Entry) + alignment;
 #endif
         
         auto chunk_count = min_byte_count / stack->min_chunk_capacity;

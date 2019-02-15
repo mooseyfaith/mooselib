@@ -703,23 +703,36 @@ INTERNAL string write_va(Memory_Allocator *allocator, string *output, string for
     return text;
 }
 
+struct String_Buffer {
+    Memory_Allocator *allocator;
+    string buffer;
+};
 
-INTERNAL string write_va(Memory_Allocator *allocator, string format, va_list va_args, bool double_capacity_on_grow = true) 
+INTERNAL string write_va(String_Buffer *buffer, string format, va_list va_args, bool double_capacity_on_grow = true) 
 {
     bool is_escaping = false;
-    string output = {};
-    auto text = write_va(allocator, &output, &format, va_args, &is_escaping, double_capacity_on_grow);
+    auto text = write_va(buffer->allocator, &buffer->buffer, &format, va_args, &is_escaping, double_capacity_on_grow);
     return text;
 }
 
+INTERNAL String_Buffer new_write_va(Memory_Allocator *allocator, string format, va_list va_args, bool double_capacity_on_grow = true) 
+{
+    String_Buffer buffer = { allocator };
+    auto text = write_va(&buffer, format, va_args, double_capacity_on_grow);
+    return buffer;
+}
 
-INTERNAL string write(Memory_Allocator *allocator, string format, ...)
+INTERNAL String_Buffer new_write(Memory_Allocator *allocator, string format, ...)
 {
     va_list va_args;
     va_start(va_args, format);
-    string result = write_va(allocator, format, va_args, false);
+    auto result = new_write_va(allocator, format, va_args, false);
     va_end(va_args);
     return result;
+}
+
+INTERNAL void free(String_Buffer *buffer) {
+    free_array(buffer->allocator, &buffer->buffer);
 }
 
 INTERNAL string write(Memory_Allocator *allocator, string *output, string format, ...) {
@@ -727,6 +740,15 @@ INTERNAL string write(Memory_Allocator *allocator, string *output, string format
     va_start(va_args, format);
     bool is_escaping = false;
     string text = write_va(allocator, output, &format, va_args, &is_escaping, false);
+    va_end(va_args);
+    
+    return text;
+}
+
+INTERNAL string write(String_Buffer *buffer, string format, ...) {
+    va_list va_args;
+    va_start(va_args, format);
+    string text = write_va(buffer, format, va_args, false);
     va_end(va_args);
     
     return text;

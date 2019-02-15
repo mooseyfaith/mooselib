@@ -3,14 +3,14 @@
 set mode=debug
 rem set mode=release
 
-set name=moose_preprocessor
+set name=mooselib_preprocessor
 set gui_application=0
 set application_init_function=application_init
 set application_main_loop_function=application_main_loop
-set source=preprocessor.cpp
 
 rem paths relative to build dir
-set moose_dir=%cd%/
+set source=%cd%/preprocessor.cpp
+set moose_dir=%cd%/../
 
 set include_dirs=/I "%moose_dir%3rdparty" /I "%moose_dir%code"
 set libs=kernel32.lib user32.lib shell32.lib gdi32.lib opengl32.lib
@@ -72,7 +72,7 @@ del *.pdb > NUL 2> NUL
 
 echo "compiling dll" > compile_dll_lock.tmp
 rem option /ignore:4099 disables linker warning, that .pdb files for freetype.lib do not exists (we only use release build)
-cl -Fe%name% %options% %dll_flag% "%cd%\..\code\%source%" %libs% /DWIN32 /DWIN32_EXPORT %include_dirs% %link_options% /ignore:4099 /PDB:"%name%%date%-%t%.pdb"
+cl -Fe%name% %options% %dll_flag% "%source%" %libs% /DWIN32 /DWIN32_EXPORT %include_dirs% %link_options% /ignore:4099 /PDB:"%name%%date%-%t%.pdb"
 
 if errorlevel 1 (
 	del compile_dll_lock.tmp

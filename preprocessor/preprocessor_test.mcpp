@@ -1,0 +1,38 @@
+
+def factorial function(n: u32) -> (u32) {
+	if n <= 1 { return 1; }
+
+	return factorial(n - 1) * n;
+}
+
+def div function(a: s32, b: s32) -> (s32, s32) {
+	return a / b, a % b;
+}
+
+def test function() {
+	var x: s32, y: s32 = div(123, 3);
+
+	var z: u32 = factorial(3);
+}
+
+def factorial_recursive coroutine(n: u32) -> (u32) {
+	if n <= 1 { return 1; }
+
+	var p: u32 = factorial_recursive(n - 1);
+	return n * p;
+}
+
+def factorial_iterative coroutine(n: u32) -> (u32) {
+	var a: u32 = 1;
+	var f: u32 = a;
+
+	while a < n {
+		yield f;
+		a++;
+		f *= a;
+	}
+
+	return f;
+}
+
+
