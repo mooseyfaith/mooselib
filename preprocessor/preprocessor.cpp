@@ -1,23 +1,50 @@
 
--------------------------------------------
-
-TODO: make this work
+#if 0
 
 def start function(Memory_Allocator *allocator) {
-	co_call(allocator, factorial_iterative(12));
+	// run while ignoring yields, wors
+	var x: = run allocator, factorial_iterative(12);
+    
+    // TODO
+    // not supported yet
+    var x: u32 = run allocator, factorial_iterative(12) {
+        factorial_iterative {
+            var x: u32 = yield_values;
+            // overide arguments
+            resume(x - 1);
+            // or resume without overriding arguments
+            // resume ;
+        }
+    }
+    else {
+        //handle abort...
+    }
 }
 
--------------------------------------------
-
+#endif
 
 #include "win32_platform.h"
 #include "memory_c_allocator.h"
 #include "memory_growing_stack.h"
+#include "preprocessor_coroutines.h"
 
-//#include "preprocessor_test.cpp"
+#define INCLUDE_TEST 1
+
+#if INCLUDE_TEST
+
+#include "preprocessor_test.cpp"
+
+#endif
+
+string skip_scope(string *it, string open_bracket, string closed_bracket);
 
 auto White_Space = S(" \t\r\n\0");
 void skip_space(string *iterator) {
+    if (try_skip(iterator, S("//")))
+        skip_until_first_in_set(iterator, S("\n"));
+    
+    skip_scope(iterator, S("/*"), S("*/"));
+    
     skip_set(iterator, White_Space);
 }
 
@@ -44,6 +71,7 @@ struct Function {
     Declarations arguments;
     Types return_types;
     bool is_coroutine;
+    u32 local_byte_count;
 };
 
 #define Template_Array_Name      Functions
@@ -51,30 +79,37 @@ struct Function {
 #include "template_array.h"
 
 
-struct Best_Token {
-    string *it;
-    string best;
-    u32 index;
+struct Best_Token_Iterator {
+    string *text_iterator;
+    string best_token;
+    string best_end;
+    u32 best_index;
     u32 count;
 };
 
-Best_Token begin_best_token(string *it) {
-    return { it };
+Best_Token_Iterator begin_best_token(string *text_iterator) {
+    return { text_iterator, {}, {}, u32_max };
 }
 
-void test_token(Best_Token *token, string end) {
-    auto a = get_token_until_first_in_set(*token->it, end);
-    if (!token->best.count || (a.count && a.count < token->best.count)) {
-        token->best = a;
-        token->index = token->count;
+void test_token(Best_Token_Iterator *iterator, string end) {
+    bool found;
+    auto a = get_token_until_first_in_set(*iterator->text_iterator, end, &found, false);
+    if (found && (!iterator->best_token.count || (a.count < iterator->best_token.count))) {
+        iterator->best_token = a;
+        iterator->best_end = end;
+        iterator->best_index = iterator->count;
     }
     
-    token->count++;
+    iterator->count++;
 }
 
-bool end(Best_Token *token) {
-    advance(token->it, token->best.count);
-    return (token->best.count > 0);
+bool end(Best_Token_Iterator *iterator, bool skip_end = true) {
+    advance(iterator->text_iterator, iterator->best_token.count);
+    
+    if (skip_end)
+        advance(iterator->text_iterator, iterator->best_end.count);
+    
+    return (iterator->best_token.count > 0);
 }
 
 Type * find_type(Types types, string identifier) {
@@ -123,20 +158,21 @@ string skip_scope(string *it, string open_bracket, string closed_bracket) {
     u32 count = 1;
     
     while (count) {
-        auto closed = get_token_until_first_in_set(*it, closed_bracket);
-        auto opened = get_token_until_first_in_set(*it, open_bracket);
+        auto token = begin_best_token(it);
+        test_token(&token, closed_bracket);
+        test_token(&token, open_bracket);
+        end(&token);
         
-        if (!opened.count || (closed.count < opened.count)) {
-            assert(closed.count);
-            count--;
-            advance(it, closed.count);
-            skip(it, closed_bracket);
-        }
-        else {
-            assert(opened.count);
-            count++;
-            advance(it, opened.count);
-            skip(it, open_bracket);
+        switch (token.best_index) {
+            case 0: {
+                count--;
+            } break;
+            
+            case 1: {
+                count++;
+            } break;
+            
+            CASES_COMPLETE;
         }
     }
     
@@ -154,6 +190,8 @@ Function * find_function(Functions functions, string identifier) {
 
 struct Scope {
     Declarations declarations;
+    u32 max_byte_count;
+    u32 byte_count;
 };
 
 #define Template_Array_Name      Scopes
@@ -176,7 +214,7 @@ string replace_expression(Memory_Allocator *allocator, string expression, Functi
                 }
                 
                 if (subroutine && subroutine->is_coroutine) {
-                    UNREACHABLE_CODE;
+                    assert(0, "you can not call coroutine as an expression within none-coroutine");
                     continue;
                 }
             }
@@ -254,6 +292,8 @@ u32 scopes_byte_count_of(Scopes scopes) {
     return byte_count;
 }
 
+// assuming return values are allways on top off the stack
+// we return the offset from the end
 u32 return_value_byte_offset_of(Function *function, u32 return_value_index) {
     assert(return_value_index < function->return_types.count);
     
@@ -263,7 +303,48 @@ u32 return_value_byte_offset_of(Function *function, u32 return_value_index) {
         byte_offset += function->return_types[i].byte_count;
     }
     
-    return byte_offset;
+    u32 byte_count = byte_offset;
+    for (u32 i = return_value_index; i < function->return_types.count; i++) {
+        assert(function->return_types[i].byte_count);
+        byte_count += function->return_types[i].byte_count;
+    }
+    
+    return byte_count - byte_offset;
+}
+
+u32 byte_count_of(Function function) {
+    u32 byte_count = 0;
+    
+    for_array_item(it, function.arguments) {
+        assert(it->type.byte_count);
+        byte_count += it->type.byte_count;
+    }
+    
+    byte_count += function.local_byte_count;
+    
+    for_array_item(it, function.return_types) {
+        assert(it->byte_count);
+        byte_count += it->byte_count;
+    }
+    
+    return byte_count;
+}
+
+void write_read_coroutine_results(Memory_Allocator *allocator, String_Buffer *body, Function *subroutine, string_array left_expressions, Functions functions, Function *function, Scopes scopes) {
+    write(body, S("{ // read results\r\n"));
+    
+    if (left_expressions.count) {
+        for (u32 i = 0; i < subroutine->return_types.count; i++) {
+            string expression_prime = replace_expression(allocator, left_expressions[i], functions, function, scopes);
+            defer { free_array(allocator, &expression_prime); };
+            
+            write(body, S("% = CO_RESULT(%, %);\r\n"), f(expression_prime), f(subroutine->return_types[i].identifier), f(return_value_byte_offset_of(subroutine, i)));
+        }
+    }
+    
+    write(body, S("co_pop_coroutine(call_stack, %);\r\n"), f(byte_count_of(*subroutine) + sizeof(Coroutine_Function) + 2 * sizeof(u32)));
+    
+    write(body, S("}\r\n\r\n"));
 }
 
 void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, string *it, Function *subroutine, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Scopes scopes)
@@ -295,10 +376,10 @@ void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_ta
             write(body, S("% arg% = %;\r\n"), f(subroutine->arguments[i].type.identifier), f(i), f(expression_prime));
         }
         
-        write(body, S("CO_PUSH_COROUTINE(%);\r\n"), f(subroutine->identifier));
+        write(body, S("u8_array it = co_push_coroutine(call_stack, %, %);\r\n"), f(subroutine->identifier), f(byte_count_of(*subroutine) + 2 * sizeof(u32) + sizeof(Coroutine_Function)));
         
         for (u32 i = 0; i < subroutine->arguments.count; i++) {
-            write(body, S("CO_PUSH(%) = arg%;\r\n"), f(subroutine->arguments[i].type.identifier), f(i));
+            write(body, S("*next_item(&it, %) = arg%;\r\n"), f(subroutine->arguments[i].type.identifier), f(i));
         }
         
         write(body, S("return Coroutine_Continue;\r\n"));
@@ -307,26 +388,7 @@ void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_ta
     
     add_label(switch_table, body, label_count);
     
-    {
-        write(body, S("{ // read results\r\n"));
-        
-        if (left_expressions.count) {
-            for (u32 i = 0; i < subroutine->return_types.count; i++) {
-                string expression_prime = replace_expression(allocator, left_expressions[i], functions, function, scopes);
-                defer { free_array(allocator, &expression_prime); };
-                
-                write(body, S("% = CO_ENTRY(%, %);\r\n"), f(expression_prime), f(subroutine->return_types[i].identifier), f(scopes_byte_count_of(scopes) + return_value_byte_offset_of(subroutine, i)));
-                
-                skip_space(it);
-            }
-        }
-        
-        // pop return values in return
-        for (u32 i = 0; i < subroutine->return_types.count; i++)
-            write(body, S("CO_POP(%); // pop return value %\r\n"), f(subroutine->return_types[subroutine->return_types.count - i - 1].identifier), f(subroutine->return_types.count - i - 1));
-        
-        write(body, S("}\r\n\r\n"));
-    }
+    write_read_coroutine_results(allocator, body, subroutine, left_expressions, functions, function, scopes);
 }
 
 void write_signature(String_Buffer *output, Function function) {
@@ -373,9 +435,9 @@ string parse_next_expression(string *it, string end_token, bool *is_end) {
         test_token(&token, S("("));
         test_token(&token, S(","));
         test_token(&token, end_token);
-        end(&token);
+        end(&token, false);
         
-        switch (token.index) {
+        switch (token.best_index) {
             case 0: {
                 skip_scope(it, S("("), S(")"));
             } break;
@@ -416,19 +478,50 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
                 skip(it, S(";"));
             }
             else {
-                assert(left_expressions.count == subroutine->return_types.count);
+                bool use_dummy_returns = false;
+                
+                String_Buffer dummy_return_values = { allocator };
+                defer { 
+                    if (use_dummy_returns) {
+                        free_array(allocator, &left_expressions);
+                        free(&dummy_return_values);
+                        write(body, S("}\r\n"));
+                    }
+                };
+                
+                if (!left_expressions.count && (subroutine->return_types.count > 1)) {
+                    use_dummy_returns = true;
+                    write(body, S("{\r\n"));
+                    
+                    for (u32 i = 1; i < subroutine->return_types.count; i++) {
+                        *grow(allocator, &left_expressions) = write(&dummy_return_values, S("_ignored%"), f(i));
+                        write(body, S("% _ignored%;\r\n"), f(subroutine->return_types[i].identifier), f(i));
+                    }
+                }
+                
+                assert(use_dummy_returns || (left_expressions.count == subroutine->return_types.count));
                 
                 skip(it, S("("));
                 skip_space(it);
                 
-                {
+                if (use_dummy_returns) {
+                    write(body, S("%("), f(subroutine->identifier));
+                }
+                else {
                     string expression_prime = replace_expression(allocator, left_expressions[0], functions, function, scopes);
                     defer { free_array(allocator, &expression_prime); };
+                    
                     write(body, S("% = %("), f(expression_prime), f(subroutine->identifier));
                 }
                 
                 for (u32 i = 1; i < subroutine->return_types.count; i++) {
-                    string expression_prime = replace_expression(allocator, left_expressions[i], functions, function, scopes);
+                    string expression;
+                    if (use_dummy_returns)
+                        expression = left_expressions[i - 1];
+                    else
+                        expression = left_expressions[i];
+                    
+                    string expression_prime = replace_expression(allocator, expression, functions, function, scopes);
                     defer { free_array(allocator, &expression_prime); };
                     
                     if (i == subroutine->return_types.count + subroutine->arguments.count - 1)
@@ -512,6 +605,7 @@ int main() {
     add_base_type(u8_array);
     add_base_type(u8_buffer);
     add_base_type(Memory_Allocator);
+    add_base_type(Memory_Growing_Stack);
     
 #undef add_base_type
     
@@ -592,9 +686,83 @@ int main() {
                         }
                     }
                     
-                    *grow(allocator, &functions) = function;
+                    skip(&it, S("{"));
                     
-                    skip_scope(&it, S("{"), S("}"));
+                    Scopes scopes = {};
+                    *grow(allocator, &scopes) = {};
+                    
+                    while (scopes.count)
+                    {
+                        skip_space(&it);
+                        
+                        if (try_skip(&it, S("{"))) {
+                            *grow(allocator, &scopes) = {};
+                            continue;
+                        }
+                        
+                        if (try_skip(&it, S("}"))) {
+                            u32 scope_byte_count = scopes[scopes.count - 1].max_byte_count;
+                            
+                            free_array(allocator, &scopes[scopes.count - 1].declarations);
+                            shrink(allocator, &scopes);
+                            
+                            if (scopes.count) {
+                                scopes[scopes.count - 1].max_byte_count = MAX(scopes[scopes.count - 1].max_byte_count, scopes[scopes.count - 1].byte_count + scope_byte_count);
+                            }
+                            else {
+                                function.local_byte_count = scope_byte_count;
+                            }
+                            continue;
+                        }
+                        
+                        if (try_skip(&it, S("var")))
+                        {
+                            string_array left_expressions = {};
+                            defer { free_array(allocator, &left_expressions); };
+                            
+                            LOOP {
+                                skip_space(&it);
+                                
+                                auto identifier = get_identifier(&it, S("_"));
+                                assert(identifier.count);
+                                skip_space(&it);
+                                
+                                skip(&it, S(":"));
+                                skip_space(&it);
+                                
+                                auto type = parse_type(&it, types);
+                                assert(type.identifier.count);
+                                skip_space(&it);
+                                
+                                scopes[scopes.count - 1].byte_count += type.byte_count;
+                                scopes[scopes.count - 1].max_byte_count = MAX(scopes[scopes.count - 1].max_byte_count, scopes[scopes.count - 1].byte_count);
+                                
+                                *grow(allocator, &scopes[scopes.count - 1].declarations) = { type, identifier };
+                                
+                                if (!try_skip(&it, S(","))) {
+                                    break;
+                                }
+                            }
+                            
+                            skip_until_first_in_set(&it, S(";"), true);
+                            continue;
+                        }
+                        
+                        auto token = begin_best_token(&it);
+                        test_token(&token, S("{"));
+                        test_token(&token, S("}"));
+                        test_token(&token, S(";"));
+                        end(&token, false);
+                        
+                        assert(token.best_index < token.count);
+                        
+                        if (token.best_index == 2)
+                            skip(&it, S(";"));
+                        
+                        continue;
+                    }
+                    
+                    *grow(allocator, &functions) = function;
                     
                     continue;
                 }
@@ -609,8 +777,8 @@ int main() {
                     continue;
                 }
                 
-                UNREACHABLE_CODE;
-            }
+                UNREACHABLE_CODE
+            } // "def"
             
             if (try_skip(&it, S("type"))) {
                 skip_space(&it);
@@ -656,6 +824,14 @@ int main() {
                 assert(identifier.count);
                 skip_space(&it);
                 
+                if (try_skip(&it, S("struct"))) {
+                    skip_space(&it);
+                    
+                    skip_scope(&it, S("{"), S("}"));
+                    
+                    continue;
+                }
+                
                 bool is_coroutine = try_skip(&it, S("coroutine"));
                 if (is_coroutine || try_skip(&it, S("function"))) {
                     skip_space(&it);
@@ -672,7 +848,7 @@ int main() {
                     
                     defer { 
                         if (function->is_coroutine) 
-                            write(&output, S("%default:\r\nassert(0);\r\n}\r\n\r\n%\r\n\r\n"), f(switch_table.buffer), f(body.buffer)); 
+                            write(&output, S("%default:\r\nassert(0);\r\n}\r\n\r\n%"), f(switch_table.buffer), f(body.buffer)); 
                         else
                             write(&output, S("%\r\n\r\n"), f(body.buffer));
                     };
@@ -704,14 +880,7 @@ int main() {
                         
                         if (try_skip(&it, S("}"))) {
                             if (function->is_coroutine) {
-                                for (u32 i = 0; i < scopes[scopes.count - 1].declarations.count; i++ ) {
-                                    auto declaration = scopes[scopes.count - 1].declarations + scopes[scopes.count - 1].declarations.count - i - 1;
-                                    
-                                    write(&body, S("CO_POP(%); // local variable % \r\n"), f(declaration->type.identifier), f(declaration->identifier));
-                                }
-                                
-                                
-                                if (scopes.count == 0)
+                                if (scopes.count == 1)
                                     write(&body, S("\r\nassert(0);\r\nreturn Coroutine_Abort;\r\n"));
                             }
                             
@@ -773,9 +942,9 @@ int main() {
                             }
                             
                             if (is_return)
-                                write(&body, S("\r\n{ // return\r\n"));
+                                write(&body, S("{ // return\r\n"));
                             else
-                                write(&body, S("\r\n{ // yield\r\n"));
+                                write(&body, S("{ // yield\r\n"));
                             
                             for (u32 i = 0; i < function->return_types.count; i++) {
                                 bool is_end;
@@ -786,19 +955,14 @@ int main() {
                                 string expression_prime = replace_expression(allocator, expression, functions, function, scopes);
                                 defer { free_array(allocator, &expression_prime); };
                                 
-                                write(&body, S("% return% = %;\r\n"), f(function->return_types[i].identifier), f(i), f(expression_prime));
+                                write(&body, S("CO_RESULT(%, %) = %;\r\n"), f(function->return_types[i].identifier), f(return_value_byte_offset_of(function, i)), f(expression_prime));
                             }
                             
                             if (is_return) {
-                                write(&body, S("CO_POP_COROUTINE;\r\n"));
-                            }
-                            
-                            for (u32 i = 0; i < function->return_types.count; i++) {
-                                write(&body, S("CO_PUSH(%) = return%;\r\n"), f(function->return_types[i].identifier), f(i));
-                            }
-                            
-                            if (is_return)
+                                write(&body, S("CO_STATE_ENTRY = u32_max;\r\n"));
+                                write(&body, S("call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;\r\n"));
                                 write(&body, S("return Coroutine_Continue;\r\n}\r\n\r\n"));
+                            }
                             else {
                                 
                                 write(&body, S("CO_STATE_ENTRY = %;\r\n"), f(label_count));
@@ -832,9 +996,7 @@ int main() {
                                 *grow(allocator, &scopes[scopes.count - 1].declarations) = { type, identifier };
                                 *grow(allocator, &left_expressions) = identifier;
                                 
-                                if (function->is_coroutine)
-                                    write(&body, S("CO_PUSH(%); // local variable %\r\n"), f(type.identifier), f(identifier));
-                                else
+                                if (!function->is_coroutine)
                                     write(&body, S("% %;\r\n"), f(type.identifier), f(identifier));
                                 
                                 if (!try_skip(&it, S(","))) {
@@ -844,6 +1006,82 @@ int main() {
                             
                             if (try_skip(&it, S("="))) {
                                 skip_space(&it);
+                                
+                                if (try_skip(&it, S("run"))) {
+                                    skip_space(&it);
+                                    
+                                    // get allocator expression
+                                    
+                                    bool is_end;
+                                    auto allocator_expression = parse_next_expression(&it, S(";"), &is_end);
+                                    assert(!is_end);
+                                    
+                                    string subroutine_identifier = get_identifier(&it, S("_"));
+                                    auto subroutine = find_function(functions, subroutine_identifier);
+                                    assert(subroutine && subroutine->is_coroutine);
+                                    skip_space(&it);
+                                    
+                                    skip(&it, S("("));
+                                    
+                                    string_array arguments = {};
+                                    defer { free_array(allocator, &arguments); };
+                                    
+                                    LOOP {
+                                        skip_space(&it);
+                                        bool is_end;
+                                        auto expression = parse_next_expression(&it, S(")"), &is_end);
+                                        
+                                        *grow(allocator, &arguments) = expression;
+                                        
+                                        if (is_end) {
+                                            skip_space(&it);
+                                            break;
+                                        }
+                                    }
+                                    
+                                    assert(arguments.count == subroutine->arguments.count);
+                                    
+                                    skip(&it, S(";"));
+                                    
+                                    write(&body, S("{\r\n"));
+                                    
+                                    {
+                                        string allocator_expression_prime = replace_expression(allocator, allocator_expression, functions, function, scopes);
+                                        defer { free_array(allocator, &allocator_expression_prime); };
+                                        
+                                        write(&body, S("Memory_Growing_Stack *_allocator = %;\r\n"), f(allocator_expression_prime));
+                                        write(&body, S("Coroutine_Stack _call_stack = { _allocator };\r\n"));
+                                    }
+                                    
+                                    // CO_ macros work on call_stack pointer
+                                    write(&body, S("auto call_stack = &_call_stack;\r\n"));
+                                    write(&body, S("auto it = co_push_coroutine(call_stack, %, %);\r\n"), f(subroutine->identifier), f(byte_count_of(*subroutine) + 2 * sizeof(u32) + sizeof(Coroutine_Function)));
+                                    
+                                    for (u32 i = 0; i < arguments.count; i++) {
+                                        string argument_prime = replace_expression(allocator, arguments[i], functions, function, scopes);
+                                        defer { free_array(allocator, &argument_prime); };
+                                        
+                                        write(&body, S("*next_item(&it, %) = %;\r\n"), f(subroutine->arguments[i].type.identifier), f(argument_prime));
+                                    }
+                                    
+                                    write(&body, S(
+                                        "\r\n"
+                                        "if (!run_without_yielding(call_stack)) {\r\n"
+                                        "assert(0, \"todo: handle Coroutine_Abort\");\r\n"
+                                        "}\r\n\r\n"
+                                        ));
+                                    
+                                    write_read_coroutine_results(allocator, &body, subroutine, left_expressions, functions, function, scopes);
+                                    
+                                    write(&body, S("free_array(_allocator, &call_stack->buffer);\r\n"));
+                                    
+                                    write(&body, S("}\r\n"));
+                                    
+                                    // check scope later ...
+                                    
+                                    continue;
+                                }
+                                
                                 parse_call_subroutine_or_expression(allocator, &switch_table, &body, &it, left_expressions, &label_count, functions, function, scopes);
                             }
                             else {
@@ -893,54 +1131,21 @@ int main() {
                     continue;
                 }
                 
-                if (try_skip(&it, S("struct"))) {
-                    skip_space(&it);
-                    
-                    *grow(allocator, &types) = { identifier, 0 };
-                    
-                    skip_scope(&it, S("{"), S("}"));
-                    
-                    continue;
-                }
-                
                 UNREACHABLE_CODE;
             }
-        }
-    }
-    
-    win32_write_entire_file(S("preprocessor_test.cpp"), output.buffer);
-    
-#if 0
-    auto cs = begin(&transient_memory.allocator, factorial_recursive);
-    {
-        auto call_stack = &cs;
-        CO_PUSH(u32) = 5;
-        
-        bool do_continue = true;
-        while (do_continue) {
-            auto dir = step(call_stack, null);
             
-            if ((dir == Coroutine_End) || (dir == Coroutine_Abort))
-                do_continue = false;
-            
-            switch (dir) {
-                case Coroutine_Wait:
-                case Coroutine_End: 
-                {
-                    u8_array head;
-                    head.count = sizeof(u32);
-                    head.data = one_past_last(cs.buffer) - head.count;
-                    
-                    auto n = *next_item(&head, u32);
-                    
-                    printf("factorial_iteratrive = %u\n", n);
-                    
-                    CO_POP(u32);
-                } break;
+            if (try_skip(&it, S("type"))) {
+                skip_until_first_in_set(&it, S(";"), true);
+                continue;
             }
+            
         }
     }
-    end(cs);
+    
+#if INCLUDE_TEST
+    printf("factorial(3) = %u\n", run_factorial(&transient_memory, 3));
+#else
+    win32_write_entire_file(S("preprocessor_test.cpp"), output.buffer);
 #endif
     
     return 1;

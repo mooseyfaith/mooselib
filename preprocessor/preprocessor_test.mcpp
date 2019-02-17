@@ -12,6 +12,8 @@ def div function(a: s32, b: s32) -> (s32, s32) {
 def test function() {
 	var x: s32, y: s32 = div(123, 3);
 
+	div(1, 2);
+
 	var z: u32 = factorial(3);
 }
 
@@ -35,4 +37,9 @@ def factorial_iterative coroutine(n: u32) -> (u32) {
 	return f;
 }
 
+def run_factorial function(allocator: Memory_Growing_Stack*, n: u32) -> (u32) {
+	var x: u32 = run allocator, factorial_recursive(n);
+	return x;
+}
+    
 

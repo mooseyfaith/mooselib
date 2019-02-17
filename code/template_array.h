@@ -21,6 +21,8 @@
 #  define Template_Array_Size_Type usize
 #endif
 
+#if !defined Template_Array_Append_Allocator
+
 struct Template_Array_Name {
     Template_Array_Data_Type *data;
     
@@ -60,69 +62,6 @@ for(decltype((array).count) index = 0; index < (array).count; index++)
 
 #define for_array_item(iterator, array) \
 for(auto iterator = (array) + 0; iterator != one_past_last(array); iterator++)
-
-INTERNAL Template_Array_Data_Type *
-grow(Memory_Allocator *allocator, Template_Array_Name *array, Template_Array_Size_Type capacity = 1)
-{
-    if (array->capacity)
-        REALLOCATE_ARRAY(allocator, &array->data, array->capacity + capacity);
-    else
-        array->data = ALLOCATE_ARRAY(allocator, Template_Array_Data_Type, capacity);
-    
-    Template_Array_Data_Type *result = array->data + array->capacity;
-    array->capacity += capacity;
-    return result;
-}
-
-// how to prevent or warn bad usage of grow/shrink/push/pop ??
-#if 0
-struct CHAIN(Template_Array_Name, _Reference)  {
-    Template_Array_Data_Type **array_data;
-    Template_Array_Size_Type offset;
-    
-    inline Template_Array_Data_Type & operator[](Template_Array_Size_Type index) {
-        return cast_p(Template_Array_Size_Type *, (*array_data) + index);
-    }
-    
-    inline Template_Array_Data_Type operator[](Template_Array_Size_Type index) const {
-        return cast_p(Template_Array_Size_Type *, (*array_data) + index);
-    }
-};
-
-#define ARRAY_BEGIN_GROW {
-    
-#define ARRAY_GROW(items, allocator, array, capacity) } { \
-    decltype(array->data) items = grow(allocator, array, capacity);
-    
-#define ARRAY_GROW_END }
-#endif
-
-INTERNAL void
-shrink(Memory_Allocator *allocator, Template_Array_Name *array, Template_Array_Size_Type capacity = 1)
-{
-    assert(capacity <= array->capacity);
-    
-    if (array->capacity == capacity)
-        free(allocator, array->data);
-    else 
-        REALLOCATE_ARRAY(allocator, &array->data, array->capacity - capacity);
-    
-    array->capacity -= capacity;
-    
-#if defined Template_Array_Is_Buffer
-    if (array->count > array->capacity)
-        array->count = array->capacity;
-#endif
-}
-
-INTERNAL void
-free_array(Memory_Allocator *allocator, Template_Array_Name *array)
-{
-    if (array->count) {
-        free(allocator, array->data);
-        *array = {};
-    }
-}
 
 INTERNAL usize
 byte_count_of(Template_Array_Name array)
@@ -179,6 +118,75 @@ remaining_byte_count_of(Template_Array_Name buffer)
     return (buffer.capacity - buffer.count) * sizeof(Template_Array_Data_Type);
 }
 
+#else // Template_Array_Is_Buffer
+
+INTERNAL Template_Array_Data_Type *
+advance(Template_Array_Name *iterator, Template_Array_Size_Type count = 1) {
+    assert(count <= iterator->count);
+    Template_Array_Data_Type *result = iterator->data;
+    iterator->data  += count;
+    iterator->count -= count;
+    return result;
+}
+
+#endif // Template_Array_Is_Buffer
+
+#if !defined Template_Array_Allocator
+#  define Template_Array_Allocator Memory_Allocator
+#endif
+
+#else // !Template_Array_Append_Allocator
+
+#if defined Template_Array_Allocator
+#  error Template_Array_Allocator must not need to be defined if you define Template_Array_Append_Allocator
+#else
+#  define Template_Array_Allocator Template_Array_Append_Allocator
+#endif
+
+#endif // !Template_Array_Append_Allocator
+
+INTERNAL Template_Array_Data_Type *
+grow(Template_Array_Allocator *allocator, Template_Array_Name *array, Template_Array_Size_Type capacity = 1)
+{
+    if (array->capacity)
+        REALLOCATE_ARRAY(allocator, &array->data, array->capacity + capacity);
+    else
+        array->data = ALLOCATE_ARRAY(allocator, Template_Array_Data_Type, capacity);
+    
+    Template_Array_Data_Type *result = array->data + array->capacity;
+    array->capacity += capacity;
+    return result;
+}
+
+INTERNAL void
+shrink(Template_Array_Allocator *allocator, Template_Array_Name *array, Template_Array_Size_Type capacity = 1)
+{
+    assert(capacity <= array->capacity);
+    
+    if (array->capacity == capacity)
+        free(allocator, array->data);
+    else 
+        REALLOCATE_ARRAY(allocator, &array->data, array->capacity - capacity);
+    
+    array->capacity -= capacity;
+    
+#if defined Template_Array_Is_Buffer
+    if (array->count > array->capacity)
+        array->count = array->capacity;
+#endif
+}
+
+INTERNAL void
+free_array(Template_Array_Allocator *allocator, Template_Array_Name *array)
+{
+    if (array->count) {
+        free(allocator, array->data);
+        *array = {};
+    }
+}
+
+#if defined Template_Array_Is_Buffer
+
 INTERNAL Template_Array_Data_Type *
 push(Template_Array_Name *buffer, Template_Array_Size_Type count = 1)
 {
@@ -189,7 +197,7 @@ push(Template_Array_Name *buffer, Template_Array_Size_Type count = 1)
 }
 
 INTERNAL Template_Array_Data_Type *
-push(Memory_Allocator *allocator, Template_Array_Name *buffer, Template_Array_Size_Type count = 1, bool double_capacity_on_grow = true)
+push(Template_Array_Allocator *allocator, Template_Array_Name *buffer, Template_Array_Size_Type count = 1, bool double_capacity_on_grow = true)
 {
     if (buffer->count + count > buffer->capacity)
     {
@@ -215,9 +223,8 @@ pop(Template_Array_Name *buffer, Template_Array_Size_Type count = 1)
     return result;
 }
 
-
 INTERNAL void
-pop(Memory_Allocator *allocator, Template_Array_Name *buffer, Template_Array_Size_Type count = 1, bool half_capacity_on_quarter_count = true)
+pop(Template_Array_Allocator *allocator, Template_Array_Name *buffer, Template_Array_Size_Type count = 1, bool half_capacity_on_quarter_count = true)
 {
     pop(buffer, count);
     
@@ -232,18 +239,13 @@ pop(Memory_Allocator *allocator, Template_Array_Name *buffer, Template_Array_Siz
 
 #undef Template_Array_Is_Buffer
 
-#else
+#endif // Template_Array_Is_Buffer
 
-INTERNAL Template_Array_Data_Type *
-advance(Template_Array_Name *iterator, Template_Array_Size_Type count = 1) {
-    assert(count <= iterator->count);
-    Template_Array_Data_Type *result = iterator->data;
-    iterator->data  += count;
-    iterator->count -= count;
-    return result;
-}
-
+#if defined Template_Array_Append_Allocator
+#  undef Template_Array_Append_Allocator
 #endif
+
+#undef Template_Array_Allocator
 
 #undef Template_Array_Name
 #undef Template_Array_Data_Type

@@ -308,24 +308,24 @@ string skip_range(string *it, u8 from, u8 to) {
     return sub_string(start, *it);
 }
 
-string get_token_until_first_in_set(string text, string set, bool include_end = true)
+string get_token_until_first_in_set(string text, string set, bool *found, bool include_end = true)
 {
     auto it = text;
     
-    bool found = false;
+    *found = false;
     while (it.count) {
         u32 byte_count;
         u32 token = utf8_head(it, &byte_count);
         
         if (is_contained(token, set)) {
-            found  = true;
+            *found = true;
             break;
         }
         
         advance(&it, byte_count);
     }
     
-    if (include_end || found)
+    if (include_end || *found)
         return sub_string(text, it);
     
     return {};
@@ -333,12 +333,14 @@ string get_token_until_first_in_set(string text, string set, bool include_end = 
 
 string skip_until_first_in_set(string *it, string set, bool do_skip_set = false, bool include_end = true)
 {
-    string token = get_token_until_first_in_set(*it, set, include_end);
-    if (token.count)
+    bool found;
+    string token = get_token_until_first_in_set(*it, set, &found, include_end);
+    if (found || include_end) {
         advance(it, token.count);
-    
-    if (do_skip_set)
-        skip_set(it, set);
+        
+        if (found && do_skip_set)
+            skip_set(it, set);
+    }
     
     return token;
 }

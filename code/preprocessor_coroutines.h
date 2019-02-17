@@ -4,9 +4,15 @@
 #define PREPROCESSOR_COROUTINES_H
 
 #include "u8_buffer.h"
+#include "memory_growing_stack.h"
+
+#define Template_Array_Name             u8_array
+#define Template_Array_Data_Type        u8
+#define Template_Array_Append_Allocator Memory_Growing_Stack
+#include "template_array.h"
 
 struct Coroutine_Stack {
-    Memory_Allocator *allocator;
+    Memory_Growing_Stack *allocator;
     u8_array buffer;
     u32 current_byte_index;
 };
@@ -24,65 +30,52 @@ typedef COROUTINE_DEC((*Coroutine_Function));
 
 #define CO_ENTRY(type, byte_offset) (*cast_p(type, call_stack->buffer.data + call_stack->current_byte_index + byte_offset))
 
+#define CO_RESULT(type, byte_offset) \
+(*cast_p(type, one_past_last(call_stack->buffer) - byte_offset))
+
 #define CO_STATE_ENTRY CO_ENTRY(u32, sizeof(Coroutine_Function))
 
 #define CO_PREVIOUS_INDEX_ENTRY CO_ENTRY(u32, -sizeof(u32))
 
-#define CO_PUSH(type) (*grow_item(call_stack->allocator, &call_stack->buffer, type))
+//#define CO_PUSH(type) (*grow_item(call_stack->allocator, &call_stack->buffer, type))
 
-#define CO_POP(type) shrink_item(call_stack->allocator, &call_stack->buffer, type)
+//#define CO_POP(type) shrink_item(call_stack->allocator, &call_stack->buffer, type)
 
-#define CO_PUSH_COROUTINE(coroutine) { \
-    CO_PUSH(u32) = call_stack->current_byte_index; \
-    call_stack->current_byte_index = byte_count_of(call_stack->buffer); \
-    CO_PUSH(Coroutine_Function) = coroutine; \
-    CO_PUSH(u32) = 0; \
-}
-
-#define CO_POP_COROUTINE { \
-    shrink(call_stack->allocator, &call_stack->buffer, byte_count_of(call_stack->buffer) - call_stack->current_byte_index); \
-    call_stack->current_byte_index = *cast_p(u32, one_past_last(call_stack->buffer) - sizeof(u32)); \
-    CO_POP(u32); \
-}
-
-Coroutine_Stack begin(Memory_Allocator *allocator, Coroutine_Function coroutine) {
-    Coroutine_Stack stack = { allocator, {}, 0 };
-    // because macros whant call_stack as a pointer
-    auto call_stack = &stack;
-    CO_PUSH_COROUTINE(coroutine);
+u8_array co_push_coroutine(Coroutine_Stack *call_stack, Coroutine_Function coroutine, u32 byte_count) {
+    u8_array it;
+    it.data = grow(call_stack->allocator, &call_stack->buffer, byte_count);
+    it.count = byte_count;
     
-    return stack;
+    *next_item(&it, u32) = call_stack->current_byte_index;
+    // points at Coroutine_Function
+    call_stack->current_byte_index = byte_count_of(call_stack->buffer) - byte_count + sizeof(u32);
+    
+    *next_item(&it, Coroutine_Function) = coroutine;
+    *next_item(&it, u32) = 0; // coroutine state
+    return it;
 }
 
-// push some arguments to coroutine
+void co_pop_coroutine(Coroutine_Stack *call_stack, u32 byte_count) {
+    shrink(call_stack->allocator, &call_stack->buffer, byte_count);
+}
 
-COROUTINE_DEC(step) {
-    while (call_stack->current_byte_index != 0)
-    {
+INTERNAL bool run_without_yielding(Coroutine_Stack *call_stack) {
+    while (call_stack->current_byte_index != 0) {
         auto coroutine = CO_ENTRY(Coroutine_Function, 0);
-        
-        switch (coroutine(call_stack, user_data)) {
+        switch (coroutine(call_stack, null)) {
             case Coroutine_Wait:
-            return Coroutine_Wait;
-            
-            case Coroutine_Abort:
-            return Coroutine_Abort;
-            
             case Coroutine_Continue:
-            break;
+            {
+            }break;
+            
+            case Coroutine_Abort: {
+            } return false;
             
             CASES_COMPLETE;
         }
     }
     
-    return Coroutine_End;
-}
-
-// run step until its done
-// check return values and state
-
-void end(Coroutine_Stack call_stack) {
-    free_array(call_stack.allocator, &call_stack.buffer);
+    return true;
 }
 
 #endif // PREPROCESSOR_COROUTINES_H
