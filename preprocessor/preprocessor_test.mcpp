@@ -19,6 +19,7 @@ def test function() {
 
 def factorial_recursive coroutine(n: u32) -> (u32) {
 	if n <= 1 { return 1; }
+	if n <= 1 { return 1; }
 
 	var p: u32 = factorial_recursive(n - 1);
 	return n * p;

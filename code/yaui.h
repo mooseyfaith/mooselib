@@ -591,7 +591,8 @@ UI_Text_Info ui_fitt_text(UI_Context *context, area2f area, vec2f alignment, str
 
 area2f ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_list params)
 {
-    auto text = write_va(context->transient_allocator, format, params);
+    string output = {};
+    auto text = write_va(context->transient_allocator, &output, format, params);
     defer { free(context->transient_allocator, text); };
     
     area2f result = ui_text(context, info, text, context->font_rendering.do_render, context->font_rendering.color);
@@ -755,7 +756,7 @@ void ui_end(UI_Context *context) {
     // upload vertices to GPU
     {
         u8_array vertices = {};
-        defer { free(&context->memory_stack.allocator, &vertices); };
+        defer { free_array(&context->memory_stack.allocator, &vertices); };
         
         for_list_item(group_it, context->groups) {
             for_list_item(command_it, group_it->group.commands) {
@@ -775,7 +776,7 @@ void ui_end(UI_Context *context) {
     // upload indices to GPU
     {
         u32_array indices = {};
-        defer { free(&context->memory_stack.allocator, &indices); };
+        defer { free_array(&context->memory_stack.allocator, &indices); };
         
         u32 vertex_offset = 0;
         

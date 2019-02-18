@@ -1,4 +1,6 @@
 
+#define INCLUDE_TEST 0
+
 #if 0
 
 def start function(Memory_Allocator *allocator) {
@@ -28,24 +30,62 @@ def start function(Memory_Allocator *allocator) {
 #include "memory_growing_stack.h"
 #include "preprocessor_coroutines.h"
 
-#define INCLUDE_TEST 1
-
 #if INCLUDE_TEST
 
 #include "preprocessor_test.cpp"
 
 #endif
 
-string skip_scope(string *it, string open_bracket, string closed_bracket);
+struct Text_Iterator {
+    string text;
+    u32 line;
+};
 
-auto White_Space = S(" \t\r\n\0");
-void skip_space(string *iterator) {
-    if (try_skip(iterator, S("//")))
-        skip_until_first_in_set(iterator, S("\n"));
+void advance_line_count(Text_Iterator *it, string skipped_text, String_Buffer *body) {
+    while (skipped_text.count) {
+        u32 head = utf8_advance(&skipped_text);
+        if (head == '\n') {
+            it->line++;
+            
+            if (body)
+                write(body, S("#line %\r\n"), f(it->line));
+        }
+    }
+}
+
+string skip_until_first_in_set(Text_Iterator *it, string set, String_Buffer *body, bool do_skip_set = false, bool include_end = true)
+{
+    auto result = skip_until_first_in_set(&it->text, set, do_skip_set, include_end);
+    advance_line_count(it, result, body);
     
-    skip_scope(iterator, S("/*"), S("*/"));
+    return result;
+}
+
+bool try_skip(Text_Iterator *it, string prefix, String_Buffer *body) {
+    bool result = try_skip(&it->text, prefix);
+    if (result)
+        advance_line_count(it, prefix, body);
     
-    skip_set(iterator, White_Space);
+    return result;
+}
+
+string skip_scope(Text_Iterator *it, string open_bracket, string closed_bracket, String_Buffer *body);
+
+void skip_space(Text_Iterator *it, String_Buffer *body) {
+    auto White_Space = S(" \t\r\0");
+    
+    if (try_skip(&it->text, S("//"))) {
+        skip_until_first_in_set(&it->text, S("\n"), true);
+        it->line++;
+    }
+    
+    skip_scope(it, S("/*"), S("*/"), body);
+    
+    u32 line = it->line;
+    string skipped = skip_set(&it->text, S("\n"));
+    advance_line_count(it, skipped, body);
+    
+    skip_set(&it->text, White_Space);
 }
 
 struct Type {
@@ -121,12 +161,12 @@ Type * find_type(Types types, string identifier) {
     return null;
 }
 
-Type parse_type(string *it, Types types) {
-    string start = *it;
+Type parse_type(Text_Iterator *it, Types types, String_Buffer *body) {
+    string start = it->text;
     
     Type *base_type = null;
     for_array_item(type, types) {
-        if (try_skip(it, type->identifier)) {
+        if (try_skip(it, type->identifier, body)) {
             base_type = type;;
             break;
         }
@@ -136,31 +176,32 @@ Type parse_type(string *it, Types types) {
         return {};
     
     auto byte_count = base_type->byte_count;
-    while (it->count) {
-        skip_space(it);
+    while (it->text.count) {
+        skip_space(it, body);
         
-        if (!try_skip(it, S("*")))
+        if (!try_skip(&it->text, S("*")))
             break;
         
         byte_count = sizeof(u8*);
     }
     
-    return { sub_string(start, *it), byte_count };
+    return { sub_string(start, it->text), byte_count };
 }
 
 // does not care for comments or #if's
-string skip_scope(string *it, string open_bracket, string closed_bracket) {
-    if (!try_skip(it, open_bracket))
+string skip_scope(Text_Iterator *it, string open_bracket, string closed_bracket, String_Buffer *body) {
+    if (!try_skip(&it->text, open_bracket))
         return {};
     
-    auto start = *it;
+    auto start = it->text;
     
     u32 count = 1;
     
     while (count) {
-        auto token = begin_best_token(it);
+        auto token = begin_best_token(&it->text);
         test_token(&token, closed_bracket);
         test_token(&token, open_bracket);
+        test_token(&token, S("\n"));
         end(&token);
         
         switch (token.best_index) {
@@ -172,11 +213,17 @@ string skip_scope(string *it, string open_bracket, string closed_bracket) {
                 count++;
             } break;
             
+            case 2: {
+                it->line++;
+                if (body)
+                    write(body, S("#line %\r\n"), f(it->line));
+            }
+            
             CASES_COMPLETE;
         }
     }
     
-    return sub_string(start, *it);
+    return sub_string(start, it->text);
 }
 
 Function * find_function(Functions functions, string identifier) {
@@ -347,27 +394,27 @@ void write_read_coroutine_results(Memory_Allocator *allocator, String_Buffer *bo
     write(body, S("}\r\n\r\n"));
 }
 
-void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, string *it, Function *subroutine, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Scopes scopes)
+void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, Function *subroutine, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Scopes scopes)
 {
     assert(subroutine->is_coroutine);
-    skip_space(it);
+    skip_space(it, body);
     
     assert(!left_expressions.count || (left_expressions.count == subroutine->return_types.count));
     
     {
         write(body, S("\r\n{ // call %\r\n"), f(subroutine->identifier));
-        skip(it, S("("));
-        skip_space(it);
+        skip(&it->text, S("("));
+        skip_space(it, body);
         
         write(body, S("CO_STATE_ENTRY = %;\r\n"), f(*label_count));
         
         for (u32 i = 0; i < subroutine->arguments.count; i++) {
             string expression;
             if (i == subroutine->arguments.count - 1) {
-                expression = skip_until_first_in_set(it, S(")"), true);
+                expression = skip_until_first_in_set(it, S(")"), body, true);
             }
             else {
-                expression = skip_until_first_in_set(it, S(","), true);
+                expression = skip_until_first_in_set(it, S(","), body, true);
             }
             
             string expression_prime = replace_expression(allocator, expression, functions, function, scopes);
@@ -427,35 +474,42 @@ void write_signature(String_Buffer *output, Function function) {
     }
 }
 
-string parse_next_expression(string *it, string end_token, bool *is_end) {
-    string start = *it;
+string parse_next_expression(Text_Iterator *it, string end_token, bool *is_end, String_Buffer *body) {
+    string start = it->text;
     
     LOOP {
-        auto token = begin_best_token(it);
+        auto token = begin_best_token(&it->text);
         test_token(&token, S("("));
         test_token(&token, S(","));
         test_token(&token, end_token);
+        test_token(&token, S("\n"));
         end(&token, false);
         
         switch (token.best_index) {
             case 0: {
-                skip_scope(it, S("("), S(")"));
+                skip_scope(it, S("("), S(")"), body);
             } break;
             
             case 1: {
-                string expression = sub_string(start, *it);
-                skip(it, S(","));
-                skip_space(it);
+                string expression = sub_string(start, it->text);
+                skip(&it->text, S(","));
+                skip_space(it, body);
                 *is_end = false;
                 return expression;
             } break;
             
             case 2: {
-                string expression = sub_string(start, *it);
-                skip(it, end_token);
-                skip_space(it);
+                string expression = sub_string(start, it->text);
+                skip(&it->text, end_token);
+                skip_space(it, body);
                 *is_end = true;
                 return expression;
+            } break;
+            
+            case 3: {
+                skip(&it->text, S("\n"));
+                if (body)
+                    write(body, S("#line %\r\n"), f(it->line));
             } break;
             
             CASES_COMPLETE;
@@ -463,11 +517,11 @@ string parse_next_expression(string *it, string end_token, bool *is_end) {
     }
 }
 
-void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, string *it, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Scopes scopes) {
-    string test = *it;
-    auto function_identifier = get_identifier(&test, S("_"));
+void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Scopes scopes) {
+    auto test = *it;
+    auto function_identifier = get_identifier(&test.text, S("_"));
     if (function_identifier.count) {
-        skip_space(&test);
+        skip_space(&test, body);
         
         auto subroutine = find_function(functions, function_identifier);
         if (subroutine) {
@@ -475,7 +529,7 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
             
             if (subroutine->is_coroutine) {
                 write_call_subroutine(allocator, switch_table, body, it, subroutine, left_expressions, label_count, functions, function, scopes);
-                skip(it, S(";"));
+                skip(&it->text, S(";"));
             }
             else {
                 bool use_dummy_returns = false;
@@ -501,8 +555,8 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
                 
                 assert(use_dummy_returns || (left_expressions.count == subroutine->return_types.count));
                 
-                skip(it, S("("));
-                skip_space(it);
+                skip(&it->text, S("("));
+                skip_space(it, body);
                 
                 if (use_dummy_returns) {
                     write(body, S("%("), f(subroutine->identifier));
@@ -530,7 +584,7 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
                         write(body, S("&(%), "), f(expression_prime));
                 }
                 
-                auto rest = skip_until_first_in_set(it, S(";"), true);
+                auto rest = skip_until_first_in_set(it, S(";"), body, true);
                 
                 string rest_prime = replace_expression(allocator, rest, functions, function, scopes);
                 defer { free_array(allocator, &rest_prime); };
@@ -548,7 +602,7 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
         bool is_end = false;
         
         while (!is_end) {
-            auto expression = parse_next_expression(it, S(";"), &is_end);
+            auto expression = parse_next_expression(it, S(";"), &is_end, body);
             assert(expression.count);
             
             string expression_prime = replace_expression(allocator, expression, functions, function, scopes);
@@ -570,15 +624,20 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
 }
 
 int main() {
-    auto win32_allocator = make_win32_allocator();
-    init_win32_allocator();
+    auto win32_api = make_win32_api();
+    auto platform_api = &win32_api.platform_api;
+    
     init_c_allocator();
     init_Memory_Growing_Stack_allocators();
     auto allocator = C_Allocator;
     
-    auto transient_memory = make_memory_growing_stack(&win32_allocator);
+    auto transient_memory = make_memory_growing_stack(platform_api->allocator);
     
-    auto source = win32_read_entire_file(S("preprocessor_test.mcpp"), allocator);
+    string source_file_name = S("preprocessor_test");
+    
+    string source_file_path = new_write(&transient_memory.allocator, S("%.mcpp"), f(source_file_name));
+    
+    auto source = platform_api->read_entire_file(source_file_path, allocator);
     
     Types types = {};
     Functions functions = {};
@@ -610,97 +669,98 @@ int main() {
 #undef add_base_type
     
     {
-        auto it = source;
-        while (it.count) {
-            skip_space(&it);
+        Text_Iterator it = { source, 1 };
+        String_Buffer *empty_body = null;
+        while (it.text.count) {
+            skip_space(&it, empty_body);
             
-            if (try_skip(&it, S("def"))) {
-                skip_space(&it);
+            if (try_skip(&it, S("def"), empty_body)) {
+                skip_space(&it, empty_body);
                 
-                string identifier = get_identifier(&it, S("_"));
+                string identifier = get_identifier(&it.text, S("_"));
                 assert(identifier.count);
-                skip_space(&it);
+                skip_space(&it, empty_body);
                 
-                bool is_coroutine = try_skip(&it, S("coroutine"));
-                if (is_coroutine || try_skip(&it, S("function"))) {
-                    skip_space(&it);
+                bool is_coroutine = try_skip(&it, S("coroutine"), empty_body);
+                if (is_coroutine || try_skip(&it, S("function"), empty_body)) {
+                    skip_space(&it, empty_body);
                     
                     Function function = {};
                     function.identifier = identifier;
                     function.is_coroutine = is_coroutine;
                     
-                    skip(&it, S("("));
+                    skip(&it.text, S("("));
                     
                     bool previous_was_comma = false;
                     LOOP {
-                        skip_space(&it);
+                        skip_space(&it, empty_body);
                         
                         if (!previous_was_comma) {
-                            if (try_skip(&it, S(")"))) {
-                                skip_space(&it);
+                            if (try_skip(&it, S(")"), empty_body)) {
+                                skip_space(&it, empty_body);
                                 break;
                             }
                         }
                         
                         Declaration declaration = {};
                         
-                        declaration.identifier = get_identifier(&it, S("_"));
+                        declaration.identifier = get_identifier(&it.text, S("_"));
                         assert(declaration.identifier.count);
-                        skip_space(&it);
+                        skip_space(&it, empty_body);
                         
-                        skip(&it, S(":"));
-                        skip_space(&it);
+                        skip(&it.text, S(":"));
+                        skip_space(&it, empty_body);
                         
-                        declaration.type = parse_type(&it, types);
+                        declaration.type = parse_type(&it, types, empty_body);
                         assert(declaration.type.identifier.count);
-                        skip_space(&it);
+                        skip_space(&it, empty_body);
                         
                         *grow(allocator, &function.arguments) = declaration;
                         
-                        previous_was_comma = try_skip(&it, S(","));
+                        previous_was_comma = try_skip(&it, S(","), empty_body);
                     }
                     
-                    if (try_skip(&it, S("->"))) {
-                        skip_space(&it);
+                    if (try_skip(&it, S("->"), empty_body)) {
+                        skip_space(&it, empty_body);
                         
-                        skip(&it, S("("));
+                        skip(&it.text, S("("));
                         
                         bool previous_was_comma = false;
                         LOOP {
-                            skip_space(&it);
+                            skip_space(&it, empty_body);
                             
                             if (!previous_was_comma) {
-                                if (try_skip(&it, S(")"))) {
-                                    skip_space(&it);
+                                if (try_skip(&it, S(")"), empty_body)) {
+                                    skip_space(&it, empty_body);
                                     break;
                                 }
                             }
                             
-                            Type type = parse_type(&it, types);
+                            Type type = parse_type(&it, types, empty_body);
                             assert(type.identifier.count);
-                            skip_space(&it);
+                            skip_space(&it, empty_body);
                             
                             *grow(allocator, &function.return_types) = type;
                             
-                            previous_was_comma = try_skip(&it, S(","));
+                            previous_was_comma = try_skip(&it, S(","), empty_body);
                         }
                     }
                     
-                    skip(&it, S("{"));
+                    skip(&it.text, S("{"));
                     
                     Scopes scopes = {};
                     *grow(allocator, &scopes) = {};
                     
                     while (scopes.count)
                     {
-                        skip_space(&it);
+                        skip_space(&it, empty_body);
                         
-                        if (try_skip(&it, S("{"))) {
+                        if (try_skip(&it, S("{"), empty_body)) {
                             *grow(allocator, &scopes) = {};
                             continue;
                         }
                         
-                        if (try_skip(&it, S("}"))) {
+                        if (try_skip(&it, S("}"), empty_body)) {
                             u32 scope_byte_count = scopes[scopes.count - 1].max_byte_count;
                             
                             free_array(allocator, &scopes[scopes.count - 1].declarations);
@@ -715,49 +775,60 @@ int main() {
                             continue;
                         }
                         
-                        if (try_skip(&it, S("var")))
+                        if (try_skip(&it, S("var"), empty_body))
                         {
                             string_array left_expressions = {};
                             defer { free_array(allocator, &left_expressions); };
                             
                             LOOP {
-                                skip_space(&it);
+                                skip_space(&it, empty_body);
                                 
-                                auto identifier = get_identifier(&it, S("_"));
+                                auto identifier = get_identifier(&it.text, S("_"));
                                 assert(identifier.count);
-                                skip_space(&it);
+                                skip_space(&it, empty_body);
                                 
-                                skip(&it, S(":"));
-                                skip_space(&it);
+                                skip(&it.text, S(":"));
+                                skip_space(&it, empty_body);
                                 
-                                auto type = parse_type(&it, types);
+                                auto type = parse_type(&it, types, empty_body);
                                 assert(type.identifier.count);
-                                skip_space(&it);
+                                skip_space(&it, empty_body);
                                 
                                 scopes[scopes.count - 1].byte_count += type.byte_count;
                                 scopes[scopes.count - 1].max_byte_count = MAX(scopes[scopes.count - 1].max_byte_count, scopes[scopes.count - 1].byte_count);
                                 
                                 *grow(allocator, &scopes[scopes.count - 1].declarations) = { type, identifier };
                                 
-                                if (!try_skip(&it, S(","))) {
+                                if (!try_skip(&it, S(","), empty_body)) {
                                     break;
                                 }
                             }
                             
-                            skip_until_first_in_set(&it, S(";"), true);
+                            skip_until_first_in_set(&it, S(";"), empty_body, true);
                             continue;
                         }
                         
-                        auto token = begin_best_token(&it);
-                        test_token(&token, S("{"));
-                        test_token(&token, S("}"));
-                        test_token(&token, S(";"));
-                        end(&token, false);
-                        
-                        assert(token.best_index < token.count);
-                        
-                        if (token.best_index == 2)
-                            skip(&it, S(";"));
+                        LOOP {
+                            auto token = begin_best_token(&it.text);
+                            test_token(&token, S("{"));
+                            test_token(&token, S("}"));
+                            test_token(&token, S(";"));
+                            test_token(&token, S("\n"));
+                            end(&token, false);
+                            
+                            assert(token.best_index < token.count);
+                            
+                            if (token.best_index == 3) {
+                                skip_space(&it, empty_body);
+                                it.line++;
+                                continue;
+                            }
+                            
+                            if (token.best_index == 2)
+                                skip(&it.text, S(";"));
+                            
+                            break;
+                        }
                         
                         continue;
                     }
@@ -767,12 +838,12 @@ int main() {
                     continue;
                 }
                 
-                if (try_skip(&it, S("struct"))) {
-                    skip_space(&it);
+                if (try_skip(&it, S("struct"), empty_body)) {
+                    skip_space(&it, empty_body);
                     
                     *grow(allocator, &types) = { identifier, 0 };
                     
-                    skip_scope(&it, S("{"), S("}"));
+                    skip_scope(&it, S("{"), S("}"), empty_body);
                     
                     continue;
                 }
@@ -780,19 +851,19 @@ int main() {
                 UNREACHABLE_CODE
             } // "def"
             
-            if (try_skip(&it, S("type"))) {
-                skip_space(&it);
+            if (try_skip(&it, S("type"), empty_body)) {
+                skip_space(&it, empty_body);
                 
-                assert(!parse_type(&it, types).identifier.count);
-                string type_name = get_identifier(&it, S("_"));
+                assert(!parse_type(&it, types, empty_body).identifier.count);
+                string type_name = get_identifier(&it.text, S("_"));
                 assert(type_name.count);
-                skip_space(&it);
+                skip_space(&it, empty_body);
                 
-                auto byte_count = PARSE_UNSIGNED_INTEGER(&it, 32);
+                auto byte_count = PARSE_UNSIGNED_INTEGER(&it.text, 32);
                 
                 *grow(allocator, &types) = { type_name, byte_count };
                 
-                skip(&it, S(";"));
+                skip(&it.text, S(";"));
                 continue;
             }
         }
@@ -813,34 +884,37 @@ int main() {
     }
     
     {
-        auto it = source;
-        while (it.count) {
-            skip_space(&it);
+        Text_Iterator it = { source, 1 };
+        
+        write(&output, S("#line 1 \"%\"\r\n\r\n"), f(source_file_path));
+        
+        while (it.text.count) {
+            skip_space(&it, &output);
             
-            if (try_skip(&it, S("def"))) {
-                skip_space(&it);
+            if (try_skip(&it, S("def"), &output)) {
+                skip_space(&it, &output);
                 
-                string identifier = get_identifier(&it, S("_"));
+                string identifier = get_identifier(&it.text, S("_"));
                 assert(identifier.count);
-                skip_space(&it);
+                skip_space(&it, &output);
                 
-                if (try_skip(&it, S("struct"))) {
-                    skip_space(&it);
+                if (try_skip(&it, S("struct"), &output)) {
+                    skip_space(&it, &output);
                     
-                    skip_scope(&it, S("{"), S("}"));
+                    skip_scope(&it, S("{"), S("}"), &output);
                     
                     continue;
                 }
                 
-                bool is_coroutine = try_skip(&it, S("coroutine"));
-                if (is_coroutine || try_skip(&it, S("function"))) {
-                    skip_space(&it);
+                bool is_coroutine = try_skip(&it, S("coroutine"), &output);
+                if (is_coroutine || try_skip(&it, S("function"), &output)) {
+                    skip_space(&it, &output);
                     
                     auto function = find_function(functions, identifier);
                     write_signature(&output, *function);
                     write(&output, S(" {\r\n"));
                     
-                    auto switch_table = new_write(allocator, S("switch (CO_STATE_ENTRY) {\r\n"));
+                    auto switch_table = new_write_buffer(allocator, S("switch (CO_STATE_ENTRY) {\r\n"));
                     defer { free(&switch_table); };
                     
                     String_Buffer body = { allocator };
@@ -870,15 +944,15 @@ int main() {
                     if (function->is_coroutine)
                         add_label(&switch_table, &body, &label_count);
                     
-                    skip_until_first_in_set(&it, S("{"), true);
+                    skip_until_first_in_set(&it, S("{"), &output, true);
                     
                     while (scopes.count) {
-                        skip_space(&it);
+                        skip_space(&it, &body);
                         
-                        while (try_skip(&it, S(";")))
-                            skip_space(&it);
+                        while (try_skip(&it, S(";"), &body))
+                            skip_space(&it, &body);
                         
-                        if (try_skip(&it, S("}"))) {
+                        if (try_skip(&it, S("}"), &body)) {
                             if (function->is_coroutine) {
                                 if (scopes.count == 1)
                                     write(&body, S("\r\nassert(0);\r\nreturn Coroutine_Abort;\r\n"));
@@ -891,40 +965,40 @@ int main() {
                             continue;
                         }
                         
-                        if (try_skip(&it, S("{"))) {
+                        if (try_skip(&it, S("{"), &body)) {
                             *grow(allocator, &scopes) = {};
                             
                             write(&body, S("{\r\n"));
                             continue;
                         }
                         
-                        bool is_return = try_skip(&it, S("return"));
+                        bool is_return = try_skip(&it, S("return"), &body);
                         
                         bool is_yield;
                         if (!is_return)
-                            is_yield = try_skip(&it, S("yield"));
+                            is_yield = try_skip(&it, S("yield"), &body);
                         else
                             is_yield = false;
                         
                         if (is_return || is_yield) {
-                            skip_space(&it);
+                            skip_space(&it, &body);
                             
                             if (!function->is_coroutine) {
                                 assert(!is_yield);
                                 
                                 if (!function->return_types.count) {
-                                    skip(&it, S(";"));
+                                    skip(&it.text, S(";"));
                                     write(&body, S("return;"));
                                     continue;
                                 }
                                 
                                 bool is_end;
-                                string first_expression = parse_next_expression(&it, S(";"), &is_end);
+                                string first_expression = parse_next_expression(&it, S(";"), &is_end, &body);
                                 assert(is_end == (function->return_types.count == 1));
                                 
                                 for (u32 i = 1; i < function->return_types.count; i++) {
                                     bool is_end;
-                                    string expression = parse_next_expression(&it, S(";"), &is_end);
+                                    string expression = parse_next_expression(&it, S(";"), &is_end, &body);
                                     assert(expression.count);
                                     assert(is_end == (i == function->return_types.count - 1));
                                     
@@ -948,7 +1022,7 @@ int main() {
                             
                             for (u32 i = 0; i < function->return_types.count; i++) {
                                 bool is_end;
-                                string expression = parse_next_expression(&it, S(";"), &is_end);
+                                string expression = parse_next_expression(&it, S(";"), &is_end, &body);
                                 assert(expression.count);
                                 assert(is_end == (i == function->return_types.count - 1));
                                 
@@ -974,24 +1048,24 @@ int main() {
                             continue;
                         }
                         
-                        if (try_skip(&it, S("var")))
+                        if (try_skip(&it, S("var"), &body))
                         {
                             string_array left_expressions = {};
                             defer { free_array(allocator, &left_expressions); };
                             
                             LOOP {
-                                skip_space(&it);
+                                skip_space(&it, &body);
                                 
-                                auto identifier = get_identifier(&it, S("_"));
+                                auto identifier = get_identifier(&it.text, S("_"));
                                 assert(identifier.count);
-                                skip_space(&it);
+                                skip_space(&it, &body);
                                 
-                                skip(&it, S(":"));
-                                skip_space(&it);
+                                skip(&it.text, S(":"));
+                                skip_space(&it, &body);
                                 
-                                auto type = parse_type(&it, types);
+                                auto type = parse_type(&it, types, &body);
                                 assert(type.identifier.count);
-                                skip_space(&it);
+                                skip_space(&it, &body);
                                 
                                 *grow(allocator, &scopes[scopes.count - 1].declarations) = { type, identifier };
                                 *grow(allocator, &left_expressions) = identifier;
@@ -999,49 +1073,49 @@ int main() {
                                 if (!function->is_coroutine)
                                     write(&body, S("% %;\r\n"), f(type.identifier), f(identifier));
                                 
-                                if (!try_skip(&it, S(","))) {
+                                if (!try_skip(&it, S(","), &body)) {
                                     break;
                                 }
                             }
                             
-                            if (try_skip(&it, S("="))) {
-                                skip_space(&it);
+                            if (try_skip(&it, S("="), &body)) {
+                                skip_space(&it, &body);
                                 
-                                if (try_skip(&it, S("run"))) {
-                                    skip_space(&it);
+                                if (try_skip(&it, S("run"), &body)) {
+                                    skip_space(&it, &body);
                                     
                                     // get allocator expression
                                     
                                     bool is_end;
-                                    auto allocator_expression = parse_next_expression(&it, S(";"), &is_end);
+                                    auto allocator_expression = parse_next_expression(&it, S(";"), &is_end, &body);
                                     assert(!is_end);
                                     
-                                    string subroutine_identifier = get_identifier(&it, S("_"));
+                                    string subroutine_identifier = get_identifier(&it.text, S("_"));
                                     auto subroutine = find_function(functions, subroutine_identifier);
                                     assert(subroutine && subroutine->is_coroutine);
-                                    skip_space(&it);
+                                    skip_space(&it, &body);
                                     
-                                    skip(&it, S("("));
+                                    skip(&it.text, S("("));
                                     
                                     string_array arguments = {};
                                     defer { free_array(allocator, &arguments); };
                                     
                                     LOOP {
-                                        skip_space(&it);
+                                        skip_space(&it, &body);
                                         bool is_end;
-                                        auto expression = parse_next_expression(&it, S(")"), &is_end);
+                                        auto expression = parse_next_expression(&it, S(")"), &is_end, &body);
                                         
                                         *grow(allocator, &arguments) = expression;
                                         
                                         if (is_end) {
-                                            skip_space(&it);
+                                            skip_space(&it, &body);
                                             break;
                                         }
                                     }
                                     
                                     assert(arguments.count == subroutine->arguments.count);
                                     
-                                    skip(&it, S(";"));
+                                    skip(&it.text, S(";"));
                                     
                                     write(&body, S("{\r\n"));
                                     
@@ -1085,31 +1159,30 @@ int main() {
                                 parse_call_subroutine_or_expression(allocator, &switch_table, &body, &it, left_expressions, &label_count, functions, function, scopes);
                             }
                             else {
-                                skip(&it, S(";"));
+                                skip(&it.text, S(";"));
                             }
                             
                             continue;
                         }
                         
                         {
-                            string start = it;
-                            bool is_directive = try_skip(&it, S("if"));
+                            string start = it.text;
+                            bool is_directive = try_skip(&it, S("if"), &body);
                             
                             if (!is_directive)
-                                is_directive = try_skip(&it, S("switch"));
+                                is_directive = try_skip(&it, S("switch"), &body);
                             
                             if (!is_directive)
-                                is_directive = try_skip(&it, S("while"));
+                                is_directive = try_skip(&it, S("while"), &body);
                             
                             if (!is_directive)
-                                is_directive = try_skip(&it, S("loop"));
-                            
+                                is_directive = try_skip(&it, S("loop"), &body);
                             
                             if (is_directive) {
-                                string directive = sub_string(start, it);
-                                skip_space(&it);
+                                string directive = sub_string(start, it.text);
+                                skip_space(&it, &body);
                                 
-                                string expression = skip_until_first_in_set(&it, S("{"));
+                                string expression = skip_until_first_in_set(&it, S("{"), &body);
                                 assert(expression.count);
                                 
                                 auto expression_prime = replace_expression(allocator, expression, functions, function, scopes);
@@ -1134,8 +1207,8 @@ int main() {
                 UNREACHABLE_CODE;
             }
             
-            if (try_skip(&it, S("type"))) {
-                skip_until_first_in_set(&it, S(";"), true);
+            if (try_skip(&it, S("type"), &output)) {
+                skip_until_first_in_set(&it, S(";"), &output, true);
                 continue;
             }
             
@@ -1144,8 +1217,22 @@ int main() {
     
 #if INCLUDE_TEST
     printf("factorial(3) = %u\n", run_factorial(&transient_memory, 3));
+    s32 x;
+    div(&x, 123, 13);
 #else
-    win32_write_entire_file(S("preprocessor_test.cpp"), output.buffer);
+    
+    string out_file_path = new_write(allocator, S("%.cpp"), f(source_file_name));
+    
+    platform_api->write_entire_file(out_file_path, output.buffer);
+    
+    string command = new_write(allocator, S("cl /c % /I \"..\\\\code\" kernel32.lib user32.lib shell32.lib gdi32.lib opengl32.lib /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(out_file_path));
+    
+    u32 exit_code;
+    bool ok;
+    string message = platform_api->run_command(&exit_code, &ok, platform_api, command, allocator);
+    
+    printf("\n\n%.*s\n", FORMAT_S(&message));
+    
 #endif
     
     return 1;

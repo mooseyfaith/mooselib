@@ -1,7 +1,9 @@
 #if !defined STRING_H
 #define STRING_H
 
-#include "basic.h"
+//#include "basic.h"
+
+#include "u8_buffer.h"
 
 typedef u8_array string;
 
@@ -717,18 +719,18 @@ INTERNAL string write_va(String_Buffer *buffer, string format, va_list va_args, 
     return text;
 }
 
-INTERNAL String_Buffer new_write_va(Memory_Allocator *allocator, string format, va_list va_args, bool double_capacity_on_grow = true) 
+INTERNAL String_Buffer new_write_buffer_va(Memory_Allocator *allocator, string format, va_list va_args, bool double_capacity_on_grow = true) 
 {
     String_Buffer buffer = { allocator };
     auto text = write_va(&buffer, format, va_args, double_capacity_on_grow);
     return buffer;
 }
 
-INTERNAL String_Buffer new_write(Memory_Allocator *allocator, string format, ...)
+INTERNAL String_Buffer new_write_buffer(Memory_Allocator *allocator, string format, ...)
 {
     va_list va_args;
     va_start(va_args, format);
-    auto result = new_write_va(allocator, format, va_args, false);
+    auto result = new_write_buffer_va(allocator, format, va_args, false);
     va_end(va_args);
     return result;
 }
@@ -742,6 +744,17 @@ INTERNAL string write(Memory_Allocator *allocator, string *output, string format
     va_start(va_args, format);
     bool is_escaping = false;
     string text = write_va(allocator, output, &format, va_args, &is_escaping, false);
+    va_end(va_args);
+    
+    return text;
+}
+
+INTERNAL string new_write(Memory_Allocator *allocator, string format, ...) {
+    va_list va_args;
+    va_start(va_args, format);
+    bool is_escaping = false;
+    string output = {};
+    string text = write_va(allocator, &output, &format, va_args, &is_escaping, false);
     va_end(va_args);
     
     return text;

@@ -100,7 +100,7 @@ void upload(Render_Queue *queue)
         glBufferData(GL_ARRAY_BUFFER, byte_count_of(vertices), vertices.data, GL_STREAM_DRAW);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         
-        free(queue->allocator, &vertices);
+        free_array(queue->allocator, &vertices);
     }
     
     {
@@ -143,7 +143,7 @@ void upload(Render_Queue *queue)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, queue->index_buffer_object);
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, byte_count_of(indices), indices.data, GL_STREAM_DRAW);
         
-        free(queue->allocator, &indices);
+        free_array(queue->allocator, &indices);
     }
 }
 
@@ -208,7 +208,7 @@ void clear(Render_Queue *queue)
     //glBindVertexArray(0);
     //glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
     
-    free(queue->allocator, &queue->data);
+    free_array(queue->allocator, &queue->data);
     queue->data = {};
 }
 

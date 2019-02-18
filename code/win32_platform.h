@@ -66,6 +66,8 @@ struct Platform_Worker_Queue {
 
 struct Win32_Platform_API {
     Platform_API platform_api;
+    
+    Memory_Allocator allocator;
     Win32_Window_Buffer window_buffer;
     Win32_Window *current_window;
     u32 swap_buffer_count;
@@ -78,6 +80,7 @@ struct Win32_Platform_API {
     LARGE_INTEGER last_time;
     LARGE_INTEGER ticks_per_second;
     Platform_Worker_Queue worker_queue;
+    HANDLE pipe_read, pipe_write;
 };
 
 Win32_Platform_API *global_win32_api;
@@ -503,7 +506,7 @@ static void win32_update_button(Input_Button *button, WORD xinput_buttons, WORD 
 
 bool win32_load_application(Memory_Allocator *temporary_allocator, Application_Info *application_info)
 {
-    String_Buffer name_buffer = new_write(temporary_allocator, S("%compile_dll_lock.tmp\0"), f(application_info->dll_path));
+    String_Buffer name_buffer = new_write_buffer(temporary_allocator, S("%compile_dll_lock.tmp\0"), f(application_info->dll_path));
     
     defer { free(&name_buffer); };
     
@@ -1102,4 +1105,126 @@ PLATFORM_MUTEX_UNLOCK_DEC(win32_mutex_unlock) {
     }
     
     return true;
+}
+
+PLATFORM_RUN_COMMAND(win32_run_command) {
+    auto win32_api = cast_p(Win32_Platform_API, platform_api);
+    
+    if (win32_api->pipe_read == 0) {
+        SECURITY_ATTRIBUTES sa = {};
+        sa.nLength = sizeof(sa);
+        sa.lpSecurityDescriptor = NULL;
+        sa.bInheritHandle = TRUE;
+        
+        if (!CreatePipe(&win32_api->pipe_read, &win32_api->pipe_write, &sa, 0)) {
+            printf("could not create pipe, error: %u\n", GetLastError());
+            *out_ok = false;
+            return {};
+        }
+        
+        SetHandleInformation(win32_api->pipe_read, HANDLE_FLAG_INHERIT, 0);
+    }
+    
+    STARTUPINFO startup_info = {};
+    
+    startup_info.cb = sizeof(startup_info); 
+    startup_info.dwFlags = STARTF_USESTDHANDLES;
+    startup_info.hStdError  = win32_api->pipe_write;
+    startup_info.hStdOutput = win32_api->pipe_write;
+    startup_info.hStdInput  = GetStdHandle(STD_INPUT_HANDLE);
+    
+    PROCESS_INFORMATION process_information = {};
+    
+    {
+        string c_command = new_write(allocator, S("%\0"), f(command_line));
+        defer { free_array(allocator, &c_command); };
+        
+        *out_ok = CreateProcess(
+            null,
+            cast_p(char, c_command.data),
+            null,          // process security attributes 
+            null,          // primary thread security attributes 
+            TRUE,          // handles are inherited 
+            0,             // creation flags 
+            null,          // use parent's environment 
+            null,          // use parent's current directory 
+            &startup_info,  // STARTUPINFO pointer 
+            &process_information);  // receives PROCESS_INFORMATION 
+        
+        if (!*out_ok) {
+            printf("could not run %.*s, error: %u\n", FORMAT_S(&command_line), GetLastError());
+            return {};
+        }
+    }
+    
+    printf("starting %.*s ..\n", FORMAT_S(&command_line));
+    
+    WaitForSingleObject(process_information.hProcess, INFINITE);
+    
+    DWORD total_bytes_available;
+    if (!PeekNamedPipe(win32_api->pipe_read, null, 0, null, &total_bytes_available, null)) {
+        printf("could not peek pipe, error code: %u\n", GetLastError());
+        total_bytes_available = 0;
+    }
+    
+    string output = {};
+    
+    if (total_bytes_available) {
+        LOOP
+        { 
+            u8 _buffer[KILO(4)];
+            u8_buffer buffer = ARRAY_INFO(_buffer);
+            
+            DWORD bytes_read;
+            if (!ReadFile(win32_api->pipe_read, buffer.data, buffer.capacity, &bytes_read, null))
+            {
+                printf("failed to read process output, error: %u\n", GetLastError());
+                break;
+            }
+            
+            if (bytes_read) {
+                auto dest = grow(allocator, &output, bytes_read);
+                copy(dest, _buffer, bytes_read);
+            }
+            
+            if (bytes_read < buffer.capacity)
+                break;
+        }
+    }
+    
+    GetExitCodeProcess(process_information.hProcess, cast_p(DWORD, out_exit_code));
+    
+    CloseHandle(process_information.hProcess);
+    CloseHandle(process_information.hThread);
+    
+    //printf("%.*s done, exit code: %i\n", FORMAT_S(&command_line), *out_exit_code);
+    
+    return output;
+}
+
+void init_win32_api(Win32_Platform_API *win32_api) {
+    init_win32_allocator();
+    
+    win32_api->allocator = make_win32_allocator();
+    win32_api->windows_instance = GetModuleHandle(NULL);
+    
+    win32_api->platform_api = {
+        &win32_api->allocator,
+        win32_sync_allocators,
+        win32_open_file,
+        win32_close_file,
+        win32_read_file,
+        win32_read_entire_file,
+        win32_write_entire_file,
+        win32_display_window,
+        win32_skip_window_update,
+        win32_work_enqueue,
+        win32_get_done_work,
+        win32_work_reset,
+        win32_mutex_create,
+        win32_mutex_destroy,
+        win32_mutex_lock,
+        win32_mutex_unlock,
+        win32_run_command,
+    };
 }

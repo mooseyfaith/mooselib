@@ -8,43 +8,17 @@ int main(int argc, const char **args)
     init_Memory_Growing_Stack_allocators();
     init_Memory_List_allocators();
     init_c_allocator();
-    init_win32_allocator();
     
-    HINSTANCE windows_instance = GetModuleHandle(NULL);
-    
-    Memory_Allocator win32_allocator = make_win32_allocator();
-    
-    Memory_Growing_Stack win32_transient_memory = make_memory_growing_stack(&win32_allocator);
-    
-    Memory_Growing_Stack win32_persistent_memory = make_memory_growing_stack(&win32_allocator);
-    
-    Win32_Platform_API win32_platform_api = {};
+    Win32_Platform_API win32_platform_api;
+    init_win32_api(&win32_platform_api);
     global_win32_api = &win32_platform_api;
+    
+    Memory_Growing_Stack win32_transient_memory = make_memory_growing_stack(&win32_platform_api.allocator);
+    Memory_Growing_Stack win32_persistent_memory = make_memory_growing_stack(&win32_platform_api.allocator);
     
     // if you need more than 8 windows at a time, change this
     Win32_Window _window_buffer[8];
     win32_platform_api.window_buffer = ARRAY_INFO(_window_buffer);
-    
-    win32_platform_api.platform_api = {
-        win32_allocator,
-        win32_sync_allocators,
-        win32_open_file,
-        win32_close_file,
-        win32_read_file,
-        win32_read_entire_file,
-        win32_write_entire_file,
-        win32_display_window,
-        win32_skip_window_update,
-        win32_work_enqueue,
-        win32_get_done_work,
-        win32_work_reset,
-        win32_mutex_create,
-        win32_mutex_destroy,
-        win32_mutex_lock,
-        win32_mutex_unlock
-    };
-    
-    win32_platform_api.windows_instance = windows_instance;
     
     u32 path_count = 0;
     for (u32 i = 0; args[0][i]; ++i) {

@@ -9,6 +9,8 @@
 #if !defined U8_BUFFER_H
 #define U8_BUFFER_H
 
+#include "basic.h"
+
 #define Template_Array_Name      u8_array
 #define Template_Array_Data_Type u8
 #include "template_array.h"

@@ -163,7 +163,7 @@ void default_reload_global_functions(Platform_API *platform_api)
 #define DEFAULT_STATE_INIT(type, state, platform_api) { \
     default_reload_global_functions(platform_api); \
     \
-    auto persistent_memory = make_memory_growing_stack(&(platform_api)->allocator); \
+    auto persistent_memory = make_memory_growing_stack((platform_api)->allocator); \
     (state) = ALLOCATE(&persistent_memory.allocator, type); \
     (state)->persistent_memory = persistent_memory; \
     init(state, platform_api); \
@@ -174,7 +174,7 @@ GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *unif
     string shader_source = platform_api->read_entire_file(file, &state->transient_memory.allocator);
     assert(shader_source.count);
     
-    defer { free(&state->transient_memory.allocator, &shader_source); };
+    defer { free_array(&state->transient_memory.allocator, &shader_source); };
     
     Shader_Attribute_Info attributes[] = {
         { Vertex_Position_Index, "a_position" },
@@ -192,7 +192,7 @@ GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *unif
     
     string define_buffer = {};
     write(&state->transient_memory.allocator, &define_buffer, S("#version 150\n"));
-    defer { free(&state->transient_memory.allocator, &define_buffer); };
+    defer { free_array(&state->transient_memory.allocator, &define_buffer); };
     
     {
         string options_it = options;
@@ -265,21 +265,21 @@ void debug_update_camera(Debug_Camera *camera) {
 
 void init(Default_State *state, Platform_API *platform_api, usize worker_thread_memory_count = MEGA(256))
 {
-    state->transient_memory = make_memory_growing_stack(&platform_api->allocator);
+    state->transient_memory = make_memory_growing_stack(platform_api->allocator);
     
     {
         state->worker_thread_stacks = ALLOCATE_ARRAY(&state->persistent_memory.allocator, Memory_Stack, platform_api->worker_thread_count);
         for (u32 i = 0; i < platform_api->worker_thread_count; ++i)
             state->worker_thread_stacks[i] = make_memory_stack(&state->persistent_memory.allocator, worker_thread_memory_count / platform_api->worker_thread_count);
         
-        state->work_memory = make_memory_growing_stack(&platform_api->allocator);
+        state->work_memory = make_memory_growing_stack(platform_api->allocator);
     }
     
     {
         auto ft_library = begin_font_loading();
         
         auto source = platform_api->read_entire_file(S("C:/Windows/Fonts/consola.ttf"), &state->transient_memory.allocator);
-        defer { free(&state->transient_memory.allocator, &source); };
+        defer { free_array(&state->transient_memory.allocator, &source); };
         
         state->default_font = make_font(&state->persistent_memory.allocator, ft_library, source, 16, ' ', 256 - ' ');
         
@@ -291,7 +291,7 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     
     
     //state->ui_memory = make_memory_growing_stack(&platform_api->allocator);
-    state->ui = make_ui_context(&platform_api->allocator);
+    state->ui = make_ui_context(platform_api->allocator);
     
     {
         glGenBuffers(COUNT_WITH_ARRAY(state->uniform_buffer_objects));

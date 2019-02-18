@@ -121,7 +121,7 @@ Font make_font(Memory_Allocator *allocator, FT_Library ft_library, u8_array sour
     }
     
     u8_array bitmap = {};
-    defer { free(allocator, &bitmap); };
+    defer { free_array(allocator, &bitmap); };
     Pixel_Dimensions bitmap_resolution = {};
     
     bool did_not_fit;
@@ -147,7 +147,7 @@ Font make_font(Memory_Allocator *allocator, FT_Library ft_library, u8_array sour
             }
         }
         
-        free(allocator, &bitmap);
+        free_array(allocator, &bitmap);
         grow(allocator, &bitmap, bitmap_resolution.width * bitmap_resolution.height);
         reset(bitmap, byte_count_of(bitmap));
         

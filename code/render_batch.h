@@ -66,6 +66,45 @@ void set_vertex_attributes(GLuint vertex_buffer_object, const Vertex_Attribute_I
     }
 }
 
+#include "u8_buffer.h"
+
+struct Indices {
+    u8_buffer buffer;
+    u32 bytes_per_index;
+};
+
+INTERNAL void push_index(Indices *indices, u32 index) {
+    u8 *dest = push(&indices->buffer, indices->bytes_per_index);
+    // should work because of endieness
+    copy(dest, &index, indices->bytes_per_index);
+    //push(&indices->buffer, cast_p(u8, &index), indices->bytes_per_index);
+}
+
+INTERNAL u32 get_index(Indices indices, u32 offset) {
+    switch (indices.bytes_per_index) {
+        case 1:
+        return indices.buffer[offset];
+        
+        case 2:
+        //return *PACKED_ITEM_AT(&indices.buffer, u16, offset);
+        //return *packed_front(indices.buffer, u16, offset);
+        return *item_at(indices.buffer, u16, offset);
+        
+        case 4:
+        //return *PACKED_ITEM_AT(&indices.buffer, u32, offset);
+        //return *packed_front(indices.buffer, u32, offset);
+        return *item_at(indices.buffer, u32, offset);
+        
+        default:
+        UNREACHABLE_CODE;
+        return -1;
+    }
+}
+
+INTERNAL u32 index_count(Indices indices) {
+    return indices.buffer.count / indices.bytes_per_index;
+}
+
 inline void set_bytes_per_index_by_gl_type(Indices *indices, GLenum type) {
     switch (type) {	
         case GL_UNSIGNED_BYTE:
