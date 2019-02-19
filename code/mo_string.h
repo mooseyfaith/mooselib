@@ -1086,4 +1086,33 @@ inline Format_Info_f64 f(f32 value, u32 max_fraction_digit_count = 4, u8 fractio
     return f(cast_v(f64, value), max_fraction_digit_count, fraction_symbol, base, first_symbol_after_9);
 }
 
+void write_out(Memory_Allocator *temporary_allocator, string format, ...) {
+    va_list va_args;
+    va_start(va_args, format);
+    string output = {};
+    write_va(temporary_allocator, &output, format, va_args);
+    defer { free_array(temporary_allocator, &output); };
+    va_end(va_args);
+    
+    printf("%.*s", FORMAT_S(&output));
+}
+
+void write_line_out(Memory_Allocator *temporary_allocator, string format, ...) {
+    va_list va_args;
+    va_start(va_args, format);
+    string output = {};
+    write_va(temporary_allocator, &output, format, va_args);
+    defer { free_array(temporary_allocator, &output); };
+    va_end(va_args);
+    
+    printf("%.*s\n", FORMAT_S(&output));
+}
+
+#define WRITE_OUT(temporary_allocator, expression) \
+write_out(temporary_allocator, S(# expression ": %"), f(expression))
+
+#define WRITE_LINE_OUT(temporary_allocator, expression) \
+write_line_out(temporary_allocator, S(# expression ": %"), f(expression))
+
+
 #endif

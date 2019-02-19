@@ -68,6 +68,8 @@ struct Win32_Platform_API {
     Platform_API platform_api;
     
     Memory_Allocator allocator;
+    Memory_Growing_Stack persistent_memory;
+    Memory_Growing_Stack transient_memory;
     Win32_Window_Buffer window_buffer;
     Win32_Window *current_window;
     u32 swap_buffer_count;
@@ -81,6 +83,7 @@ struct Win32_Platform_API {
     LARGE_INTEGER ticks_per_second;
     Platform_Worker_Queue worker_queue;
     HANDLE pipe_read, pipe_write;
+    string working_directory;
 };
 
 Win32_Platform_API *global_win32_api;
@@ -1202,10 +1205,41 @@ PLATFORM_RUN_COMMAND(win32_run_command) {
     return output;
 }
 
+PLATFORM_GET_WORKING_DIRECTORY(win32_get_working_directory) {
+    auto win32_api = cast_p(Win32_Platform_API, platform_api);
+    
+    if (!win32_api->working_directory.count) {
+        string result;
+        result.count = GetCurrentDirectory(0, NULL);
+        if (!result.count) {
+            printf("could not get working directory, error: %u\n", GetLastError());
+            return {};
+        }
+        
+        result.data = ALLOCATE_ARRAY(&win32_api->persistent_memory.allocator, u8, result.count);
+        if (!GetCurrentDirectory(cast_v(DWORD, result.count), (LPTSTR)result.data)) {
+            printf("could not get working directory, error: %u\n", GetLastError());
+            free(&win32_api->persistent_memory.allocator, result.data);
+            return {};
+        }
+        
+        result.count--; // exclude 0-terminating character
+        
+        win32_api->working_directory = result;
+    }
+    
+    return win32_api->working_directory;
+}
+
 void init_win32_api(Win32_Platform_API *win32_api) {
     init_win32_allocator();
     
+    *win32_api = {};
+    
     win32_api->allocator = make_win32_allocator();
+    win32_api->transient_memory = make_memory_growing_stack(&win32_api->allocator);
+    win32_api->persistent_memory = make_memory_growing_stack(&win32_api->allocator);
+    
     win32_api->windows_instance = GetModuleHandle(NULL);
     
     win32_api->platform_api = {
@@ -1226,5 +1260,8 @@ void init_win32_api(Win32_Platform_API *win32_api) {
         win32_mutex_lock,
         win32_mutex_unlock,
         win32_run_command,
+        win32_get_working_directory,
     };
 }
+
+

@@ -1,5 +1,5 @@
 
-#define INCLUDE_TEST 0
+TODO: add types as we see them and add dependencies instead of parse_type
 
 #if 0
 
@@ -29,12 +29,6 @@ def start function(Memory_Allocator *allocator) {
 #include "memory_c_allocator.h"
 #include "memory_growing_stack.h"
 #include "preprocessor_coroutines.h"
-
-#if INCLUDE_TEST
-
-#include "preprocessor_test.cpp"
-
-#endif
 
 struct Text_Iterator {
     string text;
@@ -74,18 +68,25 @@ string skip_scope(Text_Iterator *it, string open_bracket, string closed_bracket,
 void skip_space(Text_Iterator *it, String_Buffer *body) {
     auto White_Space = S(" \t\r\0");
     
-    if (try_skip(&it->text, S("//"))) {
-        skip_until_first_in_set(&it->text, S("\n"), true);
-        it->line++;
+    while (it->text.count) {
+        auto start = it->text;
+        
+        if (try_skip(&it->text, S("//"))) {
+            skip_until_first_in_set(&it->text, S("\n"), true);
+            it->line++;
+        }
+        
+        skip_scope(it, S("/*"), S("*/"), body);
+        
+        u32 line = it->line;
+        string skipped = skip_set(&it->text, S("\n"));
+        advance_line_count(it, skipped, body);
+        
+        skip_set(&it->text, White_Space);
+        
+        if (it->text.data == start.data)
+            break;
     }
-    
-    skip_scope(it, S("/*"), S("*/"), body);
-    
-    u32 line = it->line;
-    string skipped = skip_set(&it->text, S("\n"));
-    advance_line_count(it, skipped, body);
-    
-    skip_set(&it->text, White_Space);
 }
 
 struct Type {
@@ -96,6 +97,11 @@ struct Type {
 #define Template_Array_Name      Types
 #define Template_Array_Data_Type Type
 #include "template_array.h"
+
+#define Template_Tree_Name      Type_Dependency
+#define Template_Tree_Data_Type Type*
+#define Template_Tree_Data_Name type
+#include "template_tree.h"
 
 struct Declaration {
     Type type;
@@ -118,6 +124,34 @@ struct Function {
 #define Template_Array_Data_Type Function
 #include "template_array.h"
 
+struct Structure;
+
+#define Template_Array_Name      Structures
+#define Template_Array_Data_Type Structure*
+#include "template_array.h"
+
+struct Structure {
+    enum Kind {
+        Kind_null,
+        Kind_scope,
+        Kind_declaration,
+        Kind_Count
+    } kind;
+    
+    bool is_kind;
+    
+    union {
+        struct {
+            string identifier;
+            Structure *parent;
+            Structures fields;
+            Structures kinds;
+            u32 byte_count;
+        } scope;
+        
+        Declaration declaration;
+    };
+};
 
 struct Best_Token_Iterator {
     string *text_iterator;
@@ -134,7 +168,7 @@ Best_Token_Iterator begin_best_token(string *text_iterator) {
 void test_token(Best_Token_Iterator *iterator, string end) {
     bool found;
     auto a = get_token_until_first_in_set(*iterator->text_iterator, end, &found, false);
-    if (found && (!iterator->best_token.count || (a.count < iterator->best_token.count))) {
+    if (found && ((iterator->best_index == u32_max) || (a.count < iterator->best_token.count))) {
         iterator->best_token = a;
         iterator->best_end = end;
         iterator->best_index = iterator->count;
@@ -161,7 +195,7 @@ Type * find_type(Types types, string identifier) {
     return null;
 }
 
-Type parse_type(Text_Iterator *it, Types types, String_Buffer *body) {
+bool parse_type(Type *out_type, Text_Iterator *it, Types types, String_Buffer *body) {
     string start = it->text;
     
     Type *base_type = null;
@@ -173,7 +207,7 @@ Type parse_type(Text_Iterator *it, Types types, String_Buffer *body) {
     }
     
     if (!base_type)
-        return {};
+        return false;
     
     auto byte_count = base_type->byte_count;
     while (it->text.count) {
@@ -185,7 +219,8 @@ Type parse_type(Text_Iterator *it, Types types, String_Buffer *body) {
         byte_count = sizeof(u8*);
     }
     
-    return { sub_string(start, it->text), byte_count };
+    *out_type = { sub_string(start, it->text), byte_count };
+    return true;
 }
 
 // does not care for comments or #if's
@@ -217,7 +252,7 @@ string skip_scope(Text_Iterator *it, string open_bracket, string closed_bracket,
                 it->line++;
                 if (body)
                     write(body, S("#line %\r\n"), f(it->line));
-            }
+            } break;
             
             CASES_COMPLETE;
         }
@@ -623,28 +658,104 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
     }
 }
 
-int main() {
-    auto win32_api = make_win32_api();
-    auto platform_api = &win32_api.platform_api;
+bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations *declarations, String_Buffer *body, Types types, Scope *scope = null) {
+    if (try_skip(it, S("var"), body))
+        return false;
     
+    LOOP {
+        skip_space(it, body);
+        
+        auto identifier = get_identifier(&it->text, S("_"));
+        assert(identifier.count);
+        skip_space(it, body);
+        
+        skip(&it->text, S(":"));
+        skip_space(it, body);
+        
+        Type type;
+        bool ok = parse_type(&type, it, types, body);
+        assert(ok);
+        skip_space(it, body);
+        
+        if (scope) {
+            scope->byte_count += type.byte_count;
+            scope->max_byte_count = MAX(scope->max_byte_count, scope->byte_count);
+        }
+        
+        *grow(allocator, declarations) = { type, identifier };
+        
+        if (!try_skip(it, S(","), body)) {
+            break;
+        }
+    }
+    
+    skip_until_first_in_set(it, S(";"), body, true);
+    return true;
+}
+
+MAIN_DEC {
+    Win32_Platform_API win32_api;
+    init_win32_api(&win32_api);
+    auto platform_api = &win32_api.platform_api;
     init_c_allocator();
     init_Memory_Growing_Stack_allocators();
     auto allocator = C_Allocator;
     
     auto transient_memory = make_memory_growing_stack(platform_api->allocator);
+    auto transient_allocator = &transient_memory.allocator;
     
-    string source_file_name = S("preprocessor_test");
+    string working_directory = platform_api->get_working_directory(platform_api);
     
-    string source_file_path = new_write(&transient_memory.allocator, S("%.mcpp"), f(source_file_name));
+    WRITE_LINE_OUT(transient_allocator, working_directory);
+    
+    if (argument_count < 2) {
+        write_line_out(transient_allocator, S("requires a file path to be preprocessed as it's first parameter"));
+        return 0;
+    }
+    
+    string source_file_name = make_string(arguments[1]);
+    string source_file_extension = {};
+    // remove .source_file_extension
+    while (source_file_name.count) {
+        u32 byte_count;
+        u32 tail = utf8_tail(source_file_name, &byte_count);
+        
+        source_file_name.count -= byte_count;
+        if (tail == '.') {
+            source_file_extension.data = one_past_last(source_file_name) + byte_count;
+            break;
+        }
+        
+        source_file_extension.count += byte_count;
+    }
+    
+    string source_file_path = new_write(transient_allocator, S("%.%"), f(source_file_name), f(source_file_extension));
     
     auto source = platform_api->read_entire_file(source_file_path, allocator);
+    if (!source.count) {
+        write_line_out(transient_allocator, S("could not open \"%\""), f(source_file_path));
+        return 0;
+    }
+    
+    string preprocesor_path;
+    {
+        usize path_count = 0;
+        for (u32 i = 0; arguments[0][i]; ++i) {
+            if (arguments[0][i] == '\\')
+                path_count = i;
+        }
+        
+        preprocesor_path = { cast_p(u8, arguments[0]), path_count };
+    }
     
     Types types = {};
     Functions functions = {};
+    Type_Dependency type_dependency_root = {};
     
 #define add_base_type(name) *grow(allocator, &types) = { S(# name), sizeof(name) };
     
     add_base_type(any);
+    add_base_type(bool);
     
     add_base_type(u8);
     add_base_type(u16);
@@ -711,8 +822,8 @@ int main() {
                         skip(&it.text, S(":"));
                         skip_space(&it, empty_body);
                         
-                        declaration.type = parse_type(&it, types, empty_body);
-                        assert(declaration.type.identifier.count);
+                        bool ok = parse_type(&declaration.type, &it, types, empty_body);
+                        assert(ok);
                         skip_space(&it, empty_body);
                         
                         *grow(allocator, &function.arguments) = declaration;
@@ -736,8 +847,9 @@ int main() {
                                 }
                             }
                             
-                            Type type = parse_type(&it, types, empty_body);
-                            assert(type.identifier.count);
+                            Type type;
+                            bool ok = parse_type(&type, &it, types, empty_body);
+                            assert(ok);
                             skip_space(&it, empty_body);
                             
                             *grow(allocator, &function.return_types) = type;
@@ -775,38 +887,8 @@ int main() {
                             continue;
                         }
                         
-                        if (try_skip(&it, S("var"), empty_body))
-                        {
-                            string_array left_expressions = {};
-                            defer { free_array(allocator, &left_expressions); };
-                            
-                            LOOP {
-                                skip_space(&it, empty_body);
-                                
-                                auto identifier = get_identifier(&it.text, S("_"));
-                                assert(identifier.count);
-                                skip_space(&it, empty_body);
-                                
-                                skip(&it.text, S(":"));
-                                skip_space(&it, empty_body);
-                                
-                                auto type = parse_type(&it, types, empty_body);
-                                assert(type.identifier.count);
-                                skip_space(&it, empty_body);
-                                
-                                scopes[scopes.count - 1].byte_count += type.byte_count;
-                                scopes[scopes.count - 1].max_byte_count = MAX(scopes[scopes.count - 1].max_byte_count, scopes[scopes.count - 1].byte_count);
-                                
-                                *grow(allocator, &scopes[scopes.count - 1].declarations) = { type, identifier };
-                                
-                                if (!try_skip(&it, S(","), empty_body)) {
-                                    break;
-                                }
-                            }
-                            
-                            skip_until_first_in_set(&it, S(";"), empty_body, true);
+                        if (parse_variable(&it, allocator, &scopes[scopes.count - 1].declarations, empty_body, types, scopes + scopes.count - 1))
                             continue;
-                        }
                         
                         LOOP {
                             auto token = begin_best_token(&it.text);
@@ -841,9 +923,94 @@ int main() {
                 if (try_skip(&it, S("struct"), empty_body)) {
                     skip_space(&it, empty_body);
                     
-                    *grow(allocator, &types) = { identifier, 0 };
+                    auto type = grow(allocator, &types);
+                    type->identifier = identifier;
+                    type->byte_count = 0;
                     
-                    skip_scope(&it, S("{"), S("}"), empty_body);
+                    skip(&it.text, S("{"));
+                    skip_space(&it, empty_body);
+                    
+                    auto structure = make_kind(Structure, scope, identifier);
+                    auto current_scope = &structure;
+                    
+                    while (current_scope) {
+                        skip_space(&it, empty_body);
+                        
+                        if (try_skip(&it, S("}"), empty_body)) {
+                            u32 byte_count = 0;
+                            for_array_item(field, current_scope->scope.fields) {
+                                if ((*field)->kind == Structure::Kind_declaration) {
+                                    assert((*field)->declaration.type.byte_count);
+                                    byte_count += (*field)->declaration.type.byte_count;
+                                }
+                                else {
+                                    byte_count += (*field)->scope.byte_count;
+                                }
+                            }
+                            
+                            u32 max_kind_byte_count = 0;
+                            for_array_item(field, current_scope->scope.kinds) {
+                                if ((*field)->kind == Structure::Kind_declaration) {
+                                    assert((*field)->declaration.type.byte_count);
+                                    max_kind_byte_count = MAX(max_kind_byte_count, (*field)->declaration.type.byte_count);
+                                }
+                                else {
+                                    max_kind_byte_count = MAX(max_kind_byte_count, (*field)->scope.byte_count);
+                                }
+                            }
+                            
+                            current_scope->scope.byte_count = byte_count + max_kind_byte_count;
+                            
+                            current_scope = current_scope->scope.parent;
+                            
+                            continue;
+                        }
+                        
+                        bool is_kind = try_skip(&it, S("kind"), empty_body);
+                        bool is_var = !is_kind && try_skip(&it, S("var"), empty_body);
+                        if (is_var || is_kind) {
+                            skip_space(&it, empty_body);
+                            
+                            string identifier = get_identifier(&it.text, S("_"));
+                            assert(identifier.count);
+                            skip_space(&it, empty_body);
+                            
+                            Structure *sub = ALLOCATE(allocator, Structure);
+                            if (is_kind)
+                                *grow(allocator, &current_scope->scope.kinds) = sub;
+                            else
+                                *grow(allocator, &current_scope->scope.fields) = sub;
+                            
+                            if (try_skip(&it.text, S("struct"))) {
+                                skip_space(&it, empty_body);
+                                skip(&it.text, S("{"));
+                                
+                                *sub = make_kind(Structure, scope, identifier, current_scope);
+                                current_scope = sub;
+                            }
+                            else {
+                                skip(&it.text, S(":"));
+                                skip_space(&it, empty_body);
+                                
+                                Type type;
+                                bool ok = parse_type(&type, &it, types, empty_body);
+                                assert(ok);
+                                
+                                *sub = make_kind(Structure, declaration, type, identifier );
+                                
+                                skip_space(&it, empty_body);
+                                skip(&it.text, S(";"));
+                            }
+                            
+                            sub->is_kind = is_kind;
+                            
+                            continue;
+                        }
+                        
+                        UNREACHABLE_CODE;
+                    }
+                    
+                    type->byte_count = structure.scope.byte_count;
                     
                     continue;
                 }
@@ -854,7 +1021,8 @@ int main() {
             if (try_skip(&it, S("type"), empty_body)) {
                 skip_space(&it, empty_body);
                 
-                assert(!parse_type(&it, types, empty_body).identifier.count);
+                Type type;
+                assert(!parse_type(&type, &it, types, empty_body));
                 string type_name = get_identifier(&it.text, S("_"));
                 assert(type_name.count);
                 skip_space(&it, empty_body);
@@ -866,6 +1034,8 @@ int main() {
                 skip(&it.text, S(";"));
                 continue;
             }
+            
+            UNREACHABLE_CODE
         }
     }
     
@@ -1063,8 +1233,9 @@ int main() {
                                 skip(&it.text, S(":"));
                                 skip_space(&it, &body);
                                 
-                                auto type = parse_type(&it, types, &body);
-                                assert(type.identifier.count);
+                                Type type;
+                                bool ok = parse_type(&type, &it, types, &body);
+                                assert(ok);
                                 skip_space(&it, &body);
                                 
                                 *grow(allocator, &scopes[scopes.count - 1].declarations) = { type, identifier };
@@ -1225,7 +1396,7 @@ int main() {
     
     platform_api->write_entire_file(out_file_path, output.buffer);
     
-    string command = new_write(allocator, S("cl /c % /I \"..\\\\code\" kernel32.lib user32.lib shell32.lib gdi32.lib opengl32.lib /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(out_file_path));
+    string command = new_write(allocator, S("cl /c \"%\" /I \"%\\\\%\\\\..\\\\..\\\\code\" kernel32.lib user32.lib shell32.lib gdi32.lib opengl32.lib /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(out_file_path), f(working_directory), f(preprocesor_path));
     
     u32 exit_code;
     bool ok;

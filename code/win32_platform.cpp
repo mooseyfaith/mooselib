@@ -13,9 +13,6 @@ int main(int argc, const char **args)
     init_win32_api(&win32_platform_api);
     global_win32_api = &win32_platform_api;
     
-    Memory_Growing_Stack win32_transient_memory = make_memory_growing_stack(&win32_platform_api.allocator);
-    Memory_Growing_Stack win32_persistent_memory = make_memory_growing_stack(&win32_platform_api.allocator);
-    
     // if you need more than 8 windows at a time, change this
     Win32_Window _window_buffer[8];
     win32_platform_api.window_buffer = ARRAY_INFO(_window_buffer);
@@ -31,7 +28,7 @@ int main(int argc, const char **args)
     win32_platform_api.application_info.init_name      = S(WIN32_INIT_FUNCTION_NAME);
     win32_platform_api.application_info.main_loop_name = S(WIN32_MAIN_LOOP_FUNCTION_NAME);
     
-    win32_load_application(&win32_transient_memory.allocator, &win32_platform_api.application_info);
+    win32_load_application(&win32_platform_api.transient_memory.allocator, &win32_platform_api.application_info);
     
     // try different xinput dlls for xbox360 controller support
     HMODULE xinput_dll = LoadLibraryA("xinput1_4.dll");
@@ -58,7 +55,7 @@ int main(int argc, const char **args)
     win32_platform_api.input.gamepads = gamepads;
     win32_platform_api.input.gamepad_count = XUSER_MAX_COUNT;
     
-    win32_create_worker_threads(&win32_persistent_memory.allocator, &win32_platform_api.worker_queue);
+    win32_create_worker_threads(&win32_platform_api.persistent_memory.allocator, &win32_platform_api.worker_queue);
     win32_platform_api.platform_api.worker_queue        = &win32_platform_api.worker_queue;
     win32_platform_api.platform_api.worker_thread_count = win32_platform_api.worker_queue.thread_count;
     
@@ -135,7 +132,7 @@ int main(int argc, const char **args)
     bool do_continue = true;
     while (do_continue)
     {
-        clear(&win32_transient_memory);
+        clear(&win32_platform_api.transient_memory);
         
         Platform_Messages win32_messages = {};
         
@@ -159,19 +156,19 @@ int main(int argc, const char **args)
                 } break;
                 
                 case WM_CHAR: {
-                    auto *message = ALLOCATE(&win32_transient_memory.allocator, Platform_Message_Character);
+                    auto *message = ALLOCATE(&win32_platform_api.transient_memory.allocator, Platform_Message_Character);
                     message->kind = Platform_Message_Kind_Character;
                     message->code = msg.wParam;
                     
-                    *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
+                    *insert_tail(&win32_platform_api.transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                 } break;
                 
                 case WM_UNICHAR: {
-                    auto *message = ALLOCATE(&win32_transient_memory.allocator, Platform_Message_Character);
+                    auto *message = ALLOCATE(&win32_platform_api.transient_memory.allocator, Platform_Message_Character);
                     message->kind = Platform_Message_Kind_Character;
                     message->code = msg.wParam;
                     
-                    *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
+                    *insert_tail(&win32_platform_api.transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                 } break;
                 
                 case WM_SYSKEYDOWN:
@@ -235,11 +232,11 @@ int main(int argc, const char **args)
                         }
                         
                         if (code) {
-                            auto *message = ALLOCATE(&win32_transient_memory.allocator, Platform_Message_Character);
+                            auto *message = ALLOCATE(&win32_platform_api.transient_memory.allocator, Platform_Message_Character);
                             message->kind = Platform_Message_Kind_Character;
                             message->code = code;
                             
-                            *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
+                            *insert_tail(&win32_platform_api.transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                         }
                     }
                     
@@ -326,12 +323,12 @@ int main(int argc, const char **args)
                     u32 file_count = DragQueryFileA(drop, 0xFFFFFFFF, null, 0);
                     
                     for (u32 i = 0; i < file_count; ++i) {
-                        auto *message = ALLOCATE(&win32_transient_memory.allocator, Platform_Message_File_Drop);
+                        auto *message = ALLOCATE(&win32_platform_api.transient_memory.allocator, Platform_Message_File_Drop);
                         message->kind = Platform_Message_Kind_File_Drop;
                         
                         u32 full_path_count = DragQueryFileA(drop, i, null, 0);
                         
-                        message->full_path = ALLOCATE_ARRAY_INFO(&win32_transient_memory.allocator, u8, full_path_count + 1);
+                        message->full_path = ALLOCATE_ARRAY_INFO(&win32_platform_api.transient_memory.allocator, u8, full_path_count + 1);
                         u32 debug_full_path_count = DragQueryFileA(drop, i, cast_p(char, message->full_path.data), full_path_count + 1);
                         assert(debug_full_path_count == full_path_count);
                         
@@ -339,7 +336,7 @@ int main(int argc, const char **args)
                         
                         // drop terminating 0
                         message->full_path.count--;
-                        REALLOCATE_ARRAY(&win32_transient_memory.allocator, &message->full_path.data, message->full_path.count);
+                        REALLOCATE_ARRAY(&win32_platform_api.transient_memory.allocator, &message->full_path.data, message->full_path.count);
                         
                         {
                             
@@ -373,7 +370,7 @@ int main(int argc, const char **args)
                             }
                         }
                         
-                        *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
+                        *insert_tail(&win32_platform_api.transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
                         
                         printf("file: %.*s\n", FORMAT_S(&message->full_path));
                     }
@@ -470,7 +467,7 @@ int main(int argc, const char **args)
             f64 delta_seconds = delta_time.QuadPart / cast_v(f64, win32_platform_api.ticks_per_second.QuadPart);
             win32_platform_api.last_time = time;
             
-            if (win32_load_application(&win32_transient_memory.allocator, &win32_platform_api.application_info))
+            if (win32_load_application(&win32_platform_api.transient_memory.allocator, &win32_platform_api.application_info))
             {
                 // on dll relaod
                 // ivalidate title string
@@ -483,9 +480,9 @@ int main(int argc, const char **args)
                     win32_platform_api.window_buffer[i].title = {};
                 }
                 
-                auto message = ALLOCATE(&win32_transient_memory.allocator, Platform_Message);
+                auto message = ALLOCATE(&win32_platform_api.transient_memory.allocator, Platform_Message);
                 message->kind = Platform_Message_Kind_Reload;
-                *insert_tail(&win32_transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
+                *insert_tail(&win32_platform_api.transient_memory.allocator, &win32_messages) = cast_p(Platform_Message, message);
             }
             
             button_poll_update(&win32_platform_api.input.mouse.left, GetKeyState(VK_LBUTTON) & 0x8000);

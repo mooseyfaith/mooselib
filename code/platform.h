@@ -106,6 +106,9 @@ typedef PLATFORM_MUTEX_DESTROY_DEC((*Platform_Mutex_Destroy_Function));
 #define PLATFORM_RUN_COMMAND(name) string name(u32 *out_exit_code, bool *out_ok, Platform_API *platform_api, string command_line, Memory_Allocator *allocator)
 typedef PLATFORM_RUN_COMMAND((*Platform_Run_Command_Function));
 
+#define PLATFORM_GET_WORKING_DIRECTORY(name) string name(Platform_API *platform_api)
+typedef PLATFORM_GET_WORKING_DIRECTORY((*Platform_Get_Working_Directory_Function));
+
 enum Platform_Message_Kind {
     Platform_Message_Kind_Reload,
     Platform_Message_Kind_Character,
@@ -184,7 +187,8 @@ struct Platform_API {
     Platform_Mutex_Lock_Function      mutex_lock;
     Platform_Mutex_Unlock_Function    mutex_unlock;
     
-    Platform_Run_Command_Function run_command;
+    Platform_Run_Command_Function           run_command;
+    Platform_Get_Working_Directory_Function get_working_directory;
     
     Platform_Worker_Queue *worker_queue;
     u32 worker_thread_count;
