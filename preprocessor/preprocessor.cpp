@@ -1,5 +1,5 @@
 
-TODO: add types as we see them and add dependencies instead of parse_type
+//TODO: write structs in correct order (allready have correct tree :D)
 
 #if 0
 
@@ -89,22 +89,19 @@ void skip_space(Text_Iterator *it, String_Buffer *body) {
     }
 }
 
-struct Type {
-    string identifier;
-    u32 byte_count;
-};
+struct Type;
 
 #define Template_Array_Name      Types
-#define Template_Array_Data_Type Type
+#define Template_Array_Data_Type Type*
 #include "template_array.h"
 
-#define Template_Tree_Name      Type_Dependency
+#define Template_Tree_Name      Type_Node
 #define Template_Tree_Data_Type Type*
 #define Template_Tree_Data_Name type
 #include "template_tree.h"
 
 struct Declaration {
-    Type type;
+    Type *type;
     string identifier;
 };
 
@@ -112,23 +109,16 @@ struct Declaration {
 #define Template_Array_Data_Type Declaration
 #include "template_array.h"
 
-struct Function {
-    string identifier;
-    Declarations arguments;
-    Types return_types;
-    bool is_coroutine;
-    u32 local_byte_count;
-};
-
-#define Template_Array_Name      Functions
-#define Template_Array_Data_Type Function
-#include "template_array.h"
-
 struct Structure;
 
 #define Template_Array_Name      Structures
 #define Template_Array_Data_Type Structure*
 #include "template_array.h"
+
+#define Template_Tree_Name      Structure_Node
+#define Template_Tree_Data_Type Structure*
+#define Template_Tree_Data_Name structure
+#include "template_tree.h"
 
 struct Structure {
     enum Kind {
@@ -147,11 +137,101 @@ struct Structure {
             Structures fields;
             Structures kinds;
             u32 byte_count;
+            Types dependencies;
         } scope;
         
         Declaration declaration;
     };
 };
+
+// yes an array of an array of Type*
+// used for depth first search iteration
+#define Template_Array_Name      Types_Array
+#define Template_Array_Data_Type Types
+#include "template_array.h"
+
+struct Type {
+    enum Kind {
+        Kind_null,
+        Kind_base_type,
+        Kind_indirection,
+        Kind_structure,
+        Kind_Count,
+    } kind;
+    
+    union {
+        struct {
+            string identifier;
+            u32 byte_count;
+            Types dependencies;
+        } base_type;
+        
+        struct {
+            Type *base_type;
+            u32 level;
+        } indirection;
+        
+        Structure structure;
+    };
+};
+
+u32 byte_count_of(Type type) {
+    switch (type.kind) {
+        case_kind(Type, base_type) {
+            assert(type.base_type.byte_count);
+            return type.base_type.byte_count;
+        }
+        
+        case_kind(Type, indirection) {
+            return sizeof(u8*); // just any pointer size
+        }
+        
+        CASES_COMPLETE;
+        return 0;
+    }
+}
+
+struct Type_Format_Info {
+    String_Write_Function write_type;
+    Type type;
+};
+
+STRING_WRITE_DEC(write_type) {
+    auto format_info = &va_arg(*va_args, Type_Format_Info);
+    
+    switch (format_info->type.kind) {
+        case_kind(Type, base_type) {
+            write(allocator, output, S("%"), f(format_info->type.base_type.identifier));
+        } break;
+        
+        case_kind(Type, indirection) {
+            write(allocator, output, S("%%"), f(format_info->type.indirection.base_type->base_type.identifier), f_indent(format_info->type.indirection.level, '*'));
+        } break;
+        
+        case_kind(Type, structure) {
+            auto scope = kind_of(&format_info->type.structure, scope);
+            write(allocator, output, S("%"), f(scope->identifier));
+        } break;
+        
+        CASES_COMPLETE;
+    }
+}
+
+Type_Format_Info f(Type type) {
+    return { write_type, type };
+}
+
+struct Function {
+    string identifier;
+    Declarations arguments;
+    Types return_types;
+    bool is_coroutine;
+    u32 local_byte_count;
+};
+
+#define Template_Array_Name      Functions
+#define Template_Array_Data_Type Function
+#include "template_array.h"
 
 struct Best_Token_Iterator {
     string *text_iterator;
@@ -186,41 +266,64 @@ bool end(Best_Token_Iterator *iterator, bool skip_end = true) {
     return (iterator->best_token.count > 0);
 }
 
-Type * find_type(Types types, string identifier) {
-    for_array_item(type, types) {
-        if (identifier == type->identifier)
-            return type;
+Type * find_or_create_base_type(Memory_Allocator *allocator, string identifier, Types *types) {
+    for_array_item(type, *types) {
+        auto base_type = try_kind_of((*type), base_type);
+        if (base_type) {
+            if (base_type->identifier == identifier)
+                return *type;
+            
+            continue;
+        }
+        
+        auto structure = try_kind_of((*type), structure);
+        if (structure) {
+            auto scope = kind_of(structure, scope);
+            if (scope->identifier == identifier)
+                return *type;
+            
+            continue;
+        }
+        
+        UNREACHABLE_CODE;
     }
     
-    return null;
+    auto result = ALLOCATE(allocator, Type);
+    *grow(allocator, types) = result;
+    *result = make_kind(Type, base_type, identifier, 0);
+    
+    return result;
 }
 
-bool parse_type(Type *out_type, Text_Iterator *it, Types types, String_Buffer *body) {
+Type * parse_type(Memory_Allocator *allocator, Text_Iterator *it, Types *types, String_Buffer *body) {
     string start = it->text;
     
-    Type *base_type = null;
-    for_array_item(type, types) {
-        if (try_skip(it, type->identifier, body)) {
-            base_type = type;;
-            break;
-        }
+    bool ok = false;
+    defer { if (!ok) it->text = start; };
+    
+    u32 indirection_count = 0;
+    while (try_skip(&it->text, S("*"))) {
+        indirection_count++;
     }
     
-    if (!base_type)
-        return false;
+    skip_space(it, body);
     
-    auto byte_count = base_type->byte_count;
-    while (it->text.count) {
-        skip_space(it, body);
-        
-        if (!try_skip(&it->text, S("*")))
-            break;
-        
-        byte_count = sizeof(u8*);
+    auto identifier = get_identifier(&it->text, S("_"));
+    if (!identifier.count) {
+        return null;
     }
     
-    *out_type = { sub_string(start, it->text), byte_count };
-    return true;
+    ok = true;
+    
+    Type *base_type = find_or_create_base_type(allocator, identifier, types);
+    
+    if (indirection_count) {
+        auto type = ALLOCATE(allocator, Type);
+        *type = make_kind(Type, indirection, base_type, indirection_count);
+        return type;
+    }
+    
+    return base_type;
 }
 
 // does not care for comments or #if's
@@ -323,13 +426,12 @@ string replace_expression(Memory_Allocator *allocator, string expression, Functi
                         best_byte_offset = byte_offset;
                     }
                     
-                    assert(it->type.byte_count);
-                    byte_offset += it->type.byte_count;
+                    byte_offset += byte_count_of(*it->type);
                 }
             }
             
             if (best_declaration) {
-                write(allocator, &result, S("CO_ENTRY(%, %)"), f(best_declaration->type.identifier), f(best_byte_offset));
+                write(allocator, &result, S("CO_ENTRY(%, %)"), f(*best_declaration->type), f(best_byte_offset));
             }
             else {
                 write(allocator, &result, S("%"), f(identifier));
@@ -366,8 +468,7 @@ u32 scopes_byte_count_of(Scopes scopes) {
     
     for_array_item(scope, scopes) {
         for_array_item(declaration, scope->declarations) {
-            assert(declaration->type.byte_count);
-            byte_count += declaration->type.byte_count;
+            byte_count += byte_count_of(*declaration->type);
         }
     }
     
@@ -381,14 +482,12 @@ u32 return_value_byte_offset_of(Function *function, u32 return_value_index) {
     
     u32 byte_offset = 0;
     for (u32 i = 0; i < return_value_index; i++) {
-        assert(function->return_types[i].byte_count);
-        byte_offset += function->return_types[i].byte_count;
+        byte_offset += byte_count_of(*function->return_types[i]);
     }
     
     u32 byte_count = byte_offset;
     for (u32 i = return_value_index; i < function->return_types.count; i++) {
-        assert(function->return_types[i].byte_count);
-        byte_count += function->return_types[i].byte_count;
+        byte_count += byte_count_of(*function->return_types[i]);
     }
     
     return byte_count - byte_offset;
@@ -398,15 +497,13 @@ u32 byte_count_of(Function function) {
     u32 byte_count = 0;
     
     for_array_item(it, function.arguments) {
-        assert(it->type.byte_count);
-        byte_count += it->type.byte_count;
+        byte_count += byte_count_of(*it->type);
     }
     
     byte_count += function.local_byte_count;
     
     for_array_item(it, function.return_types) {
-        assert(it->byte_count);
-        byte_count += it->byte_count;
+        byte_count += byte_count_of(**it);
     }
     
     return byte_count;
@@ -420,7 +517,7 @@ void write_read_coroutine_results(Memory_Allocator *allocator, String_Buffer *bo
             string expression_prime = replace_expression(allocator, left_expressions[i], functions, function, scopes);
             defer { free_array(allocator, &expression_prime); };
             
-            write(body, S("% = CO_RESULT(%, %);\r\n"), f(expression_prime), f(subroutine->return_types[i].identifier), f(return_value_byte_offset_of(subroutine, i)));
+            write(body, S("% = CO_RESULT(%, %);\r\n"), f(expression_prime), f(*subroutine->return_types[i]), f(return_value_byte_offset_of(subroutine, i)));
         }
     }
     
@@ -455,13 +552,13 @@ void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_ta
             string expression_prime = replace_expression(allocator, expression, functions, function, scopes);
             defer { free_array(allocator, &expression_prime); };
             
-            write(body, S("% arg% = %;\r\n"), f(subroutine->arguments[i].type.identifier), f(i), f(expression_prime));
+            write(body, S("% arg% = %;\r\n"), f(*subroutine->arguments[i].type), f(i), f(expression_prime));
         }
         
         write(body, S("u8_array it = co_push_coroutine(call_stack, %, %);\r\n"), f(subroutine->identifier), f(byte_count_of(*subroutine) + 2 * sizeof(u32) + sizeof(Coroutine_Function)));
         
         for (u32 i = 0; i < subroutine->arguments.count; i++) {
-            write(body, S("*next_item(&it, %) = arg%;\r\n"), f(subroutine->arguments[i].type.identifier), f(i));
+            write(body, S("*next_item(&it, %) = arg%;\r\n"), f(*subroutine->arguments[i].type), f(i));
         }
         
         write(body, S("return Coroutine_Continue;\r\n"));
@@ -480,7 +577,7 @@ void write_signature(String_Buffer *output, Function function) {
     else {
         
         if (function.return_types.count) {
-            write(output, S("% "), f(function.return_types[0].identifier));
+            write(output, S("% "), f(*function.return_types[0]));
         }
         else {
             write(output, S("void "));
@@ -491,17 +588,17 @@ void write_signature(String_Buffer *output, Function function) {
         if (function.return_types.count > 1) {
             for (u32 i = 1; i < function.return_types.count; i++) {
                 if (function.arguments.count || (i < function.return_types.count - 1))
-                    write(output, S("% *_out%, "), f(function.return_types[i].identifier), f(i));
+                    write(output, S("% *_out%, "), f(*function.return_types[i]), f(i));
                 else
-                    write(output, S("% *_out%)"), f(function.return_types[i].identifier), f(i));
+                    write(output, S("% *_out%)"), f(*function.return_types[i]), f(i));
             }
         }
         
         for (u32 i = 0; i < function.arguments.count; i++) {
             if (i < function.arguments.count - 1)
-                write(output, S("% %, "), f(function.arguments[i].type.identifier), f(function.arguments[i].identifier));
+                write(output, S("% %, "), f(*function.arguments[i].type), f(function.arguments[i].identifier));
             else
-                write(output, S("% %)"), f(function.arguments[i].type.identifier), f(function.arguments[i].identifier));
+                write(output, S("% %)"), f(*function.arguments[i].type), f(function.arguments[i].identifier));
         }
         
         if ((function.arguments.count == 0) && (function.return_types.count <= 1))
@@ -584,7 +681,7 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
                     
                     for (u32 i = 1; i < subroutine->return_types.count; i++) {
                         *grow(allocator, &left_expressions) = write(&dummy_return_values, S("_ignored%"), f(i));
-                        write(body, S("% _ignored%;\r\n"), f(subroutine->return_types[i].identifier), f(i));
+                        write(body, S("% _ignored%;\r\n"), f(*subroutine->return_types[i]), f(i));
                     }
                 }
                 
@@ -658,8 +755,8 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
     }
 }
 
-bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations *declarations, String_Buffer *body, Types types, Scope *scope = null) {
-    if (try_skip(it, S("var"), body))
+bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations *declarations, String_Buffer *body, Types *types, Scope *scope = null) {
+    if (!try_skip(it, S("var"), body))
         return false;
     
     LOOP {
@@ -672,13 +769,12 @@ bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations
         skip(&it->text, S(":"));
         skip_space(it, body);
         
-        Type type;
-        bool ok = parse_type(&type, it, types, body);
-        assert(ok);
+        Type *type = parse_type(allocator, it, types, body);
+        assert(types);
         skip_space(it, body);
         
         if (scope) {
-            scope->byte_count += type.byte_count;
+            scope->byte_count += byte_count_of(*type);
             scope->max_byte_count = MAX(scope->max_byte_count, scope->byte_count);
         }
         
@@ -691,6 +787,94 @@ bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations
     
     skip_until_first_in_set(it, S(";"), body, true);
     return true;
+}
+
+bool is_absolute_path(string path) {
+    while (path.count) {
+        u32 head = utf8_advance(&path);
+        
+        if (head == '\\') {
+            return false;
+        }
+        
+        if (head == ':') {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+string to_forward_slashed_path(Memory_Allocator *allocator, string path) {
+    string result = ALLOCATE_ARRAY_INFO(allocator, u8, path.count);
+    copy(result, path, byte_count_of(path));
+    auto it = result;
+    
+    while (it.count) {
+        u32 byte_count;
+        u32 head = utf8_head(it, &byte_count);
+        
+        if (head == '\\') {
+            assert(byte_count == 1);
+            it[0] = '/';
+        }
+        
+        advance(&it, byte_count);
+    }
+    
+    return result;
+}
+
+void write_tree(Memory_Allocator *allocator, Type_Node root) {
+    write_line_out(allocator, S("TREE:\n\n"));
+    // skip root, it contains no info
+    auto current = &root;
+    usize depth = 0;
+    auto last_depth = depth;
+    
+    if (current) {
+        auto type = current->type;
+        
+        if (type)
+            write_line_out(allocator, S("root: %"), f_indent(depth * 0), f(*type));
+        else
+            write_line_out(allocator, S("root: no type"), f_indent(depth * 0));
+        
+        next(&current, &depth);
+    }
+    
+    while (current) {
+        auto type = current->type;
+        
+        string foo = {};
+        defer { free_array(allocator, &foo); };
+        
+        auto test = current->parent;
+        
+        while (test && test->parent) {
+            string indent;
+            
+            if (test->next)
+                indent = S("| ");
+            else
+                indent = S("  ");
+            
+            grow(allocator, &foo, indent.count);
+            copy(foo + indent.count, foo + 0, foo.count - indent.count);
+            copy(foo + 0, indent + 0, indent.count);
+            
+            test = test->parent;
+        }
+        
+        write_out(allocator, S("%"), f(foo));
+        
+        if (type)
+            write_line_out(allocator, S("|-%"), f(*type));
+        else
+            write_line_out(allocator, S("|-no type"));
+        
+        next(&current, &depth);
+    }
 }
 
 MAIN_DEC {
@@ -750,9 +934,12 @@ MAIN_DEC {
     
     Types types = {};
     Functions functions = {};
-    Type_Dependency type_dependency_root = {};
     
-#define add_base_type(name) *grow(allocator, &types) = { S(# name), sizeof(name) };
+#define add_base_type(name) { \
+        auto type = ALLOCATE(allocator, Type); \
+        *type = make_kind(Type, base_type, S(# name), sizeof(name)); \
+        *grow(allocator, &types) = type; \
+    }
     
     add_base_type(any);
     add_base_type(bool);
@@ -822,8 +1009,8 @@ MAIN_DEC {
                         skip(&it.text, S(":"));
                         skip_space(&it, empty_body);
                         
-                        bool ok = parse_type(&declaration.type, &it, types, empty_body);
-                        assert(ok);
+                        declaration.type = parse_type(allocator, &it, &types, empty_body);
+                        assert(declaration.type);
                         skip_space(&it, empty_body);
                         
                         *grow(allocator, &function.arguments) = declaration;
@@ -847,9 +1034,8 @@ MAIN_DEC {
                                 }
                             }
                             
-                            Type type;
-                            bool ok = parse_type(&type, &it, types, empty_body);
-                            assert(ok);
+                            Type *type = parse_type(allocator, &it, &types, empty_body);
+                            assert(type);
                             skip_space(&it, empty_body);
                             
                             *grow(allocator, &function.return_types) = type;
@@ -887,7 +1073,7 @@ MAIN_DEC {
                             continue;
                         }
                         
-                        if (parse_variable(&it, allocator, &scopes[scopes.count - 1].declarations, empty_body, types, scopes + scopes.count - 1))
+                        if (parse_variable(&it, allocator, &scopes[scopes.count - 1].declarations, empty_body, &types, scopes + scopes.count - 1))
                             continue;
                         
                         LOOP {
@@ -923,25 +1109,30 @@ MAIN_DEC {
                 if (try_skip(&it, S("struct"), empty_body)) {
                     skip_space(&it, empty_body);
                     
-                    auto type = grow(allocator, &types);
-                    type->identifier = identifier;
-                    type->byte_count = 0;
+                    // this type could have been used by an other struct,
+                    // so use the same type and just add dependencies and sizes
+                    auto struct_type = find_or_create_base_type(allocator, identifier, &types);
+                    // is not allready declared
+                    assert(is_kind(*struct_type, base_type) && !struct_type->base_type.byte_count);
+                    // turn it to a structure,
+                    *struct_type = make_kind(Type, structure);
                     
                     skip(&it.text, S("{"));
                     skip_space(&it, empty_body);
                     
-                    auto structure = make_kind(Structure, scope, identifier);
-                    auto current_scope = &structure;
+                    assert(identifier.count);
+                    struct_type->structure = make_kind(Structure, scope, identifier);
+                    auto current_scope = &struct_type->structure;
                     
                     while (current_scope) {
                         skip_space(&it, empty_body);
                         
                         if (try_skip(&it, S("}"), empty_body)) {
+#if 0
                             u32 byte_count = 0;
                             for_array_item(field, current_scope->scope.fields) {
                                 if ((*field)->kind == Structure::Kind_declaration) {
-                                    assert((*field)->declaration.type.byte_count);
-                                    byte_count += (*field)->declaration.type.byte_count;
+                                    byte_count += byte_count_of(*(*field)->declaration.type);
                                 }
                                 else {
                                     byte_count += (*field)->scope.byte_count;
@@ -951,8 +1142,7 @@ MAIN_DEC {
                             u32 max_kind_byte_count = 0;
                             for_array_item(field, current_scope->scope.kinds) {
                                 if ((*field)->kind == Structure::Kind_declaration) {
-                                    assert((*field)->declaration.type.byte_count);
-                                    max_kind_byte_count = MAX(max_kind_byte_count, (*field)->declaration.type.byte_count);
+                                    max_kind_byte_count = MAX(max_kind_byte_count, byte_count_of(*(*field)->declaration.type));
                                 }
                                 else {
                                     max_kind_byte_count = MAX(max_kind_byte_count, (*field)->scope.byte_count);
@@ -960,6 +1150,7 @@ MAIN_DEC {
                             }
                             
                             current_scope->scope.byte_count = byte_count + max_kind_byte_count;
+#endif
                             
                             current_scope = current_scope->scope.parent;
                             
@@ -973,6 +1164,9 @@ MAIN_DEC {
                             
                             string identifier = get_identifier(&it.text, S("_"));
                             assert(identifier.count);
+                            skip_space(&it, empty_body);
+                            
+                            skip(&it.text, S(":"));
                             skip_space(&it, empty_body);
                             
                             Structure *sub = ALLOCATE(allocator, Structure);
@@ -989,12 +1183,48 @@ MAIN_DEC {
                                 current_scope = sub;
                             }
                             else {
-                                skip(&it.text, S(":"));
-                                skip_space(&it, empty_body);
+                                Type *type = parse_type(allocator, &it, &types, empty_body);
+                                assert(type);
                                 
-                                Type type;
-                                bool ok = parse_type(&type, &it, types, empty_body);
-                                assert(ok);
+                                // check for cyclic dependencies 
+                                if (is_kind(*type, base_type)) {
+                                    Types_Array path = {};
+                                    Types root = { &type, 1 };
+                                    //*grow(allocator, &path) = root;
+                                    
+                                    auto current_type = root;
+                                    while (current_type) {
+                                        Type *type = current_type[0];
+                                        
+                                        switch (type->kind) {
+                                            case_kind(Type, base_type) {
+                                                if (type == struct_type) {
+                                                    write_line_out(transient_allocator, S("ERROR: % depend on each other %"), f(*struct_type), f(*type));
+                                                    assert(0, "cyclic struct depencency");
+                                                }
+                                                
+                                                if (type->base_type.dependencies) {
+                                                    *grow(allocator, &path) = current_type;
+                                                    current_type = type->base_type.dependencies;
+                                                    continue;
+                                                }
+                                            } break;
+                                        }
+                                        
+                                        if (current_type.count > 1) {
+                                            advance(&current_type);
+                                        } else {
+                                            if (!path.count)
+                                                break;
+                                            
+                                            current_type = path[path.count - 1];
+                                            shrink(allocator, &path);
+                                        }
+                                    }
+                                    
+                                    if (!is_kind(*type, indirection))
+                                        *grow(allocator, &struct_type->structure.scope.dependencies) = type;
+                                }
                                 
                                 *sub = make_kind(Structure, declaration, type, identifier );
                                 
@@ -1010,8 +1240,6 @@ MAIN_DEC {
                         UNREACHABLE_CODE;
                     }
                     
-                    type->byte_count = structure.scope.byte_count;
-                    
                     continue;
                 }
                 
@@ -1021,16 +1249,13 @@ MAIN_DEC {
             if (try_skip(&it, S("type"), empty_body)) {
                 skip_space(&it, empty_body);
                 
-                Type type;
-                assert(!parse_type(&type, &it, types, empty_body));
-                string type_name = get_identifier(&it.text, S("_"));
-                assert(type_name.count);
+                Type *type = parse_type(allocator, &it, &types, empty_body);
+                // its a new type
+                assert(type && is_kind(*type, base_type) && !type->base_type.byte_count);
                 skip_space(&it, empty_body);
                 
-                auto byte_count = PARSE_UNSIGNED_INTEGER(&it.text, 32);
-                
-                *grow(allocator, &types) = { type_name, byte_count };
-                
+                type->base_type.byte_count = PARSE_UNSIGNED_INTEGER(&it.text, 32);
+                skip_space(&it, empty_body);
                 skip(&it.text, S(";"));
                 continue;
             }
@@ -1040,6 +1265,74 @@ MAIN_DEC {
     }
     
     String_Buffer output = { allocator };
+    
+    Type_Node type_dependency_root = {};
+    
+    for_array_item(self, types) {
+        Type_Node *iterator = &type_dependency_root;
+        auto self_node = find_next_node(&iterator, *self);
+        // make shure there are no double entries
+        assert(!iterator || !find_next_node(&iterator, *self));
+        
+        if (!self_node) {
+            self_node = ALLOCATE(allocator, Type_Node);
+            *self_node = { *self };
+            attach(&type_dependency_root, self_node);
+        }
+        
+        Types *dependencies;
+        switch ((*self)->kind) {
+            case_kind(Type, base_type) {
+                dependencies = &(*self)->base_type.dependencies;
+            } break;
+            
+            case_kind(Type, structure) {
+                dependencies = &(*self)->structure.scope.dependencies;
+            } break;
+            
+            CASES_COMPLETE;
+        }
+        
+        for_array_item(dependency, *dependencies) {
+            assert(*dependency != *self);
+            
+            Type_Node *iterator = &type_dependency_root;
+            auto dependency_node = find_next_node(&iterator, *dependency);
+            // make shure there are no double entries
+            assert(!iterator || !find_next_node(&iterator, *dependency));
+            
+            if (dependency_node && is_ancesotor(self_node, dependency_node)) {
+                write_tree(transient_allocator, type_dependency_root);
+                assert(0, "circular dependency");
+            }
+            
+            if (!dependency_node) {
+                dependency_node = ALLOCATE(allocator, Type_Node);
+                *dependency_node = { *dependency };
+                
+                attach(self_node->parent, dependency_node);
+                move(dependency_node, self_node);
+            }
+            else if (!is_ancesotor(dependency_node, self_node)) {
+                
+                Type_Node *root = self_node;
+                while (root->parent != &type_dependency_root) {
+                    if (is_ancesotor(root->parent, dependency_node))
+                        break;
+                    
+                    root = root->parent;
+                }
+                
+                // move the all ancesotrs of self under dependency
+                move(dependency_node, root);
+            }
+        }
+    }
+    
+    { 
+        write_line_out(transient_allocator, S("type dependencies\n\n"));
+        write_tree(transient_allocator, type_dependency_root);
+    }
     
     // forward declare coroutines
     if (functions.count) {
@@ -1053,10 +1346,20 @@ MAIN_DEC {
         write(&output, S("\r\n"));
     }
     
+    for_array_item(it, types) {
+        auto structure = try_kind_of(*it, structure);
+        
+        if (structure)
+            write(&output, S("struct %;\r\n"), f(**it));
+    }
+    
+    write(&output, S("\r\n"));
+    
     {
         Text_Iterator it = { source, 1 };
         
-        write(&output, S("#line 1 \"%\"\r\n\r\n"), f(source_file_path));
+        string file_path = to_forward_slashed_path(allocator, source_file_path);
+        write(&output, S("#line 1 \"%\"\r\n\r\n"), f(file_path));
         
         while (it.text.count) {
             skip_space(&it, &output);
@@ -1106,7 +1409,7 @@ MAIN_DEC {
                         *grow(allocator, &scopes[scopes.count - 1].declarations) = *argument;
                         
                         if (function->is_coroutine)
-                            write(&body, S("// argument: def %: %;\r\n"), f(argument->identifier), f(argument->type.identifier));
+                            write(&body, S("// argument: def %: %;\r\n"), f(argument->identifier), f(*argument->type));
                     }
                     
                     u32 label_count = 0;
@@ -1199,7 +1502,7 @@ MAIN_DEC {
                                 string expression_prime = replace_expression(allocator, expression, functions, function, scopes);
                                 defer { free_array(allocator, &expression_prime); };
                                 
-                                write(&body, S("CO_RESULT(%, %) = %;\r\n"), f(function->return_types[i].identifier), f(return_value_byte_offset_of(function, i)), f(expression_prime));
+                                write(&body, S("CO_RESULT(%, %) = %;\r\n"), f(*function->return_types[i]), f(return_value_byte_offset_of(function, i)), f(expression_prime));
                             }
                             
                             if (is_return) {
@@ -1233,16 +1536,15 @@ MAIN_DEC {
                                 skip(&it.text, S(":"));
                                 skip_space(&it, &body);
                                 
-                                Type type;
-                                bool ok = parse_type(&type, &it, types, &body);
-                                assert(ok);
+                                Type *type = parse_type(allocator, &it, &types, &body);
+                                assert(type);
                                 skip_space(&it, &body);
                                 
                                 *grow(allocator, &scopes[scopes.count - 1].declarations) = { type, identifier };
                                 *grow(allocator, &left_expressions) = identifier;
                                 
                                 if (!function->is_coroutine)
-                                    write(&body, S("% %;\r\n"), f(type.identifier), f(identifier));
+                                    write(&body, S("% %;\r\n"), f(*type), f(identifier));
                                 
                                 if (!try_skip(&it, S(","), &body)) {
                                     break;
@@ -1306,7 +1608,7 @@ MAIN_DEC {
                                         string argument_prime = replace_expression(allocator, arguments[i], functions, function, scopes);
                                         defer { free_array(allocator, &argument_prime); };
                                         
-                                        write(&body, S("*next_item(&it, %) = %;\r\n"), f(subroutine->arguments[i].type.identifier), f(argument_prime));
+                                        write(&body, S("*next_item(&it, %) = %;\r\n"), f(*subroutine->arguments[i].type), f(argument_prime));
                                     }
                                     
                                     write(&body, S(
@@ -1396,7 +1698,15 @@ MAIN_DEC {
     
     platform_api->write_entire_file(out_file_path, output.buffer);
     
-    string command = new_write(allocator, S("cl /c \"%\" /I \"%\\\\%\\\\..\\\\..\\\\code\" kernel32.lib user32.lib shell32.lib gdi32.lib opengl32.lib /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(out_file_path), f(working_directory), f(preprocesor_path));
+    string mooselib_path;
+    if (is_absolute_path(preprocesor_path)) {
+        mooselib_path = new_write(allocator, S("%\\\\..\\\\..\\\\code"), f(preprocesor_path));
+    }
+    else {
+        mooselib_path = new_write(allocator, S("%\\\\%\\\\..\\\\..\\\\code"), f(working_directory), f(preprocesor_path));
+    }
+    
+    string command = new_write(allocator, S("cl /c \"%\" /I \"%\" /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(out_file_path), f(mooselib_path));
     
     u32 exit_code;
     bool ok;

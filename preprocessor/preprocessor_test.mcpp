@@ -38,9 +38,7 @@ def factorial_iterative coroutine(n: u32) -> (u32) {
 	return f;
 }
 
-def run_factorial function(allocator: Memory_Growing_Stack*, n: u32) -> (u32) {
+def run_factorial function(allocator: *Memory_Growing_Stack, n: u32) -> (u32) {
 	var x: u32 = run allocator, factorial_recursive(n);
 	return x;
 }
-    
-

@@ -7,7 +7,7 @@ COROUTINE_DEC(factorial_recursive);
 COROUTINE_DEC(factorial_iterative);
 u32 run_factorial(Memory_Growing_Stack* allocator, u32 n);
 
-#line 1 "preprocessor_test.mcpp"
+#line 1 "E:/work/mooselib/preprocessor/preprocessor_test.mcpp"
 
 #line 2
 u32 factorial(u32 n) {
@@ -40,7 +40,7 @@ return a / b;
 void test() {
 #line 13
 s32 x;
-s32  y;
+s32 y;
 x = div(&(y), 123, 3);
 #line 14
 #line 15
@@ -50,7 +50,7 @@ div(&(_ignored1), 1, 2);
 }
 #line 16
 #line 17
-u32  z;
+u32 z;
 z = factorial(3);
 #line 18
 }
@@ -109,14 +109,14 @@ return Coroutine_Continue;
 co_label1:
 
 { // read results
-CO_ENTRY(u32 , 16) = CO_RESULT(u32, 4);
+CO_ENTRY(u32, 16) = CO_RESULT(u32, 4);
 co_pop_coroutine(call_stack, 28);
 }
 
 #line 25
 { // return
 #line 26
-CO_RESULT(u32, 4) = CO_ENTRY(u32, 12) * CO_ENTRY(u32 , 16);
+CO_RESULT(u32, 4) = CO_ENTRY(u32, 12) * CO_ENTRY(u32, 16);
 CO_STATE_ENTRY = u32_max;
 call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;
 return Coroutine_Continue;
@@ -146,15 +146,15 @@ co_label0:
 
 #line 29
 #line 30
-CO_ENTRY(u32 , 16) = 1;
+CO_ENTRY(u32, 16) = 1;
 #line 31
 #line 32
-CO_ENTRY(u32 , 20) = CO_ENTRY(u32 , 16);
-while (CO_ENTRY(u32 , 16) < CO_ENTRY(u32, 12) ) {
+CO_ENTRY(u32, 20) = CO_ENTRY(u32, 16);
+while (CO_ENTRY(u32, 16) < CO_ENTRY(u32, 12) ) {
 #line 33
 { // yield
 #line 34
-CO_RESULT(u32, 4) = CO_ENTRY(u32 , 20);
+CO_RESULT(u32, 4) = CO_ENTRY(u32, 20);
 CO_STATE_ENTRY = 1;
 return Coroutine_Wait;
 }
@@ -162,16 +162,16 @@ return Coroutine_Wait;
 co_label1:
 
 #line 35
-CO_ENTRY(u32 , 16)++;
+CO_ENTRY(u32, 16)++;
 #line 36
-CO_ENTRY(u32 , 20) *= CO_ENTRY(u32 , 16);
+CO_ENTRY(u32, 20) *= CO_ENTRY(u32, 16);
 }
 
 #line 37
 #line 38
 { // return
 #line 39
-CO_RESULT(u32, 4) = CO_ENTRY(u32 , 20);
+CO_RESULT(u32, 4) = CO_ENTRY(u32, 20);
 CO_STATE_ENTRY = u32_max;
 call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;
 return Coroutine_Continue;
@@ -186,7 +186,7 @@ return Coroutine_Abort;
 #line 41
 u32 run_factorial(Memory_Growing_Stack* allocator, u32 n) {
 #line 42
-u32  x;
+u32 x;
 {
 Memory_Growing_Stack *_allocator = allocator;
 Coroutine_Stack _call_stack = { _allocator };
@@ -212,6 +212,3 @@ return x;
 
 
 
-#line 45
-#line 46
-#line 47

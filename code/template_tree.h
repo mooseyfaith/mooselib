@@ -43,6 +43,23 @@ struct Template_Tree_Name {
 #define Template_List_Custom_Entry_Name Template_Tree_Name
 #include "template_list.h"
 
+INTERNAL bool
+is_ancesotor(Template_Tree_Name *ancestor, Template_Tree_Name *decendent)
+{
+    assert(ancestor != decendent);
+    
+    auto current = decendent;
+    
+    while (current) {
+        if (current->parent == ancestor)
+            return true;
+        
+        current = current->parent;
+    }
+    
+    return false;
+}
+
 INTERNAL void
 attach(Template_Tree_Name *new_parent, Template_Tree_Name *child)
 {
@@ -65,7 +82,8 @@ detach(Template_Tree_Name *child)
 INTERNAL void
 move(Template_Tree_Name *new_parent, Template_Tree_Name *child)
 {
-    assert(child->parent != new_parent);
+    assert(!is_ancesotor(child, new_parent));
+    
     if (child->parent)
         detach(child);
     
@@ -73,11 +91,15 @@ move(Template_Tree_Name *new_parent, Template_Tree_Name *child)
 }
 
 INTERNAL bool
-next(Template_Tree_Name **iterator)
+next(Template_Tree_Name **iterator, usize *depth = null)
 {
     if ((*iterator)->children.head)
     {
         *iterator = (*iterator)->children.head;
+        
+        if (depth)
+            (*depth)++;
+        
         return true;
     }
     else {
@@ -89,11 +111,33 @@ next(Template_Tree_Name **iterator)
             }
             else {
                 *iterator = (*iterator)->parent;
+                
+                if (depth)
+                    (*depth)--;
             }
         } while (*iterator);
         
         return false;
     }
+}
+
+INTERNAL Template_Tree_Name *
+find_next_node(Template_Tree_Name **iterator, Template_Tree_Data_Type Template_Tree_Data_Name, usize *depth = null) {
+    assert(*iterator);
+    
+    while (*iterator) {
+        // so we can advance iterator for the next call
+        Template_Tree_Name *found = null;
+        if ((*iterator)->Template_Tree_Data_Name == Template_Tree_Data_Name)
+            found = (*iterator);
+        
+        next(iterator, depth);
+        
+        if (found)
+            return found;
+    }
+    
+    return null;
 }
 
 #undef Template_Tree_Name
