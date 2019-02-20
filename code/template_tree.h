@@ -121,6 +121,35 @@ next(Template_Tree_Name **iterator, usize *depth = null)
     }
 }
 
+INTERNAL void
+advance(Template_Tree_Name **iterator, bool *did_enter, bool *did_leave, usize *depth = null) {
+    if (!*did_leave && (*iterator)->children.head) {
+        (*iterator) = (*iterator)->children.head;
+        *did_enter = true;
+        
+        if (depth)
+            (*depth)++;
+    }
+    else {
+        if ((*iterator)->next) {
+            (*iterator) = (*iterator)->next;
+            *did_enter = true;
+        }
+        else {
+            (*iterator) = (*iterator)->parent;
+            *did_enter = false;
+            *did_leave = true;
+            
+            if (depth)
+                (*depth)--;
+        }
+    }
+    
+    // if iterator has no children, it enters and leaves in one go
+    if (*iterator && *did_enter)
+        *did_leave = !(*iterator)->children.head;
+}
+
 INTERNAL Template_Tree_Name *
 find_next_node(Template_Tree_Name **iterator, Template_Tree_Data_Type Template_Tree_Data_Name, usize *depth = null) {
     assert(*iterator);
@@ -128,7 +157,7 @@ find_next_node(Template_Tree_Name **iterator, Template_Tree_Data_Type Template_T
     while (*iterator) {
         // so we can advance iterator for the next call
         Template_Tree_Name *found = null;
-        if ((*iterator)->Template_Tree_Data_Name == Template_Tree_Data_Name)
+        if (are_equal(&(*iterator)->Template_Tree_Data_Name, &Template_Tree_Data_Name, sizeof(Template_Tree_Data_Name)))
             found = (*iterator);
         
         next(iterator, depth);
