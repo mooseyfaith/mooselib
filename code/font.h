@@ -129,8 +129,8 @@ Font make_font(Memory_Allocator *allocator, FT_Library ft_library, u8_array sour
         did_not_fit = false;
         
         Pixel_Dimensions resolution;
-        resolution.height = 1 << bit_count(2 * height);
-        resolution.width = 1 << bit_count(estimated_area / resolution.height + 1);
+        resolution.height = 1 << bit_count_of(2 * height);
+        resolution.width = 1 << bit_count_of(estimated_area / resolution.height + 1);
         
         bitmap_resolution = resolution;
         u32 min_area = resolution.width * resolution.height;

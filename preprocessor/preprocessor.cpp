@@ -130,7 +130,12 @@ struct Structure {
         struct {
             string identifier;
             u32 byte_count;
-            bool has_kinds;
+            u32 byte_alignment;
+            
+            u32 max_kind_byte_count;
+            u32 max_kind_byte_alignment;
+            u32 kind_count;
+            
             Types dependencies;
         } var_structure, def_structure;
         
@@ -138,10 +143,24 @@ struct Structure {
     };
 };
 
+
 #define Template_Tree_Name      Structure_Node
 #define Template_Tree_Data_Type Structure
 #define Template_Tree_Data_Name structure
 #include "template_tree.h"
+
+void align_to(u32 *byte_count, u32 byte_alignment) {
+    if (byte_alignment)
+        (*byte_count) += (byte_alignment - (*byte_count % byte_alignment)) % byte_alignment;
+}
+
+void update_byte_count_and_alignment(Structure_Node *node, u32 child_byte_count, u32 child_byte_alignment) {
+    assert(!is_kind(node->structure, field));
+    
+    node->structure.def_structure.byte_alignment = MAX(node->structure.def_structure.byte_alignment, child_byte_alignment);
+    align_to(&node->structure.def_structure.byte_count, child_byte_alignment);
+    node->structure.def_structure.byte_count += child_byte_count;
+}
 
 // yes an array of an array of Type*
 // used for depth first search iteration
@@ -173,6 +192,7 @@ struct Type {
             string identifier;
             Types dependencies;
             u32 byte_count;
+            u32 byte_alignment;
         } base_type;
         
         struct {
@@ -187,19 +207,38 @@ struct Type {
             Declaration entry_data;
             Type *count_type;
             bool with_tail, with_double_links;
+            u32 byte_count, byte_alignment;
         } list;
     };
 };
 
-u32 byte_count_of(Type type) {
+u32 byte_count_and_alignment_of(u32 *out_byte_alignment, Type type) {
     switch (type.kind) {
         case_kind(Type, base_type) {
             assert(type.base_type.byte_count);
+            assert(type.base_type.byte_alignment);
+            *out_byte_alignment = type.base_type.byte_alignment;
             return type.base_type.byte_count;
         }
         
+        case_kind(Type, structure_node) {
+            assert(type.structure_node.structure.def_structure.byte_count);
+            assert(type.structure_node.structure.def_structure.byte_alignment);
+            *out_byte_alignment = type.structure_node.structure.def_structure.byte_alignment;
+            return type.structure_node.structure.def_structure.byte_count;
+        }
+        
+        case_kind(Type, list) {
+            assert(type.list.byte_count);
+            assert(type.list.byte_alignment);
+            *out_byte_alignment = type.list.byte_alignment;
+            return type.list.byte_count;
+        }
+        
         case_kind(Type, indirection) {
-            return sizeof(u8*); // just any pointer size
+            // all pointers have same byte_count and byte_alignment
+            *out_byte_alignment = alignof(u8*);
+            return sizeof(u8*);
         }
         
         CASES_COMPLETE;
@@ -426,6 +465,7 @@ struct Scope {
     Declarations declarations;
     u32 max_byte_count;
     u32 byte_count;
+    u32 byte_alignment;
 };
 
 #define Template_Array_Name      Scopes
@@ -464,7 +504,7 @@ string replace_expression(Memory_Allocator *allocator, string expression, Functi
             
             Declaration *best_declaration = null;
             
-            u32 byte_offset = sizeof(u8*) + sizeof(u32); // Coroutine_Fuction and coroutine state, just any pointer size will do (u8*)
+            u32 byte_offset = sizeof(Coroutine_Header);
             u32 best_byte_offset = 0;
             for(u32 scope_index = 0; scope_index < scopes.count; scope_index++) {
                 auto scope = scopes + scope_index;
@@ -475,7 +515,8 @@ string replace_expression(Memory_Allocator *allocator, string expression, Functi
                         best_byte_offset = byte_offset;
                     }
                     
-                    byte_offset += byte_count_of(*it->type);
+                    u32 byte_alignment;
+                    byte_offset += byte_count_and_alignment_of(&byte_alignment, *it->type);
                 }
             }
             
@@ -513,11 +554,12 @@ void add_label(String_Buffer *switch_table, String_Buffer *body, u32 *label_coun
 
 u32 scopes_byte_count_of(Scopes scopes) {
     // Coroutine_Fuction (u8*) and coroutine state (u32), just any pointer size will do (u8*)
-    u32 byte_count = sizeof(u8*) + sizeof(u32);
+    u32 byte_count = sizeof(Coroutine_Header);
     
     for_array_item(scope, scopes) {
         for_array_item(declaration, scope->declarations) {
-            byte_count += byte_count_of(*declaration->type);
+            u32 byte_alignment;
+            byte_count += byte_count_and_alignment_of(&byte_alignment, *declaration->type);
         }
     }
     
@@ -531,12 +573,14 @@ u32 return_value_byte_offset_of(Function *function, u32 return_value_index) {
     
     u32 byte_offset = 0;
     for (u32 i = 0; i < return_value_index; i++) {
-        byte_offset += byte_count_of(*function->return_types[i]);
+        u32 byte_alignment;
+        byte_offset += byte_count_and_alignment_of(&byte_alignment, *function->return_types[i]);
     }
     
     u32 byte_count = byte_offset;
     for (u32 i = return_value_index; i < function->return_types.count; i++) {
-        byte_count += byte_count_of(*function->return_types[i]);
+        u32 byte_alignment;
+        byte_count += byte_count_and_alignment_of(&byte_alignment, *function->return_types[i]);
     }
     
     return byte_count - byte_offset;
@@ -544,15 +588,18 @@ u32 return_value_byte_offset_of(Function *function, u32 return_value_index) {
 
 u32 byte_count_of(Function function) {
     u32 byte_count = 0;
+    u32 byte_alignment = 1;
     
     for_array_item(it, function.arguments) {
-        byte_count += byte_count_of(*it->type);
+        u32 byte_alignment;
+        byte_count += byte_count_and_alignment_of(&byte_alignment, *it->type);
     }
     
     byte_count += function.local_byte_count;
     
     for_array_item(it, function.return_types) {
-        byte_count += byte_count_of(**it);
+        u32 byte_alignment;
+        byte_count += byte_count_and_alignment_of(&byte_alignment, **it);
     }
     
     return byte_count;
@@ -587,7 +634,7 @@ void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_ta
         skip(&it->text, S("("));
         skip_space(it, body);
         
-        write(body, S("CO_STATE_ENTRY = %;\r\n"), f(*label_count));
+        write(body, S("CO_HEADER.current_label_index = %;\r\n"), f(*label_count));
         
         for (u32 i = 0; i < subroutine->arguments.count; i++) {
             string expression;
@@ -804,7 +851,7 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
     }
 }
 
-bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations *declarations, String_Buffer *body, Types *types, Scope *scope = null) {
+bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations *declarations, String_Buffer *body, Types *types) {
     if (!try_skip(it, S("var"), body))
         return false;
     
@@ -822,10 +869,15 @@ bool parse_variable(Text_Iterator *it, Memory_Allocator *allocator, Declarations
         assert(types);
         skip_space(it, body);
         
+#if 0        
         if (scope) {
-            scope->byte_count += byte_count_of(*type);
+            u32 byte_alignment;
+            u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *type);
+            scope->byte_alignment = MAX(scope->byte_alignment, byte_alignment);
+            scope->byte_count += byte_count;
             scope->max_byte_count = MAX(scope->max_byte_count, scope->byte_count);
         }
+#endif
         
         *grow(allocator, declarations) = { type, identifier };
         
@@ -946,6 +998,12 @@ MAIN_DEC {
         return 0;
     }
     
+    bool do_compile = false;
+    if (argument_count >= 2) {
+        string argument = make_string(arguments[2]);
+        do_compile = (argument == S("-c"));
+    }
+    
     string source_file_name = make_string(arguments[1]);
     string source_file_extension = {};
     // remove .source_file_extension
@@ -986,7 +1044,7 @@ MAIN_DEC {
     
 #define add_base_type(name) { \
         auto type = ALLOCATE(allocator, Type); \
-        *type = make_kind(Type, base_type, S(# name), {}, sizeof(name)); \
+        *type = make_kind(Type, base_type, S(# name), {}, sizeof(name), alignof(name)); \
         *grow(allocator, &types) = type; \
     }
     
@@ -1018,8 +1076,9 @@ MAIN_DEC {
     {
         Text_Iterator it = { source, 1 };
         String_Buffer *empty_body = null;
+        skip_space(&it, empty_body);
         while (it.text.count) {
-            skip_space(&it, empty_body);
+            defer { skip_space(&it, empty_body); };
             
             if (try_skip(&it, S("def"), empty_body)) {
                 skip_space(&it, empty_body);
@@ -1122,7 +1181,7 @@ MAIN_DEC {
                             continue;
                         }
                         
-                        if (parse_variable(&it, allocator, &scopes[scopes.count - 1].declarations, empty_body, &types, scopes + scopes.count - 1))
+                        if (parse_variable(&it, allocator, &scopes[scopes.count - 1].declarations, empty_body, &types))
                             continue;
                         
                         LOOP {
@@ -1252,7 +1311,7 @@ MAIN_DEC {
                             
                             assert(!is_kind || is_kind(current->structure, def_structure));
                             if (is_kind)
-                                current->structure.def_structure.has_kinds = true;
+                                current->structure.def_structure.kind_count++;
                             
                             if (try_skip(&it.text, S("struct"))) {
                                 skip_space(&it, empty_body);
@@ -1310,8 +1369,6 @@ MAIN_DEC {
             UNREACHABLE_CODE
         }
     }
-    
-    String_Buffer output = { allocator };
     
     Type_Node type_dependency_root = {};
     
@@ -1402,23 +1459,26 @@ MAIN_DEC {
         write_tree(transient_allocator, type_dependency_root);
     }
     
+    String_Buffer output = { allocator };
+    
+#if defined _WIN64
+    write(&output, S(
+        "#if !defined _WIN64\r\n"
+        "#error this file was generated with x64 compiler on windows, offsets and sizes would be wrong on 32bit compiles\r\n"
+        "#endif\r\n\r\n"
+        ));
+#else
+    write(&output, S(
+        "#if defined _WIN64\r\n"
+        "#error this file was generated with x86 compiler on windows, offsets and sizes would be wrong on 64bit compiles\r\n"
+        "#endif\r\n\r\n"
+        ));
+#endif
     
     write(&output, S("#include <stdio.h>\r\n"));
     write(&output, S("#include \"basic.h\"\r\n"));
     write(&output, S("#include \"mo_string.h\"\r\n"));
     write(&output, S("#include \"memory_growing_stack.h\"\r\n\r\n"));
-    
-    // forward declare coroutines
-    if (functions.count) {
-        write(&output, S("#include \"preprocessor_coroutines.h\"\r\n\r\n"));
-        
-        for_array_item(function, functions) {
-            write_signature(&output, *function);
-            write(&output, S(";\r\n"));
-        }
-        
-        write(&output, S("\r\n"));
-    }
     
     for_array_item(it, types) {
         auto structure = try_kind_of(*it, structure_node);
@@ -1447,14 +1507,29 @@ MAIN_DEC {
                         ),
                           f(list->identifier), f(*list->entry_data.type), f(list->entry_data.identifier));
                     
-                    if (list->with_tail)
+                    // sizeof(head)
+                    list->byte_count = sizeof(u8*);
+                    list->byte_alignment = alignof(u8*);
+                    
+                    if (list->with_tail) {
                         write(&output, S("#define Template_List_With_Tail // optional"  "\r\n"));
+                        // sizeof(tail)
+                        list->byte_count += sizeof(u8*);
+                    }
                     
                     if (list->with_double_links)
                         write(&output, S("#define Template_List_With_Double_Links // optional" "\r\n"));
                     
-                    if (list->count_type)
+                    if (list->count_type) {
+                        u32 byte_alignment;
+                        u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *list->count_type);
+                        
+                        align_to(&list->byte_count, byte_alignment);
+                        list->byte_count += byte_count;
+                        list->byte_alignment = MAX(list->byte_alignment, byte_alignment);
+                        
                         write(&output, S("#define Template_List_Count_Type % // optional" "\r\n"), f(*list->count_type));
+                    }
                     
                     write(&output, S("#include \"template_list.h\"" "\r\n\r\n"));
                     
@@ -1470,7 +1545,6 @@ MAIN_DEC {
             assert(is_kind(structure_node->structure, def_structure));
             
             {
-                // TODO: check if there are any kinds at all
                 String_Buffer head_buffer = { allocator };
                 defer{ free(&head_buffer); };
                 
@@ -1495,22 +1569,46 @@ MAIN_DEC {
                     bool is_kind = current->structure.is_kind || parent_is_kind;
                     
                     switch (current->structure.kind) {
-                        
                         case_kind(Structure, def_structure) {
                             if (did_enter) {
                                 write(&head_buffer, S("struct % {\r\n"), f(current->structure.def_structure.identifier));
                                 
-                                if (current->structure.def_structure.has_kinds) {
+                                if (current->structure.def_structure.kind_count) {
                                     write(&head_buffer, S("enum Kind {\r\nKind_null,\r\n"));
                                     
                                     write(&tail_buffer, S("union {\r\n"));
                                 }
+                                
+                                assert(!current->structure.def_structure.byte_count);
+                                assert(!current->structure.def_structure.byte_alignment);
                             }
-                            else {
-                                if (current->structure.def_structure.has_kinds) {
-                                    write(&head_buffer, S("Kind_Count,\r\n} kind;\r\n"));
+                            
+                            if (did_leave) {
+                                if (current->structure.def_structure.kind_count) {
+                                    u32 kind_count = current->structure.def_structure.kind_count + 2;
+                                    u32 bit_count = bit_count_of(kind_count);
+                                    if (bit_count <= 8)
+                                        bit_count = 8;
+                                    else if (bit_count <= 16)
+                                        bit_count = 16;
+                                    else if (bit_count <= 32)
+                                        bit_count = 32;
+                                    else
+                                        UNREACHABLE_CODE;
+                                    
+                                    write(&head_buffer, S("Kind_Count,\r\n};\r\n\r\nu% kind;\r\n"), f(bit_count));
+                                    
+                                    update_byte_count_and_alignment(current, bit_count/8, bit_count/8);
+                                    update_byte_count_and_alignment(current, current->structure.def_structure.max_kind_byte_count, current->structure.def_structure.max_kind_byte_alignment);
+                                    
                                     write(&tail_buffer, S("};\r\n"));
                                 }
+                                
+                                // struct size must be multiple of alignment
+                                align_to(&current->structure.def_structure.byte_count, current->structure.def_structure.byte_alignment);
+                                
+                                write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\n"), f(current->structure.def_structure.byte_count));
+                                write(&tail_buffer, S("static const usize Byte_Alignment = %;\r\n"), f(current->structure.def_structure.byte_alignment));
                                 
                                 write(&output, S("%\r\n%\r\n%};\r\n\r\n"), f(head_buffer.buffer), f(body_buffer.buffer), f(tail_buffer.buffer));
                                 
@@ -1531,13 +1629,33 @@ MAIN_DEC {
                                 }
                                 else
                                     write(&body_buffer, S("struct {\r\n"));
+                                
+                                assert(!current->structure.def_structure.byte_count);
+                                assert(!current->structure.def_structure.byte_alignment);
                             }
                             
                             if (did_leave) {
-                                if (is_kind)
+                                if (is_kind) {
+                                    write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->structure.var_structure.byte_count), f(current->structure.var_structure.byte_alignment));
                                     write(&tail_buffer, S("} %;\r\n\r\n"), f(current->structure.var_structure.identifier));
-                                else
-                                    write(&body_buffer, S("} %;\r\n\r\n"), f(current->structure.var_structure.identifier));
+                                }
+                                else {
+                                    write(&body_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->structure.var_structure.byte_count), f(current->structure.var_structure.byte_alignment));
+                                    write(&body_buffer, S("} %;\r\n\r\n"), f(current->structure.var_structure.byte_count), f(current->structure.var_structure.identifier));
+                                }
+                                
+                                // struct size must be multiple of alignment
+                                align_to(&current->structure.var_structure.byte_count, current->structure.var_structure.byte_alignment);
+                                
+                                if (current->parent) {
+                                    if (!current->structure.is_kind) {
+                                        update_byte_count_and_alignment(current->parent, current->structure.var_structure.byte_count, current->structure.var_structure.byte_alignment);
+                                    }
+                                    else {
+                                        current->parent->structure.var_structure.max_kind_byte_alignment = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, current->structure.var_structure.byte_alignment);
+                                        current->parent->structure.var_structure.max_kind_byte_count = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, current->structure.var_structure.byte_count);
+                                    }
+                                }
                             }
                         } break;
                         
@@ -1553,6 +1671,19 @@ MAIN_DEC {
                             }
                             else
                                 write(&body_buffer, S("% %;\r\n"), f(*current->structure.field.type), f(current->structure.field.identifier));
+                            
+                            if (current->parent) {
+                                u32 byte_alignment;
+                                u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *current->structure.field.type);
+                                
+                                if (!current->structure.is_kind) {
+                                    update_byte_count_and_alignment(current->parent, byte_count, byte_alignment);
+                                }
+                                else {
+                                    current->parent->structure.var_structure.max_kind_byte_alignment = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, byte_alignment);
+                                    current->parent->structure.var_structure.max_kind_byte_count = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, byte_count);
+                                }
+                            }
                         } break;
                         
                         CASES_COMPLETE;
@@ -1563,6 +1694,18 @@ MAIN_DEC {
     }
     
     write(&output, S("\r\n"));
+    
+    if (functions.count) {
+        write(&output, S("#include \"preprocessor_coroutines.h\"\r\n\r\n"));
+        
+        for_array_item(function, functions) {
+            write_signature(&output, *function);
+            write(&output, S(";\r\n"));
+        }
+        
+        write(&output, S("\r\n"));
+    }
+    
     
     {
         Text_Iterator it = { source, 1 };
@@ -1602,7 +1745,7 @@ MAIN_DEC {
                     write_signature(&output, *function);
                     write(&output, S(" {\r\n"));
                     
-                    auto switch_table = new_write_buffer(allocator, S("switch (CO_STATE_ENTRY) {\r\n"));
+                    auto switch_table = new_write_buffer(allocator, S("switch (CO_HEADER.current_label_index) {\r\n"));
                     defer { free(&switch_table); };
                     
                     String_Buffer body = { allocator };
@@ -1721,13 +1864,13 @@ MAIN_DEC {
                             }
                             
                             if (is_return) {
-                                write(&body, S("CO_STATE_ENTRY = u32_max;\r\n"));
-                                write(&body, S("call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;\r\n"));
+                                write(&body, S("CO_HEADER.current_label_index = u32_max;\r\n"));
+                                write(&body, S("call_stack->current_byte_index = CO_HEADER.previous_byte_index;\r\n"));
                                 write(&body, S("return Coroutine_Continue;\r\n}\r\n\r\n"));
                             }
                             else {
                                 
-                                write(&body, S("CO_STATE_ENTRY = %;\r\n"), f(label_count));
+                                write(&body, S("CO_HEADER.current_label_index = %;\r\n"), f(label_count));
                                 write(&body, S("return Coroutine_Wait;\r\n}\r\n\r\n"));
                                 
                                 add_label(&switch_table, &body, &label_count);
@@ -1921,7 +2064,11 @@ MAIN_DEC {
         mooselib_path = new_write(allocator, S("%\\\\%\\\\..\\\\..\\\\code"), f(working_directory), f(preprocesor_path));
     }
     
-    string command = new_write(allocator, S("cl /c \"%\" /I \"%\" /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(out_file_path), f(mooselib_path));
+    string command;
+    if (do_compile)
+        command = new_write(allocator, S("cl -Fe\"%.exe\" \"%\" kernel32.lib user32.lib shell32.lib gdi32.lib opengl32.lib /I \"%\" /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(source_file_name), f(out_file_path), f(mooselib_path));
+    else
+        command = new_write(allocator, S("cl /c \"%\"  /I \"%\" /Zi /nologo /EHsc /link /INCREMENTAL:NO"), f(out_file_path), f(mooselib_path));
     
     u32 exit_code;
     bool ok;

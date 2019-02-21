@@ -1,3 +1,10 @@
+#include <stdio.h>
+#include "basic.h"
+#include "mo_string.h"
+#include "memory_growing_stack.h"
+
+
+
 #include "preprocessor_coroutines.h"
 
 u32 factorial(u32 n);
@@ -7,7 +14,7 @@ COROUTINE_DEC(factorial_recursive);
 COROUTINE_DEC(factorial_iterative);
 u32 run_factorial(Memory_Growing_Stack* allocator, u32 n);
 
-#line 1 "E:/work/mooselib/preprocessor/preprocessor_test.mcpp"
+#line 1 "../preprocessor_test.mcpp"
 
 #line 2
 u32 factorial(u32 n) {
@@ -60,7 +67,7 @@ void test() {
 #line 19
 #line 20
 COROUTINE_DEC(factorial_recursive) {
-    switch (CO_STATE_ENTRY) {
+    switch (CO_HEADER.current_label_index) {
         case 0:
         goto co_label0;
         
@@ -75,22 +82,22 @@ COROUTINE_DEC(factorial_recursive) {
     co_label0:
     
 #line 21
-    if (CO_ENTRY(u32, 12) <= 1 ) {
+    if (CO_ENTRY(u32, 24) <= 1 ) {
         { // return
             CO_RESULT(u32, 4) = 1;
-            CO_STATE_ENTRY = u32_max;
-            call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;
+            CO_HEADER.current_label_index = u32_max;
+            call_stack->current_byte_index = CO_HEADER.previous_byte_index;
             return Coroutine_Continue;
         }
         
     }
     
 #line 22
-    if (CO_ENTRY(u32, 12) <= 1 ) {
+    if (CO_ENTRY(u32, 24) <= 1 ) {
         { // return
             CO_RESULT(u32, 4) = 1;
-            CO_STATE_ENTRY = u32_max;
-            call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;
+            CO_HEADER.current_label_index = u32_max;
+            call_stack->current_byte_index = CO_HEADER.previous_byte_index;
             return Coroutine_Continue;
         }
         
@@ -100,8 +107,8 @@ COROUTINE_DEC(factorial_recursive) {
 #line 24
     
     { // call factorial_recursive
-        CO_STATE_ENTRY = 1;
-        u32 arg0 = CO_ENTRY(u32, 12) - 1;
+        CO_HEADER.current_label_index = 1;
+        u32 arg0 = CO_ENTRY(u32, 24) - 1;
         u8_array it = co_push_coroutine(call_stack, factorial_recursive, 28);
         *next_item(&it, u32) = arg0;
         return Coroutine_Continue;
@@ -109,16 +116,16 @@ COROUTINE_DEC(factorial_recursive) {
     co_label1:
     
     { // read results
-        CO_ENTRY(u32, 16) = CO_RESULT(u32, 4);
+        CO_ENTRY(u32, 28) = CO_RESULT(u32, 4);
         co_pop_coroutine(call_stack, 28);
     }
     
 #line 25
     { // return
 #line 26
-        CO_RESULT(u32, 4) = CO_ENTRY(u32, 12) * CO_ENTRY(u32, 16);
-        CO_STATE_ENTRY = u32_max;
-        call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;
+        CO_RESULT(u32, 4) = CO_ENTRY(u32, 24) * CO_ENTRY(u32, 28);
+        CO_HEADER.current_label_index = u32_max;
+        call_stack->current_byte_index = CO_HEADER.previous_byte_index;
         return Coroutine_Continue;
     }
     
@@ -130,7 +137,7 @@ COROUTINE_DEC(factorial_recursive) {
 #line 27
 #line 28
 COROUTINE_DEC(factorial_iterative) {
-    switch (CO_STATE_ENTRY) {
+    switch (CO_HEADER.current_label_index) {
         case 0:
         goto co_label0;
         
@@ -146,34 +153,34 @@ COROUTINE_DEC(factorial_iterative) {
     
 #line 29
 #line 30
-    CO_ENTRY(u32, 16) = 1;
+    CO_ENTRY(u32, 28) = 1;
 #line 31
 #line 32
-    CO_ENTRY(u32, 20) = CO_ENTRY(u32, 16);
-    while (CO_ENTRY(u32, 16) < CO_ENTRY(u32, 12) ) {
+    CO_ENTRY(u32, 32) = CO_ENTRY(u32, 28);
+    while (CO_ENTRY(u32, 28) < CO_ENTRY(u32, 24) ) {
 #line 33
         { // yield
 #line 34
-            CO_RESULT(u32, 4) = CO_ENTRY(u32, 20);
-            CO_STATE_ENTRY = 1;
+            CO_RESULT(u32, 4) = CO_ENTRY(u32, 32);
+            CO_HEADER.current_label_index = 1;
             return Coroutine_Wait;
         }
         
         co_label1:
         
 #line 35
-        CO_ENTRY(u32, 16)++;
+        CO_ENTRY(u32, 28)++;
 #line 36
-        CO_ENTRY(u32, 20) *= CO_ENTRY(u32, 16);
+        CO_ENTRY(u32, 32) *= CO_ENTRY(u32, 28);
     }
     
 #line 37
 #line 38
     { // return
 #line 39
-        CO_RESULT(u32, 4) = CO_ENTRY(u32, 20);
-        CO_STATE_ENTRY = u32_max;
-        call_stack->current_byte_index = CO_PREVIOUS_INDEX_ENTRY;
+        CO_RESULT(u32, 4) = CO_ENTRY(u32, 32);
+        CO_HEADER.current_label_index = u32_max;
+        call_stack->current_byte_index = CO_HEADER.previous_byte_index;
         return Coroutine_Continue;
     }
     

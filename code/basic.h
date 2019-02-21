@@ -312,7 +312,7 @@ INTERNAL f32 interval_minus_one_to_plus_one(f32 interval_zero_to_one) {
 #include "memory.h"
 
 // TODO: add intrinsics
-INTERNAL u32 bit_count(u32 value) {
+INTERNAL u32 bit_count_of(u64 value) {
     u32 result = 0;
     do {
         ++result;

@@ -18,6 +18,12 @@ set options=/Zi /nologo /EHsc
 set link_options=/link /INCREMENTAL:NO
 set dll_flag= 
 
+rem preprocessor step
+for %%f in (*.t) do (
+	echo preprocessing %%f
+	rem %moose_dir%\preprocessor\build\mooselib_preprocessor %%f
+)
+
 if %gui_application%==1 (
 	set include_dirs=%include_dirs% /I "%moose_dir%3rdparty\freetype\include\freetype2"
 	set dll_flag=/LD
