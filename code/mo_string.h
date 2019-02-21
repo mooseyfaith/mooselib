@@ -409,7 +409,34 @@ string skip_until_first(string *it, string pattern, bool skip_pattern = false, b
 
 // parsing
 
-inline string try_parse_quoted_string(string *iterator, bool *ok, u32 quot_symbol = '\"', u32 escape_symbol = '\\') {
+const string Default_True_Token = S("true");
+const string Default_False_Token = S("false");
+
+INTERNAL bool
+try_parse_bool(string *iterator, bool *ok, string true_token = Default_True_Token, string false_token = Default_False_Token) {
+    *ok = try_skip(iterator, true_token);
+    if (*ok)
+        return true;
+    
+    *ok = try_skip(iterator, false_token);
+    if (*ok)
+        return false;
+    
+    // we failded, just return something (zero value seems legit)
+    return false;
+}
+
+INTERNAL bool
+parse_bool(string *iterator, string true_token = Default_True_Token, string false_token = Default_False_Token)
+{
+    bool ok;
+    bool result = try_parse_bool(iterator, &ok, true_token, false_token);
+    assert(ok);
+    return result;
+}
+
+INTERNAL string
+try_parse_quoted_string(string *iterator, bool *ok, u32 quot_symbol = '\"', u32 escape_symbol = '\\') {
     *ok = false;
     
     auto start = *iterator;
@@ -1097,7 +1124,7 @@ void write_out(Memory_Allocator *temporary_allocator, string format, ...) {
     printf("%.*s", FORMAT_S(&output));
 }
 
-void write_line_out(Memory_Allocator *temporary_allocator, string format, ...) {
+void write_line_out(Memory_Allocator *temporary_allocator, string format = {}, ...) {
     va_list va_args;
     va_start(va_args, format);
     string output = {};

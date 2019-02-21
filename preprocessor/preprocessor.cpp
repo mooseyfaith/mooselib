@@ -1,5 +1,5 @@
 
-//TODO: add template support array and list :D
+//TODO: calculate struct alignments and byte_count, so close!!!
 
 #if 0
 
@@ -118,8 +118,8 @@ struct Structure;
 struct Structure {
     enum Kind {
         Kind_null,
-        Kind_root,
-        Kind_sub_structure,
+        Kind_def_structure,
+        Kind_var_structure,
         Kind_field,
         Kind_Count
     } kind;
@@ -130,13 +130,9 @@ struct Structure {
         struct {
             string identifier;
             u32 byte_count;
+            bool has_kinds;
             Types dependencies;
-        } root;
-        
-        struct {
-            string identifier;
-            u32 byte_count;
-        } sub_structure;
+        } var_structure, def_structure;
         
         Declaration field;
     };
@@ -156,18 +152,27 @@ struct Structure {
 struct Type {
     enum Kind {
         Kind_null,
+        Kind_undeclared_type,
         Kind_base_type,
         Kind_indirection,
         Kind_structure_node,
         Kind_structure_field,
+        
+        Kind_list,
+        
         Kind_Count,
     } kind;
     
     union {
         struct {
             string identifier;
-            u32 byte_count;
             Types dependencies;
+        } undeclared_type;
+        
+        struct {
+            string identifier;
+            Types dependencies;
+            u32 byte_count;
         } base_type;
         
         struct {
@@ -176,6 +181,13 @@ struct Type {
         } indirection;
         
         Structure_Node structure_node;
+        
+        struct {
+            string identifier;
+            Declaration entry_data;
+            Type *count_type;
+            bool with_tail, with_double_links;
+        } list;
     };
 };
 
@@ -209,12 +221,20 @@ STRING_WRITE_DEC(write_type) {
         type = indirection->type;
     
     switch (type->kind) {
+        case_kind(Type, undeclared_type) {
+            write(allocator, output, S("%"), f(type->undeclared_type.identifier));
+        } break;
+        
         case_kind(Type, base_type) {
             write(allocator, output, S("%"), f(type->base_type.identifier));
         } break;
         
         case_kind(Type, structure_node) {
-            write(allocator, output, S("%"), f(type->structure_node.structure.root.identifier));
+            write(allocator, output, S("%"), f(type->structure_node.structure.def_structure.identifier));
+        } break;
+        
+        case_kind(Type, list) {
+            write(allocator, output, S("%"), f(type->list.identifier));
         } break;
         
         CASES_COMPLETE;
@@ -273,8 +293,20 @@ bool end(Best_Token_Iterator *iterator, bool skip_end = true) {
     return (iterator->best_token.count > 0);
 }
 
-Type * find_or_create_base_type(Memory_Allocator *allocator, string identifier, Types *types) {
+Type * find_or_create_base_type(Memory_Allocator *allocator, string identifier, Types *types, bool *is_new_type = null)
+{
+    if (is_new_type)
+        *is_new_type = false;
+    
     for_array_item(type, *types) {
+        auto undeclared_type = try_kind_of(*type, undeclared_type);
+        if (undeclared_type) {
+            if (undeclared_type->identifier == identifier)
+                return *type;
+            
+            continue;
+        }
+        
         auto base_type = try_kind_of((*type), base_type);
         if (base_type) {
             if (base_type->identifier == identifier)
@@ -283,31 +315,31 @@ Type * find_or_create_base_type(Memory_Allocator *allocator, string identifier, 
             continue;
         }
         
-#if 0        
-        auto structure = try_kind_of((*type), structure);
-        if (structure) {
-            auto scope = kind_of(structure, scope);
-            if (scope->identifier == identifier)
-                return *type;
-            
-            continue;
-        }
-#else
         auto structure_node = try_kind_of((*type), structure_node);
         if (structure_node) {
-            if (structure_node->structure.root.identifier == identifier)
+            if (structure_node->structure.def_structure.identifier == identifier)
                 return *type;
             
             continue;
         }
-#endif
+        
+        auto list = try_kind_of(*type, list);
+        if (list) {
+            if (list->identifier == identifier)
+                return *type;
+            
+            continue;
+        }
         
         UNREACHABLE_CODE;
     }
     
+    if (is_new_type)
+        *is_new_type = true;
+    
     auto result = ALLOCATE(allocator, Type);
     *grow(allocator, types) = result;
-    *result = make_kind(Type, base_type, identifier, 0);
+    *result = make_kind(Type, undeclared_type, identifier);
     
     return result;
 }
@@ -954,7 +986,7 @@ MAIN_DEC {
     
 #define add_base_type(name) { \
         auto type = ALLOCATE(allocator, Type); \
-        *type = make_kind(Type, base_type, S(# name), sizeof(name)); \
+        *type = make_kind(Type, base_type, S(# name), {}, sizeof(name)); \
         *grow(allocator, &types) = type; \
     }
     
@@ -1123,6 +1155,56 @@ MAIN_DEC {
                     continue;
                 }
                 
+                if (try_skip(&it, S("list"), empty_body)) {
+                    skip_space(&it, empty_body);
+                    
+                    Type *list_type = find_or_create_base_type(allocator, identifier, &types);
+                    assert(is_kind(*list_type, undeclared_type));
+                    
+                    *list_type = make_kind(Type, list, identifier);
+                    
+                    skip(&it.text, S("("));
+                    skip_space(&it, empty_body);
+                    
+                    list_type->list.entry_data.identifier = get_identifier(&it.text, S("_"));
+                    assert(list_type->list.entry_data.identifier.count);
+                    skip_space(&it, empty_body);
+                    
+                    skip(&it.text, S(":"));
+                    skip_space(&it, empty_body);
+                    
+                    list_type->list.entry_data.type = parse_type(allocator, &it, &types, empty_body);
+                    assert(list_type->list.entry_data.type);
+                    skip_space(&it, empty_body);
+                    skip(&it.text, S(","));
+                    skip_space(&it, empty_body);
+                    
+                    list_type->list.with_tail = parse_bool(&it.text);
+                    skip_space(&it, empty_body);
+                    skip(&it.text, S(","));
+                    skip_space(&it, empty_body);
+                    
+                    list_type->list.with_double_links = parse_bool(&it.text);
+                    skip_space(&it, empty_body);
+                    
+                    if (try_skip(&it.text, S(","))) {
+                        skip_space(&it, empty_body);
+                        
+                        list_type->list.count_type = parse_type(allocator, &it, &types, empty_body);
+                        assert(list_type->list.count_type && is_kind(*list_type->list.count_type, base_type));
+                        skip_space(&it, empty_body);
+                    }
+                    else {
+                        list_type->list.count_type = null;
+                    }
+                    
+                    skip(&it.text, S(")"));
+                    skip_space(&it, empty_body);
+                    
+                    skip(&it.text, S(";"));
+                    continue;
+                }
+                
                 if (try_skip(&it, S("struct"), empty_body)) {
                     skip_space(&it, empty_body);
                     
@@ -1130,14 +1212,11 @@ MAIN_DEC {
                     // so use the same type and just add dependencies and sizes
                     auto struct_type = find_or_create_base_type(allocator, identifier, &types);
                     // is not allready declared
-                    assert(is_kind(*struct_type, base_type) && !struct_type->base_type.byte_count);
+                    assert(is_kind(*struct_type, undeclared_type));
                     // turn it to a structure,
-#if 0
-                    *struct_type = make_kind(Type, structure);
-#else
+                    
                     *struct_type = make_kind(Type, structure_node);
-                    struct_type->structure_node.structure = make_kind(Structure, root, identifier);
-#endif
+                    struct_type->structure_node.structure = make_kind(Structure, def_structure, identifier);
                     
                     skip(&it.text, S("{"));
                     skip_space(&it, empty_body);
@@ -1171,11 +1250,15 @@ MAIN_DEC {
                             auto field_node = ALLOCATE(allocator, Structure_Node);
                             *field_node = {};
                             
+                            assert(!is_kind || is_kind(current->structure, def_structure));
+                            if (is_kind)
+                                current->structure.def_structure.has_kinds = true;
+                            
                             if (try_skip(&it.text, S("struct"))) {
                                 skip_space(&it, empty_body);
                                 skip(&it.text, S("{"));
                                 
-                                field_node->structure = make_kind(Structure, sub_structure, identifier);
+                                field_node->structure = make_kind(Structure, var_structure, identifier);
                                 attach(current, field_node);
                                 
                                 current = field_node;
@@ -1184,8 +1267,8 @@ MAIN_DEC {
                                 Type *type = parse_type(allocator, &it, &types, empty_body);
                                 assert(type);
                                 
-                                if (is_kind(*type, base_type) || is_kind(*type, structure_node))
-                                    *grow(allocator, &struct_type->structure_node.structure.root.dependencies) = type;
+                                if (!is_kind(*type, indirection))
+                                    *grow(allocator, &struct_type->structure_node.structure.def_structure.dependencies) = type;
                                 
                                 field_node->structure = make_kind(Structure, field);
                                 field_node->structure.field = { type, identifier };
@@ -1196,6 +1279,7 @@ MAIN_DEC {
                             }
                             
                             field_node->structure.is_kind = is_kind;
+                            
                             
                             continue;
                         }
@@ -1243,6 +1327,9 @@ MAIN_DEC {
             attach(&type_dependency_root, self_node);
         }
         
+        Types temp_dependencies = {};
+        defer { free_array(allocator, &temp_dependencies); };
+        
         Types *dependencies;
         switch ((*self)->kind) {
             case_kind(Type, base_type) {
@@ -1250,13 +1337,29 @@ MAIN_DEC {
             } break;
             
             case_kind(Type, structure_node) {
-                dependencies = &(*self)->structure_node.structure.root.dependencies;
+                dependencies = &(*self)->structure_node.structure.def_structure.dependencies;
+            } break;
+            
+            case_kind(Type, list) {
+                auto list = kind_of(*self, list);
+                if (!is_kind(*list->entry_data.type, indirection))
+                    *grow(allocator, &temp_dependencies) = list->entry_data.type;
+                
+                if (list->count_type)
+                    *grow(allocator, &temp_dependencies) = list->count_type;
+                
+                dependencies = &temp_dependencies;
             } break;
             
             CASES_COMPLETE;
         }
         
+        write_line_out(allocator);
+        write_line_out(allocator, S("% depends on:"), f(**self));
+        
         for_array_item(dependency, *dependencies) {
+            write_line_out(allocator, S("  %"), f(**dependency));
+            
             assert(*dependency != *self);
             
             Type_Node *iterator = &type_dependency_root;
@@ -1316,9 +1419,6 @@ MAIN_DEC {
         
         write(&output, S("\r\n"));
     }
-    else {
-        
-    }
     
     for_array_item(it, types) {
         auto structure = try_kind_of(*it, structure_node);
@@ -1337,26 +1437,50 @@ MAIN_DEC {
             auto type = current_type->type;
             defer { next(&current_type); };
             
+            {
+                auto list = try_kind_of(type, list);
+                if (list) {
+                    write(&output, S(
+                        "#define Template_List_Name      %" "\r\n"
+                        "#define Template_List_Data_Type %"  "\r\n"
+                        "#define Template_List_Data_Name % // optional"  "\r\n"
+                        ),
+                          f(list->identifier), f(*list->entry_data.type), f(list->entry_data.identifier));
+                    
+                    if (list->with_tail)
+                        write(&output, S("#define Template_List_With_Tail // optional"  "\r\n"));
+                    
+                    if (list->with_double_links)
+                        write(&output, S("#define Template_List_With_Double_Links // optional" "\r\n"));
+                    
+                    if (list->count_type)
+                        write(&output, S("#define Template_List_Count_Type % // optional" "\r\n"), f(*list->count_type));
+                    
+                    write(&output, S("#include \"template_list.h\"" "\r\n\r\n"));
+                    
+                    continue;
+                }
+            }
+            
             if (!is_kind(*type, structure_node))
                 continue;
             
             auto structure_node = kind_of(type, structure_node);
             
-            assert(is_kind(structure_node->structure, root));
-            
-            write(&output, S("struct % {\r\n"), f(structure_node->structure.root.identifier));
+            assert(is_kind(structure_node->structure, def_structure));
             
             {
                 // TODO: check if there are any kinds at all
-                auto kind_enums = new_write_buffer(allocator, S("enum Kind {\r\nKind_null,\r\n"));
-                defer{ free(&kind_enums); };
+                String_Buffer head_buffer = { allocator };
+                defer{ free(&head_buffer); };
                 
-                auto field_buffer = new_write_buffer(allocator, S(""));
-                defer{ free(&field_buffer); };
+                String_Buffer body_buffer = { allocator };
+                defer{ free(&body_buffer); };
                 
-                auto kind_union = new_write_buffer(allocator, S("union {\r\n"));
-                defer{ free(&kind_union); };
+                String_Buffer tail_buffer = { allocator };
+                defer{ free(&tail_buffer); };
                 
+                // skip root
                 auto current = structure_node;
                 bool did_enter = true, did_leave = current && !current->children.head;
                 
@@ -1365,33 +1489,55 @@ MAIN_DEC {
                 while (current) {
                     defer { advance(&current, &did_enter, &did_leave); };
                     
-                    if (is_kind(current->structure, sub_structure))
+                    if (is_kind(current->structure, var_structure))
                         parent_is_kind = current->structure.is_kind;
                     
                     bool is_kind = current->structure.is_kind || parent_is_kind;
                     
                     switch (current->structure.kind) {
-                        case_kind(Structure, root) {
+                        
+                        case_kind(Structure, def_structure) {
+                            if (did_enter) {
+                                write(&head_buffer, S("struct % {\r\n"), f(current->structure.def_structure.identifier));
+                                
+                                if (current->structure.def_structure.has_kinds) {
+                                    write(&head_buffer, S("enum Kind {\r\nKind_null,\r\n"));
+                                    
+                                    write(&tail_buffer, S("union {\r\n"));
+                                }
+                            }
+                            else {
+                                if (current->structure.def_structure.has_kinds) {
+                                    write(&head_buffer, S("Kind_Count,\r\n} kind;\r\n"));
+                                    write(&tail_buffer, S("};\r\n"));
+                                }
+                                
+                                write(&output, S("%\r\n%\r\n%};\r\n\r\n"), f(head_buffer.buffer), f(body_buffer.buffer), f(tail_buffer.buffer));
+                                
+                                free(&head_buffer);
+                                free(&tail_buffer);
+                                free(&body_buffer);
+                            }
                         } break;
                         
-                        case_kind(Structure, sub_structure) {
+                        case_kind(Structure, var_structure) {
                             if (did_enter) {
                                 if (current->structure.is_kind) {
-                                    write(&kind_enums, S("Kind_%,\r\n"), f(current->structure.sub_structure.identifier));
+                                    write(&head_buffer, S("Kind_%,\r\n"), f(current->structure.var_structure.identifier));
                                 }
                                 
                                 if (is_kind) {
-                                    write(&kind_union, S("struct {\r\n"));
+                                    write(&tail_buffer, S("struct {\r\n"));
                                 }
                                 else
-                                    write(&field_buffer, S("struct {\r\n"));
+                                    write(&body_buffer, S("struct {\r\n"));
                             }
                             
                             if (did_leave) {
                                 if (is_kind)
-                                    write(&kind_union, S("} %;\r\n\r\n"), f(current->structure.sub_structure.identifier));
+                                    write(&tail_buffer, S("} %;\r\n\r\n"), f(current->structure.var_structure.identifier));
                                 else
-                                    write(&field_buffer, S("} %;\r\n\r\n"), f(current->structure.sub_structure.identifier));
+                                    write(&body_buffer, S("} %;\r\n\r\n"), f(current->structure.var_structure.identifier));
                             }
                         } break;
                         
@@ -1399,24 +1545,19 @@ MAIN_DEC {
                             assert(did_enter && did_leave);
                             
                             if (current->structure.is_kind) {
-                                write(&kind_enums, S("Kind_%,\r\n"), f(current->structure.field.identifier));
+                                write(&head_buffer, S("Kind_%,\r\n"), f(current->structure.field.identifier));
                             }
                             
                             if (is_kind) {
-                                write(&kind_union, S("% %;\r\n"), f(*current->structure.field.type), f(current->structure.field.identifier));
+                                write(&tail_buffer, S("% %;\r\n"), f(*current->structure.field.type), f(current->structure.field.identifier));
                             }
                             else
-                                write(&field_buffer, S("% %;\r\n"), f(*current->structure.field.type), f(current->structure.field.identifier));
+                                write(&body_buffer, S("% %;\r\n"), f(*current->structure.field.type), f(current->structure.field.identifier));
                         } break;
                         
                         CASES_COMPLETE;
                     }
                 }
-                
-                write(&kind_enums, S("Kind_Count,\r\n} kind;\r\n"));
-                write(&kind_union, S("};\r\n"));
-                
-                write(&output, S("%\r\n%\r\n%};\r\n\r\n"), f(kind_enums.buffer), f(field_buffer.buffer), f(kind_union.buffer));
             }
         }
     }
@@ -1438,6 +1579,12 @@ MAIN_DEC {
                 string identifier = get_identifier(&it.text, S("_"));
                 assert(identifier.count);
                 skip_space(&it, &output);
+                
+                if (try_skip(&it, S("list"), &output)) {
+                    skip_until_first_in_set(&it, S(";"), &output, true);
+                    
+                    continue;
+                }
                 
                 if (try_skip(&it, S("struct"), &output)) {
                     skip_space(&it, &output);
