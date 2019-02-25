@@ -754,7 +754,7 @@ PLATFORM_DISPLAY_WINDOW_DEC(win32_display_window) {
     Win32_Window *window = null;
     for (u32 i = 0; i < api->window_buffer.count; ++i) {
         if (api->window_buffer[i].id == window_id) {
-            window = api->window_buffer + i;
+            window = api->window_buffer.data + i;
             break;
         }
     }

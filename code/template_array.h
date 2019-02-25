@@ -46,6 +46,7 @@ struct Template_Array_Name {
         return *(data + offset);
     }
     
+#if 0    
     inline operator Template_Array_Data_Type * ()
     {
         return data;
@@ -55,13 +56,15 @@ struct Template_Array_Name {
     {
         return data;
     }
+#endif
+    
 };
 
 #define for_array_index(index, array) \
 for(decltype((array).count) index = 0; index < (array).count; index++)
 
 #define for_array_item(iterator, array) \
-for(auto iterator = (array) + 0; iterator != one_past_last(array); iterator++)
+for(auto iterator = (array).data + 0; iterator != one_past_last(array); iterator++)
 
 INTERNAL usize
 byte_count_of(Template_Array_Name array)
@@ -78,7 +81,7 @@ byte_capacity(Template_Array_Name array)
 INTERNAL Template_Array_Data_Type *
 one_past_last(Template_Array_Name array)
 {
-    return array + array.count;
+    return array.data + array.count;
 }
 
 INTERNAL usize
