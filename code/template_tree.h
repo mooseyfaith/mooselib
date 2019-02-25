@@ -1,47 +1,57 @@
 
+#include "template_defines.h"
+
 #if !defined Template_Tree_Name
 #   error Template_Tree_Name needs to be defined befor including template_tree.h
 #endif
 
-#if !defined Template_Tree_Data_Type
-#   error Template_Tree_Data_Type needs to be defined befor including template_tree.h
-#endif
+#if !defined Template_Tree_Struct_Is_Declared
 
-#if !defined Template_Tree_Data_Name
-#   define Template_Tree_Data_Name value
-#endif
+#  if !defined Template_Tree_Data_Type
+#    error Template_Tree_Data_Type needs to be defined befor including template_tree.h
+#  endif
 
-struct Template_Tree_Name;
-
-struct CHAIN(Template_Tree_Name, _List) {
-    union {
-        struct { Template_Tree_Name *head, *tail; };
-        Template_Tree_Name *marks[2];
-    };
-    
-    usize count;
-};
+#  if !defined Template_Tree_Data_Name
+#    define Template_Tree_Data_Name value
+#  endif
 
 struct Template_Tree_Name {
     Template_Tree_Data_Type Template_Tree_Data_Name;
-    Template_Tree_Name *parent;
     
-    union {
-        struct { Template_Tree_Name *next, *prev; };
-        Template_Tree_Name *links[2];
-    };
-    
-    CHAIN(Template_Tree_Name, _List) children;
+    TEMPLATE_TREE_DEC(Template_Tree_Name);
 };
 
-#define Template_List_Name      CHAIN(Template_Tree_Name, _List)
-#define Template_List_Data_Type Template_Tree_Data_Type
-#define Template_List_Data_Name Template_Tree_Data_Name
-#define Template_List_With_Double_Links
-#define Template_List_With_Tail
-#define Template_List_Struct_Is_Declared
-#define Template_List_Custom_Entry_Name Template_Tree_Name
-#include "template_list.h"
+#  define Template_List_Name               Template_Tree_Name::Children
+#  define Template_List_Data_Type          Template_Tree_Data_Type
+#  define Template_List_Data_Name          Template_Tree_Data_Name
+#  define Template_List_With_Double_Links
+#  define Template_List_With_Tail
+#  define Template_List_Struct_Is_Declared
+#  define Template_List_Custom_Entry_Name  Template_Tree_Name
+#  include "template_list.h"
+
+#else  // !Template_Tree_Struct_Is_Declared
+
+#  if defined Template_Tree_Data_Type
+#    error Template_Tree_Data_Type must not be defined if Template_Tree_Struct_Is_Declared is defined
+#  endif
+
+#  if defined Template_Tree_Data_Name
+#    error Template_Tree_Data_Name must not be defined if Template_Tree_Struct_Is_Declared is defined
+#  endif
+
+#  define Template_List_Name               Template_Tree_Name::Children
+#  define Template_List_Data_Type          Template_Tree_Name::_Dummy
+#  define Template_List_Data_Name          _dummy
+#  define Template_List_With_Double_Links
+#  define Template_List_With_Tail
+#  define Template_List_Struct_Is_Declared
+#  define Template_List_Custom_Entry_Name  Template_Tree_Name
+#  include "template_list.h"
+
+#  undef Template_Tree_Struct_Is_Declared
+
+#endif // !Template_Tree_Struct_Is_Declared
 
 INTERNAL bool
 is_ancesotor(Template_Tree_Name *ancestor, Template_Tree_Name *decendent)
@@ -150,6 +160,8 @@ advance(Template_Tree_Name **iterator, bool *did_enter, bool *did_leave, usize *
         *did_leave = !(*iterator)->children.head;
 }
 
+#if defined Template_Tree_Data_Type
+
 INTERNAL Template_Tree_Name *
 find_next_node(Template_Tree_Name **iterator, Template_Tree_Data_Type Template_Tree_Data_Name, usize *depth = null) {
     assert(*iterator);
@@ -169,6 +181,9 @@ find_next_node(Template_Tree_Name **iterator, Template_Tree_Data_Type Template_T
     return null;
 }
 
+#  undef Template_Tree_Data_Type
+#  undef Template_Tree_Data_Name
+
+#endif
+
 #undef Template_Tree_Name
-#undef Template_Tree_Data_Type
-#undef Template_Tree_Data_Name

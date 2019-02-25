@@ -46,7 +46,24 @@ Best_Token_Iterator begin_best_token(string *text_iterator) {
 
 void test_token(Best_Token_Iterator *iterator, string end) {
     bool found;
-    auto a = get_token_until_first_in_set(*iterator->text_iterator, end, &found, false);
+    
+    
+    auto test = *iterator->text_iterator;
+    while (test.count) {
+        u32 byte_count;
+        u32 head = utf8_head(test, &byte_count);
+        
+        if (starts_with(test, end)) {
+            found = true;
+            break;
+        }
+        
+        advance(&test, byte_count);
+    }
+    
+    auto a = sub_string(*iterator->text_iterator, test);
+    
+    //auto a = get_token_until_first_in_set(*iterator->text_iterator, end, &found, false);
     if (found && ((iterator->best_index == u32_max) || (a.count < iterator->best_token.count))) {
         iterator->best_token = a;
         iterator->best_end = end;
@@ -337,177 +354,6 @@ void expected_tokens(Report_Context *context) {
     report(context, context->tokenizer->line_count, context->tokenizer->column_count, S("%"), f(output));
 }
 
-#if 0
-Token next(Tokenizer *it, bool ignore_white_space = true) {
-    string start = it->text;
-    string line = it->text;
-    defer {
-        while (line.data < it->text.data) {
-            utf8_advance(&line);
-            it->column_count++;
-        }
-    };
-    
-    do {
-        if (try_skip(&it->text, S("{")))
-            return make_token(Token_Scope_Open, it, start);
-        
-        if (try_skip(&it->text, S("}")))
-            return make_token(Token_Scope_Close, it, start);
-        
-        if (try_skip(&it->text, S("(")))
-            return make_token(Token_Parenthesis_Open, it, start);
-        
-        if (try_skip(&it->text, S(")")))
-            return make_token(Token_Parenthesis_Close, it, start);
-        
-        if (try_skip(&it->text, S(",")))
-            return make_token(Token_Comma, it, start);
-        
-        if (try_skip(&it->text, S(".")))
-            return make_token(Token_Colon, it, start);
-        
-        if (try_skip(&it->text, S(";")))
-            return make_token(Token_Semicolon, it, start);
-        
-        if (try_skip(&it->text, S(":")))
-            return make_token(Token_Doublecolon, it, start);
-        
-        if (try_skip(&it->text, S("*")))
-            return make_token(Token_Star, it, start);
-        
-        if (try_skip(&it->text, S("=")))
-            return make_token(Token_Equals, it, start);
-        
-        if (try_skip(&it->text, S("->")))
-            return make_token(Token_Return_Arrow, it, start);
-        
-        if (try_skip(&it->text, S("//"))) {
-            skip_until_first_in_set(&it->text, S("\n"), true);
-            it->line_count++;
-            it->column_count = 1;
-            line = it->text;
-            return make_token(Token_Comment, it, start);
-        }
-        
-        if (try_skip(&it->text, S("/*"))) {
-            u32 depth = 1;
-            auto old_start = start;
-            
-            while (depth) {
-                auto bti = begin_best_token(&it->text);
-                test_token(&bti, S("/*"));
-                test_token(&bti, S("*/"));
-                test_token(&bti, S("\n"));
-                end(&bti);
-                
-                switch (bti.best_index) {
-                    case 0: { depth++; } break;
-                    case 1: { depth--; } break;
-                    case 2: {
-                        it->line_count++; 
-                        it->column_count = 1;
-                        line = it->text;
-                    } break;
-                    
-                    CASES_COMPLETE;
-                }
-            }
-            
-            return make_token(Token_Comment, it, old_start);
-        }
-        
-        if (try_skip(&it->text, S("var"))) {
-            return make_token(Token_Var, it, start);
-        }
-        
-        if (try_skip(&it->text, S("def"))) {
-            return make_token(Token_Def, it, start);
-        }
-        
-        if (try_skip(&it->text, S("function"))) {
-            return make_token(Token_Function, it, start);
-        }
-        
-        if (try_skip(&it->text, S("coroutine"))) {
-            return make_token(Token_Coroutine, it, start);
-        }
-        
-        if (try_skip(&it->text, S("struct"))) {
-            return make_token(Token_Struct, it, start);
-        }
-        
-        if (try_skip(&it->text, S("type"))) {
-            return make_token(Token_Type, it, start);
-        }
-        
-        if (try_skip(&it->text, S("if"))) {
-            return make_token(Token_If, it, start);
-        }
-        
-        if (try_skip(&it->text, S("else"))) {
-            return make_token(Token_Else, it, start);
-        }
-        
-        if (try_skip(&it->text, S("loop"))) {
-            return make_token(Token_Loop, it, start);
-        }
-        
-        if (try_skip(&it->text, S("return"))) {
-            return make_token(Token_Return, it, start);
-        }
-        
-        if (try_skip(&it->text, S("continue"))) {
-            return make_token(Token_Continue, it, start);
-        }
-        
-        if (try_skip(&it->text, S("break"))) {
-            return make_token(Token_Break, it, start);
-        }
-        
-        {
-            auto identifier = get_identifier(&it->text, S("_"));
-            if (identifier.count) {
-                return make_token(Token_Identifier, it, start);
-            }
-        }
-        
-        {
-            auto operator_identifier = skip_set(&it->text, Operator_Symbols);
-            if (operator_identifier.count)
-                return make_token(Token_Operator, it, start);
-        }
-        
-        {
-            auto whitespace = skip_set(&it->text, White_Space);
-            if (whitespace.count) {
-                if (!ignore_white_space)
-                    return make_token(Token_Whitespace, it, start);
-                else
-                    break;
-            }
-        }
-        
-        if (try_skip(&it->text, S("\n"))) {
-            it->line_count++;
-            it->column_count = 1;
-            line = it->text;
-            
-            if (!ignore_white_space)
-                return make_token(Token_Newline, it, start);
-            else
-                break;
-        }
-        
-        UNREACHABLE_CODE;
-        return make_token(Token_Invalid, it, start);
-        
-    } while (ignore_white_space);
-    
-    UNREACHABLE_CODE;
-    return make_token(Token_Invalid, it, start);
-}
-#endif
 
 
 struct Type;
@@ -531,11 +377,107 @@ struct Declaration {
 #define Template_Array_Data_Type Declaration
 #include "template_array.h"
 
-struct Structure;
 
-#define Template_Array_Name      Structures
-#define Template_Array_Data_Type Structure*
+
+struct Ast;
+
+#define Template_Array_Name      Ast_Array
+#define Template_Array_Data_Type Ast*
 #include "template_array.h"
+
+struct Ast {
+    enum Kind {
+        Kind_null,
+        
+        Kind_definition,
+        Kind_declaration,
+        
+        Kind_temporary_declarations,
+        
+        Kind_structure,
+        Kind_structure_kind,
+        
+        Kind_function,
+        
+        Kind_comment,
+        
+        Kind_return_statement,
+        Kind_yield_statement,
+        
+        Kind_break_statement, 
+        Kind_continue_statement,
+        
+        Kind_conditional_branch,
+        Kind_conditional_loop,
+        
+        Kind_scope, 
+        Kind_loop,
+        
+        Kind_unparsed_expression,
+        
+        Kind_Count,
+    } kind;
+    
+    TEMPLATE_TREE_DEC(Ast);
+    
+    union {
+        struct {
+            Token identifier;
+            Type *type;
+            Ast *unparsed_expression;
+        } declaration, structure_kind;
+        
+        struct {
+            bool as_structure_kinds;
+            
+            enum State {
+                State_Parse_Identifier,
+                State_Check_Continue,
+                State_Parse_Expressions,
+            } state;
+            
+        } temporary_declarations;
+        
+        struct {
+            Token identifier;
+        } definition;
+        
+        struct {
+            Type *type;
+        } structure;
+        
+        struct {
+            Ast *parent_function;
+            bool is_coroutine;
+            Ast_Array arguments;
+            Types return_types;
+            Ast *body;
+        } function;
+        
+        Token comment;
+        
+        struct {} return_statement, yield_statement;
+        
+        struct {} break_statement, continue_statement;
+        
+        struct {
+        } conditional_branch;
+        
+        struct {
+            Ast *parent_loop;
+        } loop, conditional_loop;
+        
+        struct {
+            Ast *parent_scope;
+        } scope;
+        
+        Token unparsed_expression;
+    };
+};
+
+#define Template_Tree_Name      Ast
+#define Template_Tree_Struct_Is_Declared
+#include "template_tree.h"
 
 struct Structure {
     enum Kind {
@@ -545,6 +487,8 @@ struct Structure {
         Kind_field,
         Kind_Count
     } kind;
+    
+    TEMPLATE_TREE_DEC(Structure);
     
     bool is_kind;
     
@@ -565,10 +509,8 @@ struct Structure {
     };
 };
 
-
-#define Template_Tree_Name      Structure_Node
-#define Template_Tree_Data_Type Structure
-#define Template_Tree_Data_Name structure
+#define Template_Tree_Name      Structure
+#define Template_Tree_Struct_Is_Declared
 #include "template_tree.h"
 
 void align_to(u32 *byte_count, u32 byte_alignment) {
@@ -576,12 +518,12 @@ void align_to(u32 *byte_count, u32 byte_alignment) {
         (*byte_count) += (byte_alignment - (*byte_count % byte_alignment)) % byte_alignment;
 }
 
-void update_byte_count_and_alignment(Structure_Node *node, u32 child_byte_count, u32 child_byte_alignment) {
-    assert(!is_kind(node->structure, field));
+void update_byte_count_and_alignment(Structure *node, u32 child_byte_count, u32 child_byte_alignment) {
+    assert(!is_kind(*node, field));
     
-    node->structure.def_structure.byte_alignment = MAX(node->structure.def_structure.byte_alignment, child_byte_alignment);
-    align_to(&node->structure.def_structure.byte_count, child_byte_alignment);
-    node->structure.def_structure.byte_count += child_byte_count;
+    node->def_structure.byte_alignment = MAX(node->def_structure.byte_alignment, child_byte_alignment);
+    align_to(&node->def_structure.byte_count, child_byte_alignment);
+    node->def_structure.byte_count += child_byte_count;
 }
 
 // yes an array of an array of Type*
@@ -590,14 +532,15 @@ void update_byte_count_and_alignment(Structure_Node *node, u32 child_byte_count,
 #define Template_Array_Data_Type Types
 #include "template_array.h"
 
+struct Ast;
+
 struct Type {
     enum Kind {
         Kind_null,
         Kind_undeclared_type,
         Kind_base_type,
         Kind_indirection,
-        Kind_structure_node,
-        Kind_structure_field,
+        Kind_structure,
         
         Kind_list,
         
@@ -612,7 +555,6 @@ struct Type {
         
         struct {
             Token identifier;
-            Types dependencies;
             u32 byte_count;
             u32 byte_alignment;
         } base_type;
@@ -622,7 +564,10 @@ struct Type {
             u32 level;
         } indirection;
         
-        Structure_Node structure_node;
+        struct {
+            Ast *node;
+            Types dependencies;
+        } structure;
         
         struct {
             Token identifier;
@@ -643,12 +588,14 @@ u32 byte_count_and_alignment_of(u32 *out_byte_alignment, Type type) {
             return type.base_type.byte_count;
         }
         
+#if 0        
         case_kind(Type, structure_node) {
-            assert(type.structure_node.structure.def_structure.byte_count);
-            assert(type.structure_node.structure.def_structure.byte_alignment);
-            *out_byte_alignment = type.structure_node.structure.def_structure.byte_alignment;
-            return type.structure_node.structure.def_structure.byte_count;
+            assert(type.structure->def_structure.byte_count);
+            assert(type.structure->def_structure.byte_alignment);
+            *out_byte_alignment = type.structure_node.def_structure.byte_alignment;
+            return type.structure_node.def_structure.byte_count;
         }
+#endif
         
         case_kind(Type, list) {
             assert(type.list.byte_count);
@@ -690,8 +637,11 @@ STRING_WRITE_DEC(write_type) {
             write(allocator, output, S("%"), f(type->base_type.identifier.text));
         } break;
         
-        case_kind(Type, structure_node) {
-            write(allocator, output, S("%"), f(type->structure_node.structure.def_structure.identifier.text));
+        case_kind(Type, structure) {
+            auto definition_node = type->structure.node->parent;
+            assert(definition_node && is_kind(*definition_node, definition));
+            
+            write(allocator, output, S("%"), f(definition_node->definition.identifier.text));
         } break;
         
         case_kind(Type, list) {
@@ -714,7 +664,7 @@ struct Function {
     bool is_coroutine;
     Declarations arguments;
     Types return_types;
-    Structure_Node local_variables;
+    Structure local_variables;
 };
 
 #define Template_Array_Name      Functions
@@ -743,9 +693,10 @@ Type * find_or_create_base_type(Memory_Allocator *allocator, string identifier, 
             continue;
         }
         
-        auto structure_node = try_kind_of((*type), structure_node);
-        if (structure_node) {
-            if (structure_node->structure.def_structure.identifier.text == identifier)
+        auto structure = try_kind_of((*type), structure);
+        if (structure) {
+            auto definition_node = structure->node->parent;
+            if (definition_node && is_kind(*definition_node, definition) && definition_node->definition.identifier.text == identifier)
                 return *type;
             
             continue;
@@ -802,45 +753,6 @@ Type * parse_type(Memory_Allocator *allocator, Report_Context *context, Types *t
     return base_type;
 }
 
-#if 0
-// does not care for comments or #if's
-string skip_scope(Text_Iterator *it, string open_bracket, string closed_bracket, String_Buffer *body) {
-    if (!try_skip(&it->text, open_bracket))
-        return {};
-    
-    auto start = it->text;
-    
-    u32 count = 1;
-    
-    while (count) {
-        auto token = begin_best_token(&it->text);
-        test_token(&token, closed_bracket);
-        test_token(&token, open_bracket);
-        test_token(&token, S("\n"));
-        end(&token);
-        
-        switch (token.best_index) {
-            case 0: {
-                count--;
-            } break;
-            
-            case 1: {
-                count++;
-            } break;
-            
-            case 2: {
-                it->line++;
-                //if (body)
-                //write(body, S("#line %\r\n"), f(it->line));
-            } break;
-            
-            CASES_COMPLETE;
-        }
-    }
-    
-    return sub_string(start, it->text);
-}
-#endif
 
 Function * find_function(Functions functions, string identifier) {
     for_array_item(function, functions) {
@@ -851,7 +763,7 @@ Function * find_function(Functions functions, string identifier) {
     return null;
 }
 
-string replace_expression(Memory_Allocator *allocator, string expression, Functions functions, Function *function, Structure_Node *function_scope) {
+string replace_expression(Memory_Allocator *allocator, string expression, Functions functions, Function *function, Structure *function_scope) {
     string result = {};
     
     while (expression.count)
@@ -894,7 +806,7 @@ string replace_expression(Memory_Allocator *allocator, string expression, Functi
                             current = current->parent;
                     };
                     
-                    auto field = try_kind_of(&current->structure, field);
+                    auto field = try_kind_of(current, field);
                     if (field) {
                         if (!found && (field->identifier.text == identifier)) {
                             found = field;
@@ -983,7 +895,7 @@ u32 byte_count_of(Function function) {
     }
     
     //HACK its a hack :D
-    byte_count += function.local_variables.structure.def_structure.max_kind_byte_count;
+    byte_count += function.local_variables.def_structure.max_kind_byte_count;
     
     for_array_item(it, function.return_types) {
         u32 byte_alignment;
@@ -993,7 +905,7 @@ u32 byte_count_of(Function function) {
     return byte_count;
 }
 
-void write_read_coroutine_results(Memory_Allocator *allocator, String_Buffer *body, Function *subroutine, string_array left_expressions, Functions functions, Function *function, Structure_Node *function_scope) {
+void write_read_coroutine_results(Memory_Allocator *allocator, String_Buffer *body, Function *subroutine, string_array left_expressions, Functions functions, Function *function, Structure *function_scope) {
     write(body, S("{ // read results\r\n"));
     
     if (left_expressions.count) {
@@ -1011,7 +923,7 @@ void write_read_coroutine_results(Memory_Allocator *allocator, String_Buffer *bo
 }
 
 #if 0
-void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, Function *subroutine, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Structure_Node *function_scope)
+void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, Function *subroutine, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Structure *function_scope)
 {
     assert(subroutine->is_coroutine);
     skip_space(it, body);
@@ -1093,50 +1005,7 @@ void write_signature(String_Buffer *output, Function function) {
 #endif
 
 #if 0
-string parse_next_expression(Text_Iterator *it, string end_token, bool *is_end, String_Buffer *body) {
-    string start = it->text;
-    
-    LOOP {
-        auto token = begin_best_token(&it->text);
-        test_token(&token, S("("));
-        test_token(&token, S(","));
-        test_token(&token, end_token);
-        test_token(&token, S("\n"));
-        end(&token, false);
-        
-        switch (token.best_index) {
-            case 0: {
-                skip_scope(it, S("("), S(")"), body);
-            } break;
-            
-            case 1: {
-                string expression = sub_string(start, it->text);
-                skip(&it->text, S(","));
-                skip_space(it, body);
-                *is_end = false;
-                return expression;
-            } break;
-            
-            case 2: {
-                string expression = sub_string(start, it->text);
-                skip(&it->text, end_token);
-                skip_space(it, body);
-                *is_end = true;
-                return expression;
-            } break;
-            
-            case 3: {
-                skip(&it->text, S("\n"));
-                //if (body)
-                //write(body, S("#line %\r\n"), f(it->line));
-            } break;
-            
-            CASES_COMPLETE;
-        }
-    }
-}
-
-void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Structure_Node *function_scope) {
+void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Structure *function_scope) {
     auto test = *it;
     auto function_identifier = get_identifier(&test.text, S("_"));
     if (function_identifier.count) {
@@ -1243,6 +1112,61 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
 }
 #endif
 
+Token next_expression(Memory_Allocator *allocator, Report_Context *context, string terminal = S(",")) {
+    
+    auto test = begin(context->tokenizer);
+    u32 paranthesis_depth = 0;
+    u32 brackets_depth = 0;
+    
+    string_array close_tokens = {};
+    defer { free_array(allocator, &close_tokens); };
+    
+    *grow(allocator, &close_tokens) = terminal;
+    
+    while (close_tokens.count) {
+        auto best = begin_best_token(&context->tokenizer->text);
+        test_token(&best, S("("));
+        test_token(&best, S("{"));
+        test_token(&best, close_tokens[close_tokens.count - 1]);
+        end(&best, false);
+        
+        switch (best.best_index) {
+            case 0: {
+                *grow(allocator, &close_tokens) = S(")");
+                skip(context, S("("));
+            } break;
+            
+            case 1: {
+                *grow(allocator, &close_tokens) = S("}");
+                skip(context, S("{"));
+            } break;
+            
+            case 2: {
+                if (close_tokens.count > 1)
+                    skip(context, close_tokens[close_tokens.count - 1]);
+                
+                shrink(allocator, &close_tokens);
+            } break;
+            
+            default: {
+                revert(test);
+                
+                EXPECT(context, 0, S(
+                    "unexpected end of file, expected:\n\n"
+                    "'(' or\n"
+                    "'{' or\n"
+                    "%\n"
+                    ), f(close_tokens[close_tokens.count - 1]));
+            }
+        }
+    }
+    
+    auto result = end(test);
+    skip(context, terminal);
+    
+    return result;
+}
+
 bool parse_variables(Report_Context *context, Memory_Allocator *allocator, Declarations *declarations, Types *types) {
     if (!try_skip(context->tokenizer, S("var")))
         return false;
@@ -1281,48 +1205,49 @@ bool parse_variables(Report_Context *context, Memory_Allocator *allocator, Decla
         for (u32 i = 0; i < declaration_count; i++) {
             
             auto test = begin(context->tokenizer);
-            u32 depth = 1;
+            u32 paranthesis_depth = 0;
+            u32 brackets_depth = 0;
             
-            while (depth) {
+            string_array close_tokens = {};
+            defer { free_array(allocator, &close_tokens); };
+            
+            if (i == declaration_count - 1)
+                *grow(allocator, &close_tokens) = S(";");
+            else
+                *grow(allocator, &close_tokens) = S(",");
+            
+            while (close_tokens.count) {
                 auto best = begin_best_token(&context->tokenizer->text);
                 test_token(&best, S("("));
-                test_token(&best, S(")"));
-                test_token(&best, S(","));
-                test_token(&best, S(";"));
-                
-                end(&best, true);
+                test_token(&best, S("{"));
+                test_token(&best, close_tokens[close_tokens.count - 1]);
+                end(&best, false);
                 
                 switch (best.best_index) {
-                    case 0: { depth++; } break;
+                    case 0: {
+                        *grow(allocator, &close_tokens) = S(")");
+                        skip(context, S("("));
+                    } break;
                     
-                    // if depth == 1 => , or ; was skipped
-                    // so we break out of the loop
-                    case 1: { 
-                        EXPECT(context, depth > 1, S("unexpected ')'"));
-                        depth--;
+                    case 1: {
+                        *grow(allocator, &close_tokens) = S("}");
+                        skip(context, S("{"));
                     } break;
                     
                     case 2: {
-                        EXPECT(context, i < declaration_count - 1, S("unexpected ','"));
-                        depth--;
-                    } break;
-                    
-                    case 3: {
-                        EXPECT(context, i == declaration_count - 1, S("unexpected ';'"));
-                        depth--;
+                        if (close_tokens.count > 1)
+                            skip(context, close_tokens[close_tokens.count - 1]);
+                        
+                        shrink(allocator, &close_tokens);
                     } break;
                     
                     default: {
-                        if (depth > 1) {
-                            EXPECT(context, 0, S("unexpected end of file, exprected '(' or ')' somewhere"));
-                        }
-                        else {
-                            if (i == declaration_count - 1) {
-                                EXPECT(context, 0, S("unexpected end of file, exprected '(' or ';' somewhere"));
-                            } else {
-                                EXPECT(context, 0, S("unexpected end of file, exprected '(' or ',' somewhere"));
-                            }
-                        }
+                        EXPECT(context, 0, S(
+                            "unexpected end of file, expected:\n\n"
+                            "'(' or\n"
+                            "'{' or\n"
+                            "%\n"
+                            ), f(close_tokens[close_tokens.count - 1]));
                     }
                 }
             }
@@ -1422,6 +1347,33 @@ void write_tree(Memory_Allocator *allocator, Type_Node root) {
     }
 }
 
+Ast * parse_struct(Memory_Allocator *allocator, Report_Context *context, Token identifier = {}, Types *types = null) {
+    if (!try_skip(context->tokenizer, S("struct")))
+        return null;
+    
+    skip(context, S("{"));
+    
+    Type *struct_type;
+    if (types) {
+        // this type could have been used by an other struct,
+        // so use the same type and just add dependencies and sizes
+        struct_type = find_or_create_base_type(allocator, identifier.text, types);
+        // is not allready declared
+        EXPECT(context, is_kind(*struct_type, undeclared_type), S("type allready defined, here .__.\n"));
+    }
+    else {
+        // anonymous struct, will not show up in types
+        struct_type = ALLOCATE(allocator, Type);
+    }
+    
+    auto structure_node = ALLOCATE(allocator, Ast);
+    *structure_node = make_kind(Ast, structure, struct_type);
+    // turn it to a structure type
+    *struct_type = make_kind(Type, structure, structure_node);
+    
+    return structure_node;
+}
+
 MAIN_DEC {
     Win32_Platform_API win32_api;
     init_win32_api(&win32_api);
@@ -1488,7 +1440,7 @@ MAIN_DEC {
     
 #define add_base_type(name) { \
         auto type = ALLOCATE(allocator, Type); \
-        *type = make_kind(Type, base_type, { S(# name) }, {}, sizeof(name), alignof(name)); \
+        *type = make_kind(Type, base_type, { S(# name) }, sizeof(name), alignof(name)); \
         *grow(allocator, &types) = type; \
     }
     
@@ -1521,37 +1473,182 @@ MAIN_DEC {
 #undef add_base_type
     
     {
-        //Text_Iterator it = { source, 1 };
-        //String_Buffer *empty_body = null;
-        //skip_space(&it, empty_body);
-        
         Tokenizer it = make_tokenizer(allocator, source);
         Report_Context reporter = { allocator, source_file_path, &it };
         
-        while (it.text.count)
-        {
+        Ast *root = ALLOCATE(allocator, Ast);
+        // TODO: add filescope? or/and global scope?
+        *root = make_kind(Ast, scope);
+        auto parent = root;
+        
+        Ast *top_function_node = null;
+        Ast *top_loop_node = null;
+        Ast *top_scope_node = null;
+        
+        while (it.text.count) {
+            
+            if (parent->parent && try_skip(&it, S("}"))) {
+                bool do_continue = true;
+                while (do_continue) {
+                    parent = parent->parent;
+                    
+                    switch (parent->kind) {
+                        case_kind(Ast, function) {
+                            top_function_node = parent->function.parent_function;
+                        } break;
+                        
+                        case_kind(Ast, conditional_loop);
+                        case_kind(Ast, loop) {
+                            top_loop_node  = parent->loop.parent_loop;
+                        } break;
+                        
+                        case_kind(Ast, scope) {
+                            top_scope_node = parent->scope.parent_scope;
+                            do_continue = false;
+                        } break;
+                        
+                        case_kind(Ast, temporary_declarations);
+                        case_kind(Ast, structure) {
+                            do_continue = false;
+                        } break;
+                    }
+                }
+                
+                continue;
+            }
+            
+            //assert(!parent || is_kind(*parent, scope) || is_kind(*parent, structure) || is_kind(*parent, declarations));
+            
+            if (is_kind(*parent, temporary_declarations)) {
+                bool do_cleanup = false;
+                
+                switch (parent->temporary_declarations.state) {
+                    case parent->temporary_declarations.State_Parse_Identifier: {
+                        auto identifier = get_identifier(&reporter);
+                        
+                        skip(&reporter, S(":"));
+                        
+                        auto node = ALLOCATE(allocator, Ast);
+                        if (parent->temporary_declarations.as_structure_kinds)
+                            *node = make_kind(Ast, structure_kind, identifier);
+                        else
+                            *node = make_kind(Ast, declaration, identifier);
+                        
+                        // just temporary while processing
+                        attach(parent, node);
+                        
+                        // create anonymous struct and its type
+                        auto structure_node = parse_struct(allocator, &reporter);
+                        if (structure_node) {
+                            // just temporary while processing
+                            attach(parent, structure_node);
+                            
+                            node->declaration.type = structure_node->structure.type;
+                            
+                            parent->temporary_declarations.state = parent->temporary_declarations.State_Check_Continue;
+                            parent = structure_node;
+                            
+                            continue;
+                        }
+                        
+                        node->declaration.type = parse_type(allocator, &reporter, &types, true);
+                    }
+                    
+                    // falltrough
+                    
+                    case parent->temporary_declarations.State_Check_Continue: {
+                        if (try_skip(&it, S("="))) {
+                            parent->temporary_declarations.state = parent->temporary_declarations.State_Parse_Expressions;
+                            continue;
+                        }
+                        
+                        if (try_skip(&it, S(",")))
+                            continue;
+                        
+                        // if previous type was a structure_node we don't need to skip a ';'
+                        auto structure_node = try_kind_of(parent->children.tail, structure);
+                        if (structure_node) {
+                            do_cleanup = true;
+                            break;
+                        }
+                        else if (try_skip(&it, S(";"))) {
+                            do_cleanup = true;
+                            break;
+                        }
+                        
+                        expected_tokens(&reporter);
+                    } break;
+                    
+                    case parent->temporary_declarations.State_Parse_Expressions: {
+                        // search unparse , seperated expressions
+                        auto node = parent->children.head;
+                        
+                        while (node) {
+                            node->unparsed_expression = next_expression(allocator, &reporter, node->next == null ? S(";") : S(","));
+                            node = node->next;
+                        }
+                        
+                        do_cleanup = true;
+                    } break;
+                    
+                    CASES_COMPLETE;
+                }
+                
+                if (do_cleanup) {
+                    
+                    auto declarations = parent;
+                    parent = parent->parent;
+                    detach(declarations);
+                    
+                    while (declarations->children.head) {
+                        // NOTE: anonymous structs dont have a parent, so... yeah
+                        if (is_kind(*declarations->children.head, structure))
+                            detach(declarations->children.head);
+                        else
+                            move(parent, declarations->children.head);
+                    }
+                    
+                    free(allocator, declarations);
+                    
+                    continue;
+                }
+                
+                UNREACHABLE_CODE;
+            }
+            
+            // test for comment node
+            
             if (try_skip(&it, S("def"))) {
+                auto definition_node = ALLOCATE(allocator, Ast);
+                *definition_node = make_kind(Ast, definition);
+                attach(parent, definition_node);
+                
                 auto identifier = get_identifier(&reporter);
+                definition_node->definition.identifier = identifier;
                 
                 bool is_coroutine = try_skip(&it, S("coroutine"));
                 if (is_coroutine || try_skip(&it, S("function"))) {
-                    auto function = ALLOCATE(allocator, Function);
-                    *grow(allocator, &functions) = function;
-                    *function = { identifier, is_coroutine };
+                    
+                    auto function_node = ALLOCATE(allocator, Ast);
+                    *function_node = make_kind(Ast, function);
+                    function_node->function = { top_function_node, is_coroutine };
+                    top_function_node = function_node;
+                    
+                    attach(definition_node, function_node);
                     
                     skip(&reporter, S("("));
                     
                     if (!try_skip(&it, S(")"))) {
                         LOOP {
-                            Declaration declaration = {};
+                            auto declaration_node = ALLOCATE(allocator, Ast);
+                            *declaration_node = make_kind(Ast, declaration);
+                            attach(function_node, declaration_node);
+                            *grow(allocator, &function_node->function.arguments) = declaration_node;
                             
-                            declaration.identifier = get_identifier(&reporter);
+                            declaration_node->declaration.identifier = get_identifier(&reporter);
                             skip(&reporter, S(":"));
                             
-                            declaration.type = parse_type(allocator, &reporter, &types, true);
-                            skip_space(&it);
-                            
-                            *grow(allocator, &function->arguments) = declaration;
+                            declaration_node->declaration.type = parse_type(allocator, &reporter, &types, true);
                             
                             if (try_skip(&it, S(",")))
                                 continue;
@@ -1570,7 +1667,7 @@ MAIN_DEC {
                         LOOP {
                             Type *type = parse_type(allocator, &reporter, &types, true);
                             
-                            *grow(allocator, &function->return_types) = type;
+                            *grow(allocator, &function_node->function.return_types) = type;
                             
                             if (try_skip(&it, S(",")))
                                 continue;
@@ -1582,77 +1679,11 @@ MAIN_DEC {
                         }
                     }
                     
-                    skip(&reporter, S("{"));
-                    
-                    function->local_variables = {};
-                    function->local_variables.structure = make_kind(Structure, def_structure, function->identifier);
-                    
-                    auto current = &function->local_variables;
-                    
-                    while (current)
-                    {
-                        skip_space(&it);
-                        
-                        if (try_skip(&it, S("{"))) {
-                            auto child = ALLOCATE(allocator, Structure_Node);
-                            *child = {};
-                            child->structure = make_kind(Structure, var_structure);
-                            attach(current, child);
-                            current = child;
-                            continue;
-                        }
-                        
-                        if (try_skip(&it, S("}"))) {
-                            current = current->parent;
-                            continue;
-                        }
-                        
-                        {
-                            Declarations declarations;
-                            defer { free_array(allocator, &declarations); };
-                            
-                            if (parse_variables(&reporter, allocator, &declarations, &types)) {
-                                for_array_item(declaration, declarations) {
-                                    auto field_node = ALLOCATE(allocator, Structure_Node);
-                                    *field_node = {};
-                                    field_node->structure = make_kind(Structure, field, *declaration);
-                                    attach(current, field_node);
-                                }
-                                
-                                continue;
-                            }
-                        }
-                        
-                        auto test = begin(&it);
-                        LOOP {
-                            auto token = begin_best_token(&it.text);
-                            test_token(&token, S("{"));
-                            test_token(&token, S("}"));
-                            test_token(&token, S(";"));
-                            test_token(&token, S("\n"));
-                            end(&token, false);
-                            
-                            assert(token.best_index < token.count);
-                            
-                            if (token.best_index == 3) {
-                                skip_space(&it);
-                                continue;
-                            }
-                            
-                            if (token.best_index == 2)
-                                skip(&reporter, S(";"));
-                            
-                            break;
-                        }
-                        // todo save token as unresolved expression or something
-                        end(test);
-                        
-                        continue;
-                    }
-                    
+                    parent = function_node;
                     continue;
                 }
                 
+#if 0                
                 if (try_skip(&it, S("list"))) {
                     
                     Type *list_type = find_or_create_base_type(allocator, identifier.text, &types);
@@ -1697,76 +1728,157 @@ MAIN_DEC {
                     
                     continue;
                 }
+#endif
                 
-                if (try_skip(&it, S("struct"))) {
-                    // this type could have been used by an other struct,
-                    // so use the same type and just add dependencies and sizes
-                    auto struct_type = find_or_create_base_type(allocator, identifier.text, &types);
-                    // is not allready declared
-                    EXPECT(&reporter, is_kind(*struct_type, undeclared_type), S("type allready defined, here .__.\n"));
-                    // turn it to a structure,
-                    
-                    *struct_type = make_kind(Type, structure_node);
-                    struct_type->structure_node.structure = make_kind(Structure, def_structure, identifier);
-                    
-                    skip(&reporter, S("{"));
-                    
-                    auto current = &struct_type->structure_node;
-                    
-                    while (current) {
-                        if (try_skip(&it, S("}"))) {
-                            current = current->parent;
-                            continue;
-                        }
-                        
-                        bool is_kind = try_skip(&it, S("kind"));
-                        bool is_var = !is_kind && try_skip(&it, S("var"));
-                        if (is_var || is_kind) {
-                            Token identifier = get_identifier(&reporter);
-                            
-                            skip(&reporter, S(":"));
-                            
-                            auto field_node = ALLOCATE(allocator, Structure_Node);
-                            *field_node = {};
-                            
-                            EXPECT(&reporter, !is_kind || is_kind(current->structure, def_structure), S("kind can only be used as a direct sub structure of a def ... struct definition"));
-                            if (is_kind)
-                                current->structure.def_structure.kind_count++;
-                            
-                            if (try_skip(&it, S("struct"))) {
-                                skip(&reporter, S("{"));
-                                
-                                field_node->structure = make_kind(Structure, var_structure, identifier);
-                                attach(current, field_node);
-                                
-                                current = field_node;
-                            }
-                            else {
-                                Type *type = parse_type(allocator, &reporter, &types, true);
-                                
-                                if (!is_kind(*type, indirection))
-                                    *grow(allocator, &struct_type->structure_node.structure.def_structure.dependencies) = type;
-                                
-                                field_node->structure = make_kind(Structure, field);
-                                field_node->structure.field = { type, identifier };
-                                attach(current, field_node);
-                                
-                                skip(&reporter, S(";"));
-                            }
-                            
-                            field_node->structure.is_kind = is_kind;
-                            
-                            continue;
-                        }
-                        
-                        expected_tokens(&reporter);
+                {
+                    auto structure_node = parse_struct(allocator, &reporter, identifier, &types);
+                    if (structure_node) {
+                        attach(definition_node, structure_node);
+                        parent = structure_node;
+                        continue;
                     }
+                }
+                
+                expected_tokens(&reporter);
+            } // "def"
+            
+            {
+                Ast *declarations_node = null;
+                if (is_kind(*parent, structure) && try_skip(&it, S("kind"))) {
+                    declarations_node = ALLOCATE(allocator, Ast);
+                    *declarations_node = make_kind(Ast, temporary_declarations, true);
+                    attach(parent, declarations_node);
+                    
+                    parent = declarations_node;
+                    continue;
+                }
+                
+                if (!declarations_node && try_skip(&it, S("var"))) {
+                    declarations_node = ALLOCATE(allocator, Ast);
+                    *declarations_node = make_kind(Ast, temporary_declarations, false);
+                    attach(parent, declarations_node);
+                    
+                    parent = declarations_node;
+                    continue;
+                }
+            }
+            
+            {
+                Ast *conditional_node = null;
+                
+                if (try_skip(&it, S("if"))) {
+                    conditional_node = ALLOCATE(allocator, Ast);
+                    *conditional_node = make_kind(Ast, conditional_branch);
+                    attach(parent, conditional_node);
+                }
+                
+                if (!conditional_node && try_skip(&it, S("while"))) {
+                    conditional_node = ALLOCATE(allocator, Ast);
+                    *conditional_node = make_kind(Ast, conditional_loop, top_loop_node);
+                    top_loop_node = conditional_node;
+                    attach(parent, conditional_node);
+                }
+                
+                if (conditional_node) {
+                    auto unparsed_expression_node = ALLOCATE(allocator, Ast);
+                    *unparsed_expression_node = make_kind(Ast, unparsed_expression);
+                    attach(conditional_node, unparsed_expression_node);
+                    
+                    unparsed_expression_node->unparsed_expression = next_expression(allocator, &reporter, S("do"));
+                    
+                    parent = conditional_node;
+                }
+                
+                if (!conditional_node && try_skip(&it, S("loop"))) {
+                    conditional_node = ALLOCATE(allocator, Ast);
+                    *conditional_node = make_kind(Ast, loop, top_loop_node);
+                    top_loop_node = conditional_node;
+                    attach(parent, conditional_node);
+                }
+                
+                if (conditional_node || try_skip(&it, S("{"))) {
+                    auto scope_node = ALLOCATE(allocator, Ast);
+                    *scope_node = make_kind(Ast, scope, top_scope_node);
+                    top_scope_node = scope_node;
+                    attach(parent, scope_node);
+                    
+                    parent = scope_node;
+                    
+                    continue;
+                }
+            }
+            
+            if (is_kind(*parent, structure)) {
+                if (try_skip(&it, S("kind"))) {
+                    
+                    auto kind_node = ALLOCATE(allocator, Ast);
+                    
+                    auto identifier = get_identifier(&reporter);
+                    *kind_node = make_kind(Ast, structure_kind, identifier);
+                    attach(parent, kind_node);
                     
                     continue;
                 }
                 
                 expected_tokens(&reporter);
-            } // "def"
+            }
+            
+            // not structure
+            
+            if (top_function_node) {
+                Ast *return_or_yield_node = null;
+                if (try_skip(&it, S("return"))) {
+                    return_or_yield_node = ALLOCATE(allocator, Ast);
+                    *return_or_yield_node = make_kind(Ast, return_statement);
+                }
+                
+                if (top_function_node->function.is_coroutine && !return_or_yield_node && try_skip(&it, S("yield")))
+                {
+                    return_or_yield_node = ALLOCATE(allocator, Ast);
+                    *return_or_yield_node = make_kind(Ast, yield_statement);
+                }
+                
+                if (return_or_yield_node) {
+                    attach(parent, return_or_yield_node);
+                    
+                    for (u32 i = 0; i < top_function_node->function.return_types.count; i++) {
+                        
+                        auto unparsed_expression_node = ALLOCATE(allocator, Ast);
+                        *unparsed_expression_node = make_kind(Ast, unparsed_expression);
+                        attach(return_or_yield_node, unparsed_expression_node);
+                        
+                        unparsed_expression_node->unparsed_expression =next_expression(allocator, &reporter, (i == top_function_node->function.return_types.count - 1) ? S(";") : S(","));
+                    }
+                    
+                    continue;
+                }
+            }
+            
+            if (top_scope_node) {
+                if (try_skip(&it, S("break"))) {
+                    skip(&reporter, S(";"));
+                    
+                    auto break_node = ALLOCATE(allocator, Ast);
+                    *break_node = make_kind(Ast, break_statement);
+                    attach(parent, break_node);
+                    
+                    continue;
+                }
+            }
+            
+            if (top_loop_node) {
+                if (try_skip(&it, S("continue"))) {
+                    skip(&reporter, S(";"));
+                    
+                    auto continue_node = ALLOCATE(allocator, Ast);
+                    *continue_node = make_kind(Ast, continue_statement);
+                    attach(parent, continue_node);
+                    
+                    continue;
+                }
+            }
+            
+#if 0            
             
             if (try_skip(&it, S("type"))) {
                 Type *type = parse_type(allocator, &reporter, &types, true);
@@ -1783,8 +1895,16 @@ MAIN_DEC {
                 
                 continue;
             }
+#endif
             
-            expected_tokens(&reporter);
+            // if all else fails, get en unparsed expression!!!
+            
+            {
+                auto expression_node = ALLOCATE(allocator, Ast);
+                *expression_node = make_kind(Ast, unparsed_expression);
+                expression_node->unparsed_expression = next_expression(allocator, &reporter, S(";"));
+                attach(parent, expression_node);
+            }
         }
     }
     
@@ -1808,11 +1928,11 @@ MAIN_DEC {
         Types *dependencies;
         switch ((*self)->kind) {
             case_kind(Type, base_type) {
-                dependencies = &(*self)->base_type.dependencies;
+                continue;
             } break;
             
-            case_kind(Type, structure_node) {
-                dependencies = &(*self)->structure_node.structure.def_structure.dependencies;
+            case_kind(Type, structure) {
+                dependencies = &(*self)->structure.dependencies;
             } break;
             
             case_kind(Type, list) {
@@ -1988,28 +2108,28 @@ MAIN_DEC {
                     defer { advance(&current, &did_enter, &did_leave); };
                     
                     if (is_kind(current->structure, var_structure))
-                        parent_is_kind = current->structure.is_kind;
+                        parent_is_kind = current->is_kind;
                     
-                    bool is_kind = current->structure.is_kind || parent_is_kind;
+                    bool is_kind = current->is_kind || parent_is_kind;
                     
-                    switch (current->structure.kind) {
+                    switch (current->kind) {
                         case_kind(Structure, def_structure) {
                             if (did_enter) {
-                                write(&head_buffer, S("struct % {\r\n"), f(current->structure.def_structure.identifier));
+                                write(&head_buffer, S("struct % {\r\n"), f(current->def_structure.identifier));
                                 
-                                if (current->structure.def_structure.kind_count) {
+                                if (current->def_structure.kind_count) {
                                     write(&head_buffer, S("enum Kind {\r\nKind_null,\r\n"));
                                     
                                     write(&tail_buffer, S("union {\r\n"));
                                 }
                                 
-                                assert(!current->structure.def_structure.byte_count);
-                                assert(!current->structure.def_structure.byte_alignment);
+                                assert(!current->def_structure.byte_count);
+                                assert(!current->def_structure.byte_alignment);
                             }
                             
                             if (did_leave) {
-                                if (current->structure.def_structure.kind_count) {
-                                    u32 kind_count = current->structure.def_structure.kind_count + 2;
+                                if (current->def_structure.kind_count) {
+                                    u32 kind_count = current->def_structure.kind_count + 2;
                                     u32 bit_count = bit_count_of(kind_count);
                                     if (bit_count <= 8)
                                         bit_count = 8;
@@ -2023,16 +2143,16 @@ MAIN_DEC {
                                     write(&head_buffer, S("Kind_Count,\r\n};\r\n\r\nu% kind;\r\n"), f(bit_count));
                                     
                                     update_byte_count_and_alignment(current, bit_count/8, bit_count/8);
-                                    update_byte_count_and_alignment(current, current->structure.def_structure.max_kind_byte_count, current->structure.def_structure.max_kind_byte_alignment);
+                                    update_byte_count_and_alignment(current, current->def_structure.max_kind_byte_count, current->def_structure.max_kind_byte_alignment);
                                     
                                     write(&tail_buffer, S("};\r\n"));
                                 }
                                 
                                 // struct size must be multiple of alignment
-                                align_to(&current->structure.def_structure.byte_count, current->structure.def_structure.byte_alignment);
+                                align_to(&current->def_structure.byte_count, current->def_structure.byte_alignment);
                                 
-                                write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\n"), f(current->structure.def_structure.byte_count));
-                                write(&tail_buffer, S("static const usize Byte_Alignment = %;\r\n"), f(current->structure.def_structure.byte_alignment));
+                                write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\n"), f(current->def_structure.byte_count));
+                                write(&tail_buffer, S("static const usize Byte_Alignment = %;\r\n"), f(current->def_structure.byte_alignment));
                                 
                                 write(&output, S("%\r\n%\r\n%};\r\n\r\n"), f(head_buffer.buffer), f(body_buffer.buffer), f(tail_buffer.buffer));
                                 
@@ -2044,7 +2164,7 @@ MAIN_DEC {
                         
                         case_kind(Structure, var_structure) {
                             if (did_enter) {
-                                if (current->structure.is_kind) {
+                                if (current->is_kind) {
                                     write(&head_buffer, S("Kind_%,\r\n"), f(current->structure.var_structure.identifier));
                                 }
                                 
@@ -2054,30 +2174,30 @@ MAIN_DEC {
                                 else
                                     write(&body_buffer, S("struct {\r\n"));
                                 
-                                assert(!current->structure.def_structure.byte_count);
-                                assert(!current->structure.def_structure.byte_alignment);
+                                assert(!current->def_structure.byte_count);
+                                assert(!current->def_structure.byte_alignment);
                             }
                             
                             if (did_leave) {
                                 if (is_kind) {
-                                    write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->structure.var_structure.byte_count), f(current->structure.var_structure.byte_alignment));
-                                    write(&tail_buffer, S("} %;\r\n\r\n"), f(current->structure.var_structure.identifier));
+                                    write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->var_structure.byte_count), f(current->var_structure.byte_alignment));
+                                    write(&tail_buffer, S("} %;\r\n\r\n"), f(current->var_structure.identifier));
                                 }
                                 else {
-                                    write(&body_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->structure.var_structure.byte_count), f(current->structure.var_structure.byte_alignment));
-                                    write(&body_buffer, S("} %;\r\n\r\n"), f(current->structure.var_structure.byte_count), f(current->structure.var_structure.identifier));
+                                    write(&body_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->var_structure.byte_count), f(current->var_structure.byte_alignment));
+                                    write(&body_buffer, S("} %;\r\n\r\n"), f(current->var_structure.byte_count), f(current->var_structure.identifier));
                                 }
                                 
                                 // struct size must be multiple of alignment
-                                align_to(&current->structure.var_structure.byte_count, current->structure.var_structure.byte_alignment);
+                                align_to(&current->var_structure.byte_count, current->var_structure.byte_alignment);
                                 
                                 if (current->parent) {
-                                    if (!current->structure.is_kind) {
-                                        update_byte_count_and_alignment(current->parent, current->structure.var_structure.byte_count, current->structure.var_structure.byte_alignment);
+                                    if (!current->is_kind) {
+                                        update_byte_count_and_alignment(current->parent, current->structure.var_structure.byte_count, current->var_structure.byte_alignment);
                                     }
                                     else {
-                                        current->parent->structure.var_structure.max_kind_byte_alignment = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, current->structure.var_structure.byte_alignment);
-                                        current->parent->structure.var_structure.max_kind_byte_count = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, current->structure.var_structure.byte_count);
+                                        current->parent->var_structure.max_kind_byte_alignment = MAX(current->parent->var_structure.max_kind_byte_alignment, current->var_structure.byte_alignment);
+                                        current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_alignment, current->var_structure.byte_count);
                                     }
                                 }
                             }
@@ -2086,26 +2206,26 @@ MAIN_DEC {
                         case_kind(Structure, field) {
                             assert(did_enter && did_leave);
                             
-                            if (current->structure.is_kind) {
-                                write(&head_buffer, S("Kind_%,\r\n"), f(current->structure.field.identifier));
+                            if (current->is_kind) {
+                                write(&head_buffer, S("Kind_%,\r\n"), f(current->field.identifier));
                             }
                             
                             if (is_kind) {
-                                write(&tail_buffer, S("% %;\r\n"), f(*current->structure.field.type), f(current->structure.field.identifier));
+                                write(&tail_buffer, S("% %;\r\n"), f(*current->field.type), f(current->field.identifier));
                             }
                             else
-                                write(&body_buffer, S("% %;\r\n"), f(*current->structure.field.type), f(current->structure.field.identifier));
+                                write(&body_buffer, S("% %;\r\n"), f(*current->field.type), f(current->field.identifier));
                             
                             if (current->parent) {
                                 u32 byte_alignment;
-                                u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *current->structure.field.type);
+                                u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *current->field.type);
                                 
-                                if (!current->structure.is_kind) {
+                                if (!current->is_kind) {
                                     update_byte_count_and_alignment(current->parent, byte_count, byte_alignment);
                                 }
                                 else {
-                                    current->parent->structure.var_structure.max_kind_byte_alignment = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, byte_alignment);
-                                    current->parent->structure.var_structure.max_kind_byte_count = MAX(current->parent->structure.var_structure.max_kind_byte_alignment, byte_count);
+                                    current->parent->var_structure.max_kind_byte_alignment = MAX(current->parent->var_structure.max_kind_byte_alignment, byte_alignment);
+                                    current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_alignment, byte_count);
                                 }
                             }
                         } break;
@@ -2152,8 +2272,8 @@ MAIN_DEC {
                     }
                     
                     if (did_leave) {
-                        current->parent->structure.var_structure.max_kind_byte_count = MAX(current->parent->structure.var_structure.max_kind_byte_count, var_structure->max_kind_byte_count);
-                        current->parent->structure.var_structure.byte_count -= var_structure->byte_count;
+                        current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_count, var_structure->max_kind_byte_count);
+                        current->parent->var_structure.byte_count -= var_structure->byte_count;
                         
                         write_line_out(allocator, S("subscope has byte count of %"), f(var_structure->max_kind_byte_count));
                         
@@ -2166,11 +2286,11 @@ MAIN_DEC {
                 u32 byte_alignment;
                 u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *field->type);
                 
-                current->parent->structure.var_structure.byte_count += byte_count;
-                current->parent->structure.var_structure.max_kind_byte_count = MAX(current->parent->structure.var_structure.max_kind_byte_count, current->parent->structure.var_structure.byte_count);
+                current->parent->var_structure.byte_count += byte_count;
+                current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_count, current->parent->var_structure.byte_count);
             }
             
-            write_line_out(allocator, S("function % has local byte count of %"), f((*function)->identifier), f((*function)->local_variables.structure.def_structure.max_kind_byte_count));
+            write_line_out(allocator, S("function % has local byte count of %"), f((*function)->identifier), f((*function)->local_variables.def_structure.max_kind_byte_count));
             
             write(&output, S("\r\n"));
         }

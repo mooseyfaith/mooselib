@@ -9,7 +9,7 @@ def B struct {
 		var b: *B;
 	}
 
-	kind as: As;
+	kind as: A;
 }
 
 def A struct {
@@ -17,8 +17,6 @@ def A struct {
 	var sadness: s64;
 	var soul: f32;
 }
-
-def As list(a: A, true, false);
 
 def div_mod function(a: u32, b: u32) -> (u32, u32) {
 	return a / b, a % b;
@@ -56,7 +54,7 @@ def main function(argument_count: s32, arguments: **u8) -> (s32) {
 def fun coroutine(text: string, count: u32) -> (s32){
 	var i: u32 = 0;
 
-	while i < count {
+	while i < count do {
 		printf("%.*s\n", FORMAT_S(&text));
 		yield 0;
 		i = i + 1;
