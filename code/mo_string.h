@@ -149,9 +149,41 @@ void write_utf8(Memory_Allocator *allocator, string *text, u32 utf32_code) {
     copy(dest, buffer, byte_count);
 }
 
+// UNSAFE: use at own risk
+u32 utf8_unsafe_next(u32 *out_byte_count, u8 *head, u32 max_byte_count = 4) {
+    *out_byte_count = 1;
+    
+    if (*head <= 0x7F)
+        return *head;
+    
+    u8 mask = 0xF0;
+    
+    while ((*out_byte_count < max_byte_count) && (*head & mask) != mask) {
+        mask <<= 1;
+        (*out_byte_count)++;
+    }
+    
+    u32 result = (*head & ~mask) << (6 * (*out_byte_count - 1));
+    for (u32 i = 1; i < *out_byte_count; ++i)
+        result |= (head[i] & ~0x80) << (6 * *out_byte_count - i - 1);
+    
+    return result;
+}
+
 u32 utf8_head(string text, OPTIONAL u32 *byte_count = null) {
     assert(text.count);
     
+    u32 my_byte_count;
+    u32 result = utf8_unsafe_next(&my_byte_count, text.data);
+    assert(my_byte_count <= text.count);
+    
+    if (byte_count)
+        *byte_count = my_byte_count;
+    
+    return result;
+    
+    
+#if 0    
     if (text[0] <= 0x7F) {
         if (byte_count)
             *byte_count = 1;
@@ -181,8 +213,20 @@ u32 utf8_head(string text, OPTIONAL u32 *byte_count = null) {
         result |= (text[index] & ~0x80) << (6 * part_count);
         index++;
     } 
+#endif
     
     return result;
+}
+
+// UNSAFE: use at your own risk!!
+// TODO also get u32 token
+u32 utf8_unsafe_previous(u8 *one_past_last_data) {
+    u32 byte_count = 1;
+    
+    while (((*one_past_last_data - byte_count) & 0xC0) == 0x80)
+        byte_count++;
+    
+    return byte_count;
 }
 
 u32 utf8_last_char_count(string text) {
@@ -252,7 +296,7 @@ bool is_contained(u32 token, string set)
     return false;
 }
 
-string get_identifier(string *it, string letter_extenstions) {
+string get_identifier(string *it, string letter_extenstions, u32 *out_char_count = null) {
     if (!it->count)
         return {};
     
@@ -261,10 +305,14 @@ string get_identifier(string *it, string letter_extenstions) {
     u32 byte_count;
     u32 token = utf8_head(*it, &byte_count);
     
+    u32 char_count = 0;
+    defer { if (out_char_count) *out_char_count = char_count; };
+    
     if ((!is_letter(token) && !is_contained(token, letter_extenstions)))
         return {};
     
     advance(it, byte_count);
+    char_count++;
     
     while (it->count) {
         u32 token = utf8_head(*it, &byte_count);
@@ -273,6 +321,8 @@ string get_identifier(string *it, string letter_extenstions) {
             break;
         
         advance(it, byte_count);
+        
+        char_count++;
     }
     
     return sub_string(start, *it);
@@ -342,9 +392,11 @@ string skip_until_first_in_set(string *it, string set, bool do_skip_set = false,
         
         if (found && do_skip_set)
             skip_set(it, set);
+        
+        return token;
     }
     
-    return token;
+    return {};
 }
 
 bool starts_with(string text, string prefix) {

@@ -15,6 +15,10 @@
 #    define Template_Tree_Data_Name value
 #  endif
 
+#  if defined Template_Tree_With_Leafs
+#    error Template_Tree_With_Leafs must not be defined when Template_Tree_Struct_Is_Declared is not defined
+#  endif
+
 struct Template_Tree_Name {
     Template_Tree_Data_Type Template_Tree_Data_Name;
     
@@ -41,8 +45,6 @@ struct Template_Tree_Name {
 #  endif
 
 #  define Template_List_Name               Template_Tree_Name::Children
-#  define Template_List_Data_Type          Template_Tree_Name::_Dummy
-#  define Template_List_Data_Name          _dummy
 #  define Template_List_With_Double_Links
 #  define Template_List_With_Tail
 #  define Template_List_Struct_Is_Declared
@@ -69,6 +71,8 @@ is_ancesotor(Template_Tree_Name *ancestor, Template_Tree_Name *decendent)
     
     return false;
 }
+
+#if !defined Template_Tree_With_Leafs
 
 INTERNAL void
 attach(Template_Tree_Name *new_parent, Template_Tree_Name *child)
@@ -159,6 +163,83 @@ advance(Template_Tree_Name **iterator, bool *did_enter, bool *did_leave, usize *
     if (*iterator && *did_enter)
         *did_leave = !(*iterator)->children.head;
 }
+
+#else  // !Template_Tree_With_Leafs
+
+INTERNAL void
+attach(Template_Tree_Name *new_parent, Template_Tree_Name::Children *new_parent_children, Template_Tree_Name *child)
+{
+    assert(!child->parent);
+    
+    insert_tail(new_parent_children, child);
+    child->parent = new_parent;
+}
+
+INTERNAL void
+detach(Template_Tree_Name::Children *parent_children, Template_Tree_Name *child)
+{
+    assert(child->parent);
+    assert(!parent_children->head || (parent_children->head->parent == child->parent));
+    
+    remove(parent_children, child);
+    child->parent = null;
+    child->prev = null;
+    child->next = null;
+}
+
+INTERNAL void
+move(Template_Tree_Name *new_parent, Template_Tree_Name::Children *new_parent_children, Template_Tree_Name *child, Template_Tree_Name::Children *parent_children = null)
+{
+    assert(!is_ancesotor(child, new_parent));
+    
+    attach(new_parent, new_parent_children, child);
+    
+    if (child->parent) {
+        assert(parent_children);
+        detach(parent_children, child);
+    }
+    
+    attach(new_parent, new_parent_children, child);
+}
+
+void advance_up_or_right(Template_Tree_Name **iterator, bool *did_enter, usize *depth = null) {
+    if ((*iterator)->next) {
+        (*iterator) = (*iterator)->next;
+        *did_enter = true;
+    }
+    else {
+        (*iterator) = (*iterator)->parent;
+        *did_enter = false;
+        
+        if (depth)
+            (*depth)--;
+    }
+}
+
+void next_up_or_right(Template_Tree_Name **iterator, usize *depth = null, Template_Tree_Name *stop_node = null) {
+    bool did_enter;
+    do {
+        advance_up_or_right(iterator, &did_enter, depth);
+    } while ((*iterator != stop_node) && !did_enter);
+}
+
+INTERNAL void
+advance(Template_Tree_Name **iterator, Template_Tree_Name *iterator_children_head, bool *did_enter, usize *depth = null) {
+    if (*did_enter && iterator_children_head) {
+        (*iterator) = iterator_children_head;
+        *did_enter = true;
+        
+        if (depth)
+            (*depth)++;
+    }
+    else {
+        advance_up_or_right(iterator, did_enter, depth);
+    }
+}
+
+#  undef Template_Tree_With_Leafs
+
+#endif // !Template_Tree_With_Leafs
 
 #if defined Template_Tree_Data_Type
 

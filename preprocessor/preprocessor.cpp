@@ -32,21 +32,23 @@ def start function(Memory_Allocator *allocator) {
 #include "memory_growing_stack.h"
 #include "preprocessor_coroutines.h"
 
+#include "template_defines.h"
+
 struct Best_Token_Iterator {
     string *text_iterator;
     string best_token;
     string best_end;
     u32 best_index;
     u32 count;
+    bool best_skip_end;
 };
 
 Best_Token_Iterator begin_best_token(string *text_iterator) {
     return { text_iterator, {}, {}, u32_max };
 }
 
-void test_token(Best_Token_Iterator *iterator, string end) {
+void test_token(Best_Token_Iterator *iterator, string end, bool skip_end = true) {
     bool found;
-    
     
     auto test = *iterator->text_iterator;
     while (test.count) {
@@ -62,21 +64,20 @@ void test_token(Best_Token_Iterator *iterator, string end) {
     }
     
     auto a = sub_string(*iterator->text_iterator, test);
-    
-    //auto a = get_token_until_first_in_set(*iterator->text_iterator, end, &found, false);
     if (found && ((iterator->best_index == u32_max) || (a.count < iterator->best_token.count))) {
         iterator->best_token = a;
         iterator->best_end = end;
         iterator->best_index = iterator->count;
+        iterator->best_skip_end = skip_end;
     }
     
     iterator->count++;
 }
 
-bool end(Best_Token_Iterator *iterator, bool skip_end = true) {
+bool end(Best_Token_Iterator *iterator) {
     advance(iterator->text_iterator, iterator->best_token.count);
     
-    if (skip_end)
+    if (iterator->best_skip_end)
         advance(iterator->text_iterator, iterator->best_end.count);
     
     return (iterator->best_token.count > 0);
@@ -228,60 +229,106 @@ struct Report_Context {
     Tokenizer *tokenizer;
 };
 
-void write_file_position(Memory_Allocator *allocator, string *output, string file_path, u32 line_count, u32 column_count) {
-    write(allocator, output, S("%(%:%)"), f(file_path), f(line_count), f(column_count));
+struct Format_Info_File_Position {
+    String_Write_Function write;
+    string file_path;
+    u32 line_count;
+    u32 column_count;
+};
+
+STRING_WRITE_DEC(write_file_position) {
+    auto format_info = &va_arg(*va_args, Format_Info_File_Position);
+    write(allocator, output, S("%(%:%)"), f(format_info->file_path), f(format_info->line_count), f(format_info->column_count));
 }
 
-void write_marked_line(Memory_Allocator *allocator, string *output, string line, u32 line_count, u32 column_count, u32 indent_count)
-{
+Format_Info_File_Position f(string file_path, u32 line_count, u32 column_count) {
+    return { write_file_position, file_path, line_count, column_count };
+}
+
+struct Format_Info_Marked_Line {
+    String_Write_Function write;
+    string line;
+    u32 line_count;
+    u32 column_count;
+    u32 indent_count;
+};
+
+STRING_WRITE_DEC(write_marked_line) {
+    auto format_info = &va_arg(*va_args, Format_Info_Marked_Line);
+    
     string pretty_line = {};
     free_array(allocator, &pretty_line);
     
     u32 pretty_column_count = 0;
     
-    assert(column_count);
-    column_count--;
+    assert(format_info->column_count);
+    format_info->column_count--;
     
-    while (line.count) {
+    while (format_info->line.count) {
         u32 byte_count;
-        u32 head = utf8_head(line, &byte_count);
+        u32 head = utf8_head(format_info->line, &byte_count);
         
         if (head == '\t') {
             write(allocator, &pretty_line, S("  "));
             
-            if (column_count)
+            if (format_info->column_count)
                 pretty_column_count += 2;
         }
         else {
-            write(allocator, &pretty_line, S("%"), f(sub(line, 0, byte_count)));
+            write(allocator, &pretty_line, S("%"), f(sub(format_info->line, 0, byte_count)));
             
-            if (column_count)
+            if (format_info->column_count)
                 pretty_column_count++;
         }
         
-        advance(&line, byte_count);
-        if (column_count)
-            column_count--;
+        advance(&format_info->line, byte_count);
+        if (format_info->column_count)
+            format_info->column_count--;
     }
     
-    write(allocator, output, S("%: %%"), f(line_count), f_indent(indent_count), f(pretty_line));
+    write(allocator, output, S("%: %%\n"), f(format_info->line_count), f_indent(format_info->indent_count), f(pretty_line));
     
-    if (indent_count + pretty_column_count > 0)
-        write(allocator, output, S("%: %~\n"), f(line_count), f_indent(indent_count + pretty_column_count));
+    if (format_info->indent_count + pretty_column_count > 0)
+        write(allocator, output, S("%: %~\n"), f(format_info->line_count), f_indent(format_info->indent_count + pretty_column_count));
     else
-        write(allocator, output, S("%: ~\n"), f(line_count));
+        write(allocator, output, S("%: ~\n"), f(format_info->line_count));
+}
+
+Format_Info_Marked_Line f(string line, u32 line_count, u32 column_count, u32 indent_count) {
+    return { write_marked_line, line, line_count, column_count, indent_count };
+}
+
+
+Format_Info_Marked_Line f(Token token, u32 indent_count) {
+    string line = token.text;
+    
+    // UNSAFE: death! awaits here
+    for (u32 i = 0; i < token.column_count - 1; i++) {
+        u32 byte_count = utf8_unsafe_previous(line.data);
+        line.data  -= byte_count;
+        line.count += byte_count;
+    }
+    
+    // UNSAFE: death! awaits here also
+    LOOP {
+        u32 byte_count;
+        u32 head = utf8_unsafe_next(&byte_count, line.data + line.count);
+        if (head == '\n')
+            break;
+        
+        line.count += byte_count;
+    }
+    
+    return { write_marked_line, line, token.line_count, token.column_count, indent_count };
 }
 
 
 void report(Report_Context *context, u32 line_count, u32 column_count, string format, ...) {
     auto line_end = context->tokenizer->line_start;
-    skip_until_first_in_set(&line_end, S("\n"), true);
+    skip_until_first_in_set(&line_end, S("\n"));
     auto line = sub_string(context->tokenizer->line_start, line_end);
     
-    string output = {};
-    write_file_position(context->allocator, &output, context->file_path, line_count, column_count);
-    write_out(context->allocator, S("% error: "), f(output));
-    free_array(context->allocator, &output);
+    write_out(context->allocator, S("% error: "), f(context->file_path, line_count, column_count));
     
     va_list va_args;
     va_start(va_args, format);
@@ -289,10 +336,7 @@ void report(Report_Context *context, u32 line_count, u32 column_count, string fo
     va_end(va_args);
     
     write_out(context->allocator, S("\n\n"));
-    
-    write_marked_line(context->allocator, &output, line, line_count, column_count, 2);
-    write_out(context->allocator, S("%"), f(output));
-    free_array(context->allocator, &output);
+    write_out(context->allocator, S("%"), f(line, line_count, column_count, 2));
     
     UNREACHABLE_CODE; // easier to debug
     exit(0);
@@ -354,7 +398,7 @@ void expected_tokens(Report_Context *context) {
     report(context, context->tokenizer->line_count, context->tokenizer->column_count, S("%"), f(output));
 }
 
-
+struct Ast;
 
 struct Type;
 
@@ -362,177 +406,9 @@ struct Type;
 #define Template_Array_Data_Type Type*
 #include "template_array.h"
 
-#define Template_Tree_Name      Type_Node
-#define Template_Tree_Data_Type Type*
-#define Template_Tree_Data_Name type
-#include "template_tree.h"
-
-struct Declaration {
-    Type *type;
-    Token identifier;
-    Token unparsed_expression;
-};
-
-#define Template_Array_Name      Declarations
-#define Template_Array_Data_Type Declaration
-#include "template_array.h"
-
-
-
-struct Ast;
-
-#define Template_Array_Name      Ast_Array
-#define Template_Array_Data_Type Ast*
-#include "template_array.h"
-
-struct Ast {
-    enum Kind {
-        Kind_null,
-        
-        Kind_definition,
-        Kind_declaration,
-        
-        Kind_temporary_declarations,
-        
-        Kind_structure,
-        Kind_structure_kind,
-        
-        Kind_function,
-        
-        Kind_comment,
-        
-        Kind_return_statement,
-        Kind_yield_statement,
-        
-        Kind_break_statement, 
-        Kind_continue_statement,
-        
-        Kind_conditional_branch,
-        Kind_conditional_loop,
-        
-        Kind_scope, 
-        Kind_loop,
-        
-        Kind_unparsed_expression,
-        
-        Kind_Count,
-    } kind;
-    
-    TEMPLATE_TREE_DEC(Ast);
-    
-    union {
-        struct {
-            Token identifier;
-            Type *type;
-            Ast *unparsed_expression;
-        } declaration, structure_kind;
-        
-        struct {
-            bool as_structure_kinds;
-            
-            enum State {
-                State_Parse_Identifier,
-                State_Check_Continue,
-                State_Parse_Expressions,
-            } state;
-            
-        } temporary_declarations;
-        
-        struct {
-            Token identifier;
-        } definition;
-        
-        struct {
-            Type *type;
-        } structure;
-        
-        struct {
-            Ast *parent_function;
-            bool is_coroutine;
-            Ast_Array arguments;
-            Types return_types;
-            Ast *body;
-        } function;
-        
-        Token comment;
-        
-        struct {} return_statement, yield_statement;
-        
-        struct {} break_statement, continue_statement;
-        
-        struct {
-        } conditional_branch;
-        
-        struct {
-            Ast *parent_loop;
-        } loop, conditional_loop;
-        
-        struct {
-            Ast *parent_scope;
-        } scope;
-        
-        Token unparsed_expression;
-    };
-};
-
-#define Template_Tree_Name      Ast
-#define Template_Tree_Struct_Is_Declared
-#include "template_tree.h"
-
-struct Structure {
-    enum Kind {
-        Kind_null,
-        Kind_def_structure,
-        Kind_var_structure,
-        Kind_field,
-        Kind_Count
-    } kind;
-    
-    TEMPLATE_TREE_DEC(Structure);
-    
-    bool is_kind;
-    
-    union {
-        struct {
-            Token identifier;
-            u32 byte_count;
-            u32 byte_alignment;
-            
-            u32 max_kind_byte_count;
-            u32 max_kind_byte_alignment;
-            u32 kind_count;
-            
-            Types dependencies;
-        } var_structure, def_structure;
-        
-        Declaration field;
-    };
-};
-
-#define Template_Tree_Name      Structure
-#define Template_Tree_Struct_Is_Declared
-#include "template_tree.h"
-
-void align_to(u32 *byte_count, u32 byte_alignment) {
-    if (byte_alignment)
-        (*byte_count) += (byte_alignment - (*byte_count % byte_alignment)) % byte_alignment;
-}
-
-void update_byte_count_and_alignment(Structure *node, u32 child_byte_count, u32 child_byte_alignment) {
-    assert(!is_kind(*node, field));
-    
-    node->def_structure.byte_alignment = MAX(node->def_structure.byte_alignment, child_byte_alignment);
-    align_to(&node->def_structure.byte_count, child_byte_alignment);
-    node->def_structure.byte_count += child_byte_count;
-}
-
-// yes an array of an array of Type*
-// used for depth first search iteration
 #define Template_Array_Name      Types_Array
 #define Template_Array_Data_Type Types
 #include "template_array.h"
-
-struct Ast;
 
 struct Type {
     enum Kind {
@@ -549,8 +425,7 @@ struct Type {
     
     union {
         struct {
-            Token identifier;
-            Types dependencies;
+            Token namespace_path;
         } undeclared_type;
         
         struct {
@@ -569,6 +444,7 @@ struct Type {
             Types dependencies;
         } structure;
         
+#if 0        
         struct {
             Token identifier;
             Declaration entry_data;
@@ -576,8 +452,150 @@ struct Type {
             bool with_tail, with_double_links;
             u32 byte_count, byte_alignment;
         } list;
+#endif
     };
 };
+
+#if 0
+// yes an array of an array of Type*
+// used for depth first search iteration
+#define Template_Array_Name      Types_Array
+#define Template_Array_Data_Type Types
+#include "template_array.h"
+
+#define Template_Array_Name      Ast_Array
+#define Template_Array_Data_Type Ast*
+#include "template_array.h"
+#endif
+
+struct Ast {
+    enum Kind {
+        Kind_null,
+        
+        Kind_definition,
+        Kind_declaration,
+        
+        Kind_temporary_declarations,
+        
+        Kind_structure,
+        Kind_structure_kind,
+        
+        Kind_function,
+        
+        Kind_comment,
+        
+        Kind_return_statement,
+        
+        Kind_break_statement, 
+        Kind_continue_statement,
+        
+        Kind_conditional_branch,
+        Kind_conditional_loop,
+        
+        Kind_scope, 
+        Kind_loop,
+        
+        Kind_unparsed_expression,
+        
+        Kind_Count,
+    } kind;
+    
+    TEMPLATE_DOUBLE_LIST_TYPE_DEC(Children, Ast);
+    
+    TEMPLATE_TREE_LEAF_DEC(Ast);
+    
+    union {
+        struct {
+            Token identifier;
+            Type *type;
+        } declaration, structure_kind;
+        
+        struct {
+            bool as_structure_kinds;
+            
+            enum State {
+                State_Parse_Identifier,
+                State_Check_Continue,
+                State_Parse_Expressions,
+            } state;
+            
+            Children list;
+        } temporary_declarations;
+        
+        struct {
+            Ast *parent_namespace;
+            Token identifier;
+            Ast *value;
+        } definition;
+        
+        struct {
+            //Type *type;
+            Type type;
+            Children body;
+        } structure;
+        
+        struct {
+            Ast *parent_function;
+            bool is_coroutine;
+            Types return_types;
+            Children arguments;
+            Ast *statement;
+        } function;
+        
+        Token comment;
+        
+        struct {
+            bool is_yield;
+            Children values;
+        } return_statement;
+        
+        struct {} break_statement, continue_statement;
+        
+        struct {
+            Ast *condition;
+            Ast *statement;
+        } conditional_branch;
+        
+        struct {
+            Ast *parent_loop;
+            Ast *condition;
+            Ast *statement;
+        } conditional_loop;
+        
+        struct {
+            Ast *parent_loop;
+            Ast *statement;
+        } loop;
+        
+        struct {
+            Ast *parent_namespace;
+            Ast *parent_scope;
+            Children body;
+        } scope;
+        
+        Token unparsed_expression;
+    };
+};
+
+#define Template_Tree_Name      Ast
+#define Template_Tree_Struct_Is_Declared
+#define Template_Tree_With_Leafs
+#include "template_tree.h"
+
+void align_to(u32 *byte_count, u32 byte_alignment) {
+    if (byte_alignment)
+        (*byte_count) += (byte_alignment - (*byte_count % byte_alignment)) % byte_alignment;
+}
+
+#if 0
+void update_byte_count_and_alignment(Structure *node, u32 child_byte_count, u32 child_byte_alignment) {
+    assert(!is_kind(*node, field));
+    
+    node->def_structure.byte_alignment = MAX(node->def_structure.byte_alignment, child_byte_alignment);
+    align_to(&node->def_structure.byte_count, child_byte_alignment);
+    node->def_structure.byte_count += child_byte_count;
+}
+#endif
 
 u32 byte_count_and_alignment_of(u32 *out_byte_alignment, Type type) {
     switch (type.kind) {
@@ -595,7 +613,6 @@ u32 byte_count_and_alignment_of(u32 *out_byte_alignment, Type type) {
             *out_byte_alignment = type.structure_node.def_structure.byte_alignment;
             return type.structure_node.def_structure.byte_count;
         }
-#endif
         
         case_kind(Type, list) {
             assert(type.list.byte_count);
@@ -603,6 +620,7 @@ u32 byte_count_and_alignment_of(u32 *out_byte_alignment, Type type) {
             *out_byte_alignment = type.list.byte_alignment;
             return type.list.byte_count;
         }
+#endif
         
         case_kind(Type, indirection) {
             // all pointers have same byte_count and byte_alignment
@@ -629,9 +647,11 @@ STRING_WRITE_DEC(write_type) {
         type = indirection->type;
     
     switch (type->kind) {
+#if 0
         case_kind(Type, undeclared_type) {
             write(allocator, output, S("%"), f(type->undeclared_type.identifier.text));
         } break;
+#endif
         
         case_kind(Type, base_type) {
             write(allocator, output, S("%"), f(type->base_type.identifier.text));
@@ -644,9 +664,11 @@ STRING_WRITE_DEC(write_type) {
             write(allocator, output, S("%"), f(definition_node->definition.identifier.text));
         } break;
         
+#if 0        
         case_kind(Type, list) {
             write(allocator, output, S("%"), f(type->list.identifier.text));
         } break;
+#endif
         
         CASES_COMPLETE;
     }
@@ -659,71 +681,172 @@ Type_Format_Info f(Type type) {
     return { write_type, type };
 }
 
-struct Function {
-    Token identifier;
-    bool is_coroutine;
-    Declarations arguments;
-    Types return_types;
-    Structure local_variables;
-};
+#define if_kind(base, kind) \
+auto kind = try_kind_of(base, kind); \
+if (kind)
 
-#define Template_Array_Name      Functions
-#define Template_Array_Data_Type Function*
-#include "template_array.h"
 
-Type * find_or_create_base_type(Memory_Allocator *allocator, string identifier, Types *types, bool *is_new_type = null)
-{
-    if (is_new_type)
-        *is_new_type = false;
+Ast * find_relative_type(Ast *parent, string_array relative_namespace_path) {
+    auto current = parent;
+    bool did_enter = true;
+    auto i = 0;
     
-    for_array_item(type, *types) {
-        auto undeclared_type = try_kind_of(*type, undeclared_type);
-        if (undeclared_type) {
-            if (undeclared_type->identifier.text == identifier)
-                return *type;
+    while (current != parent->parent) {
+        switch (current->kind) {
+            case_kind(Ast, definition) {
+                if (did_enter) {
+                    if (current->definition.identifier.text == relative_namespace_path[i]) {
+                        i++;
+                        
+                        if (i == relative_namespace_path.count)
+                            return current;
+                        
+                        current = current->definition.value;
+                        continue; // skip normal advance
+                    }
+                    else {
+                        break; // try next sibling
+                    }
+                }
+                else {
+                    // we entered because we matched
+                    // but nothing in innerscoped mathed
+                    return null;
+                }
+            } break;
             
-            continue;
+            // TODO: named scopes must be matched
+            case_kind(Ast, scope) {
+                if (did_enter) {
+                    if (current->scope.body.head) {
+                        current = current->scope.body.head;
+                        continue; // skip normal advance
+                    }
+                }
+            } break;
+            
+            case_kind(Ast, structure) {
+                if (did_enter) {
+                    if (current->structure.body.head) {
+                        current = current->structure.body.head;
+                        continue; // skip normal advance
+                    }
+                }
+            } break;
         }
         
-        auto base_type = try_kind_of((*type), base_type);
-        if (base_type) {
-            if (base_type->identifier.text == identifier)
-                return *type;
-            
-            continue;
-        }
-        
-        auto structure = try_kind_of((*type), structure);
-        if (structure) {
-            auto definition_node = structure->node->parent;
-            if (definition_node && is_kind(*definition_node, definition) && definition_node->definition.identifier.text == identifier)
-                return *type;
-            
-            continue;
-        }
-        
-        auto list = try_kind_of(*type, list);
-        if (list) {
-            if (list->identifier.text == identifier)
-                return *type;
-            
-            continue;
-        }
-        
-        UNREACHABLE_CODE;
+        // only one way, we have to match any child!!
+        //current = current->next;
+        advance_up_or_right(&current, &did_enter);
     }
     
-    if (is_new_type)
-        *is_new_type = true;
-    
-    auto result = ALLOCATE(allocator, Type);
-    *grow(allocator, types) = result;
-    *result = make_kind(Type, undeclared_type, identifier);
-    
-    return result;
+    return null;
 }
 
-Type * parse_type(Memory_Allocator *allocator, Report_Context *context, Types *types, bool is_expected = false)
+void to_namespace_path(Memory_Allocator *allocator, string_array *namespace_path, string identifier_path) {
+    do {
+        string identifier = get_identifier(&identifier_path, S("_"));
+        assert(identifier.count);
+        skip_set(&identifier_path, White_Space);
+        
+        *grow(allocator, namespace_path) = identifier;
+        
+        if (!try_skip(&identifier_path, S("."))) {
+            return;
+        }
+        
+        skip_set(&identifier_path, White_Space);
+    } while (identifier_path.count);
+}
+
+Ast * find_type(Ast *parent, string_array relative_namespace_path) {
+    
+    auto current = parent;
+    
+    // we don't need to namespace the parents name
+    if (is_kind(*current, definition))
+        current = current->definition.value;
+    
+    while (current) {
+        defer { current = current->parent; };
+        
+        auto definition = try_kind_of(current, definition);
+        if (definition && (definition->identifier.text == relative_namespace_path[0])) {
+            if (relative_namespace_path.count > 1) {
+                auto node = find_relative_type(current, sub(relative_namespace_path, 1));
+                if (node)
+                    return node;
+            }
+            else {
+                return current;
+            }
+        }
+        
+        auto scope = try_kind_of(current, scope);
+        if (scope) {
+            auto node = find_relative_type(current, relative_namespace_path);
+            if (node)
+                return node;
+        }
+        
+        auto structure = try_kind_of(current, structure);
+        if (structure) {
+            auto node = find_relative_type(current, relative_namespace_path);
+            if (node)
+                return node;
+        }
+    }
+    
+    return null;
+}
+
+void add_dependency(Memory_Allocator *allocator, Report_Context *context, Type *type, Type *dependency) {
+    //EXPECT(context, !is_ancesotor(type, dependency), S("cyclic type dependency, % and % depend on each other"), f(*type), f(*dependency));
+    
+    assert(is_kind(*type, structure));
+    
+    for_array_item(it, type->structure.dependencies) {
+        if (*it == dependency)
+            return;
+    }
+    
+    *grow(allocator, &type->structure.dependencies) = dependency;
+}
+
+void replace_undeclared_type(Memory_Allocator *allocator, Report_Context *context, Ast *parent, Type *parent_type, Type **type_storage) {
+    
+    bool is_indirection = is_kind(**type_storage, indirection);
+    
+    if (is_indirection)
+        type_storage = &(*type_storage)->indirection.type;
+    
+    if (!is_kind(**type_storage, undeclared_type))
+        return;
+    
+    auto identifier = (*type_storage)->undeclared_type.namespace_path;
+    
+    string_array relative_path = {};
+    defer { free_array(allocator, &relative_path); };
+    to_namespace_path(allocator, &relative_path, identifier.text);
+    
+    free(allocator, *type_storage);
+    
+    auto node = find_type(parent, relative_path);
+    assert(is_kind(*node, definition));
+    
+    auto type_node = node->definition.value;
+    assert(is_kind(*type_node, structure));
+    
+    *type_storage = &type_node->structure.type;
+    
+    EXPECT(context, *type_storage, S("type is undefined:\n\n%\n\n%"), f(context->file_path, identifier.line_count, identifier.column_count), f(identifier, 2));
+    
+    if (!is_indirection && parent_type) {
+        add_dependency(allocator, context, parent_type, *type_storage);
+    }
+}
+
+Type * parse_type(Memory_Allocator *allocator, Report_Context *context, Types base_types, bool is_expected = false)
 {
     auto test = begin(context->tokenizer);
     
@@ -733,36 +856,52 @@ Type * parse_type(Memory_Allocator *allocator, Report_Context *context, Types *t
         indirection_count++;
     }
     
-    auto identifier = get_identifier(&context->tokenizer->text, S("_"));
-    if (!identifier.count) {
-        EXPECT(context, !is_expected, S("expected type"));
-        revert(test);
-        return null;
+    auto type_test = begin(context->tokenizer);
+    string type_end = context->tokenizer->text;
+    
+    LOOP {
+        auto identifier = get_identifier(&context->tokenizer->text, S("_"));
+        if (!identifier.count) {
+            EXPECT(context, !is_expected, S("expected type"));
+            revert(test);
+            return null;
+        }
+        
+        type_end = context->tokenizer->text;
+        
+        skip_space(context->tokenizer);
+        
+        if (!try_skip(&context->tokenizer->text, S(".")))
+            break;
+        
+        skip_space(context->tokenizer);
+    }
+    
+    // TOTAL HACK: to get the proper line count of the base_type, not the whole type...
+    Token type_identifier;
+    {
+        SCOPE_PUSH(context->tokenizer->text, type_end);
+        type_identifier = end(type_test);
     }
     
     end(test);
     
-    Type *base_type = find_or_create_base_type(allocator, identifier, types);
+    for_array_item(type, base_types) {
+        if ((*type)->base_type.identifier.text == type_identifier.text)
+            return *type;
+    }
+    
+    Type *undeclared_type = new_kind(allocator, Type, undeclared_type, type_identifier);
     
     if (indirection_count) {
-        auto type = ALLOCATE(allocator, Type);
-        *type = make_kind(Type, indirection, base_type, indirection_count);
+        auto type = new_kind(allocator, Type, indirection, undeclared_type, indirection_count);
         return type;
     }
     
-    return base_type;
+    return undeclared_type;
 }
 
-
-Function * find_function(Functions functions, string identifier) {
-    for_array_item(function, functions) {
-        if ((*function)->identifier.text == identifier)
-            return *function;
-    }
-    
-    return null;
-}
-
+#if 0
 string replace_expression(Memory_Allocator *allocator, string expression, Functions functions, Function *function, Structure *function_scope) {
     string result = {};
     
@@ -856,6 +995,7 @@ string replace_expression(Memory_Allocator *allocator, string expression, Functi
     
     return result;
 }
+#endif
 
 void add_label(String_Buffer *switch_table, String_Buffer *body, u32 *label_count) {
     write(switch_table, S("case %:\r\ngoto co_label%;\r\n\r\n"), f(*label_count), f(*label_count));
@@ -865,6 +1005,7 @@ void add_label(String_Buffer *switch_table, String_Buffer *body, u32 *label_coun
     (*label_count)++;
 }
 
+#if 0
 // assuming return values are allways on top off the stack
 // we return the offset from the end
 u32 return_value_byte_offset_of(Function *function, u32 return_value_index) {
@@ -921,6 +1062,7 @@ void write_read_coroutine_results(Memory_Allocator *allocator, String_Buffer *bo
     
     write(body, S("}\r\n\r\n"));
 }
+#endif
 
 #if 0
 void write_call_subroutine(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, Function *subroutine, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Structure *function_scope)
@@ -1127,24 +1269,19 @@ Token next_expression(Memory_Allocator *allocator, Report_Context *context, stri
         auto best = begin_best_token(&context->tokenizer->text);
         test_token(&best, S("("));
         test_token(&best, S("{"));
-        test_token(&best, close_tokens[close_tokens.count - 1]);
-        end(&best, false);
+        test_token(&best, close_tokens[close_tokens.count - 1], (close_tokens.count > 1));
+        end(&best);
         
         switch (best.best_index) {
             case 0: {
                 *grow(allocator, &close_tokens) = S(")");
-                skip(context, S("("));
             } break;
             
             case 1: {
                 *grow(allocator, &close_tokens) = S("}");
-                skip(context, S("{"));
             } break;
             
             case 2: {
-                if (close_tokens.count > 1)
-                    skip(context, close_tokens[close_tokens.count - 1]);
-                
                 shrink(allocator, &close_tokens);
             } break;
             
@@ -1165,98 +1302,6 @@ Token next_expression(Memory_Allocator *allocator, Report_Context *context, stri
     skip(context, terminal);
     
     return result;
-}
-
-bool parse_variables(Report_Context *context, Memory_Allocator *allocator, Declarations *declarations, Types *types) {
-    if (!try_skip(context->tokenizer, S("var")))
-        return false;
-    
-    bool parse_expressions = false;
-    
-    u32 offset = declarations->count;
-    u32 declaration_count = 0;
-    while (context->tokenizer->text.count) {
-        declaration_count++;
-        auto identifier = get_identifier(context);
-        
-        skip(context, S(":"));
-        
-        Type *type = parse_type(allocator, context, types, true);
-        skip_space(context->tokenizer);
-        
-        *grow(allocator, declarations) = { type, identifier };
-        
-        if (try_skip(context->tokenizer, S("="))) {
-            parse_expressions = true;
-            break;
-        }
-        
-        if (try_skip(context->tokenizer, S(";")))
-            break;
-        
-        if (try_skip(context->tokenizer, S(",")))
-            continue;
-        
-        expected_tokens(context);
-    }
-    
-    if (parse_expressions) {
-        // search unparse , seperated expressions
-        for (u32 i = 0; i < declaration_count; i++) {
-            
-            auto test = begin(context->tokenizer);
-            u32 paranthesis_depth = 0;
-            u32 brackets_depth = 0;
-            
-            string_array close_tokens = {};
-            defer { free_array(allocator, &close_tokens); };
-            
-            if (i == declaration_count - 1)
-                *grow(allocator, &close_tokens) = S(";");
-            else
-                *grow(allocator, &close_tokens) = S(",");
-            
-            while (close_tokens.count) {
-                auto best = begin_best_token(&context->tokenizer->text);
-                test_token(&best, S("("));
-                test_token(&best, S("{"));
-                test_token(&best, close_tokens[close_tokens.count - 1]);
-                end(&best, false);
-                
-                switch (best.best_index) {
-                    case 0: {
-                        *grow(allocator, &close_tokens) = S(")");
-                        skip(context, S("("));
-                    } break;
-                    
-                    case 1: {
-                        *grow(allocator, &close_tokens) = S("}");
-                        skip(context, S("{"));
-                    } break;
-                    
-                    case 2: {
-                        if (close_tokens.count > 1)
-                            skip(context, close_tokens[close_tokens.count - 1]);
-                        
-                        shrink(allocator, &close_tokens);
-                    } break;
-                    
-                    default: {
-                        EXPECT(context, 0, S(
-                            "unexpected end of file, expected:\n\n"
-                            "'(' or\n"
-                            "'{' or\n"
-                            "%\n"
-                            ), f(close_tokens[close_tokens.count - 1]));
-                    }
-                }
-            }
-            
-            (*declarations)[offset + i].unparsed_expression = end(test);
-        }
-    }
-    
-    return true;
 }
 
 bool is_absolute_path(string path) {
@@ -1295,84 +1340,179 @@ string to_forward_slashed_path(Memory_Allocator *allocator, string path) {
     return result;
 }
 
-void write_tree(Memory_Allocator *allocator, Type_Node root) {
-    write_line_out(allocator, S("TREE:\n\n"));
+struct Type_Branch {
+    Type *parent;
+    Types iterator;
+};
+
+#define Template_Array_Name      Type_Path
+#define Template_Array_Data_Type Type_Branch
+#include "template_array.h"
+
+Types write_tree(Memory_Allocator *allocator, Report_Context *context, Type *root) {
+    assert(root);
+    
+    write_line_out(allocator, S("TREE:\n"));
     // skip root, it contains no info
-    auto current = &root;
     usize depth = 0;
-    auto last_depth = depth;
     
-    if (current) {
-        auto type = current->type;
-        
-        if (type)
-            write_line_out(allocator, S("root: %"), f_indent(depth * 0), f(*type));
-        else
-            write_line_out(allocator, S("root: no type"), f_indent(depth * 0));
-        
-        next(&current, &depth);
-    }
+    write_line_out(allocator, S("root"));
     
-    while (current) {
-        auto type = current->type;
+    Type_Path path = {};
+    defer { assert(path.count == 0); };
+    
+    Types dependency_order = {};
+    
+    *grow(allocator, &path) = { root, root->structure.dependencies };
+    
+    while (path.count) {
+        auto type = path[path.count - 1].iterator[0];
         
-        string foo = {};
-        defer { free_array(allocator, &foo); };
-        
-        auto test = current->parent;
-        
-        while (test && test->parent) {
-            string indent;
+        if (path.count > 1) {
+            string foo = {};
+            defer { free_array(allocator, &foo); };
             
-            if (test->next)
-                indent = S("| ");
-            else
-                indent = S("  ");
+            for (auto i = path.count - 2; i < path.count; i--) {
+                auto test = path[i];
+                string indent;
+                
+                if (test.iterator.count > 1)
+                    indent = S("| ");
+                else
+                    indent = S("  ");
+                
+                grow(allocator, &foo, indent.count);
+                copy(foo.data + indent.count, foo.data, foo.count - indent.count);
+                copy(foo.data, indent.data, indent.count);
+            }
             
-            grow(allocator, &foo, indent.count);
-            copy(foo.data + indent.count, foo.data, foo.count - indent.count);
-            copy(foo.data, indent.data, indent.count);
-            
-            test = test->parent;
+            write_out(allocator, S("%"), f(foo));
         }
         
-        write_out(allocator, S("%"), f(foo));
+        write_line_out(allocator, S("|-%"), f(*type));
         
-        if (type)
-            write_line_out(allocator, S("|-%"), f(*type));
-        else
-            write_line_out(allocator, S("|-no type"));
-        
-        next(&current, &depth);
+        if (type->structure.dependencies.count) {
+            // first parent is root and is not a real type
+            for (u32 i = 1; i < path.count - 1; i++) {
+                EXPECT(context, (path[i].parent == type), S("cyclic dependencies, % and % depend on each other"), f(*path[i].parent), f(*type));
+            }
+            
+            *grow(allocator, &path) = { type, type->structure.dependencies }; 
+        }
+        else {
+            do {
+                {
+                    bool do_insert = true;
+                    for_array_item(it, dependency_order) {
+                        if (*it == path[path.count - 1].iterator[0]) {
+                            do_insert = false;
+                            break;
+                        }
+                    }
+                    
+                    if (do_insert)
+                        *grow(allocator, &dependency_order) = path[path.count - 1].iterator[0];
+                }
+                
+                if (path[path.count - 1].iterator.count > 1) {
+                    advance(&path[path.count - 1].iterator);
+                    break;
+                }
+                else {
+                    shrink(allocator, &path);
+                }
+            } while (path.count);
+        }
     }
+    
+    write_line_out(allocator, S("\ndependency order:\n"));
+    
+    for_array_item(it, dependency_order) {
+        write_line_out(allocator, S("%"), f(**it));
+    }
+    
+    return dependency_order;
 }
 
-Ast * parse_struct(Memory_Allocator *allocator, Report_Context *context, Token identifier = {}, Types *types = null) {
+Ast * parse_struct(Memory_Allocator *allocator, Report_Context *context, Ast *parent, Token identifier = {}, Type *parent_type = null) {
     if (!try_skip(context->tokenizer, S("struct")))
         return null;
     
     skip(context, S("{"));
     
-    Type *struct_type;
-    if (types) {
-        // this type could have been used by an other struct,
-        // so use the same type and just add dependencies and sizes
-        struct_type = find_or_create_base_type(allocator, identifier.text, types);
-        // is not allready declared
-        EXPECT(context, is_kind(*struct_type, undeclared_type), S("type allready defined, here .__.\n"));
-    }
-    else {
-        // anonymous struct, will not show up in types
-        struct_type = ALLOCATE(allocator, Type);
+    if (identifier.text.count) {
+        string relative_path[] = {
+            identifier.text
+        };
+        
+        auto node = find_relative_type(parent, ARRAY_INFO(relative_path));
+        //!node->definition.value means we are just defining this structure, so this is our parent
+        EXPECT(context, !node || !node->definition.value, S("type % allready defined, here \n\n%:\n\n%"), f(identifier.text), f(context->file_path, node->definition.identifier.line_count, node->definition.identifier.column_count), f(node->definition.identifier, 2));
     }
     
-    auto structure_node = ALLOCATE(allocator, Ast);
-    *structure_node = make_kind(Ast, structure, struct_type);
-    // turn it to a structure type
-    *struct_type = make_kind(Type, structure, structure_node);
+    auto structure_node = new_kind(allocator, Ast, structure);
+    structure_node->structure.type = make_kind(Type, structure, structure_node);
     
     return structure_node;
 }
+
+Ast::Children *children_of(Ast *parent, bool is_a_test = false) {
+    if (!parent) {
+        assert(!is_a_test);
+        return null;
+    }
+    
+    switch (parent->kind) {
+        case_kind(Ast, structure)
+            return &parent->structure.body;
+        
+        case_kind(Ast, scope)
+            return &parent->scope.body;
+        
+        default:
+        assert(is_a_test);
+        return null;
+    }
+}
+
+void attach(Ast *new_parent, Ast *child) {
+    
+    switch (new_parent->kind) {
+        case_kind(Ast, function) {
+            new_parent->function.statement = child;
+        } break;
+        
+        case_kind(Ast, conditional_branch) {
+            new_parent->conditional_branch.statement = child;
+        } break;
+        
+        case_kind(Ast, conditional_loop) {
+            new_parent->conditional_loop.statement = child;
+        } break;
+        
+        case_kind(Ast, loop) {
+            new_parent->loop.statement = child;
+        } break;
+        
+        default: {
+            attach(new_parent, children_of(new_parent), child);
+            return;
+        }
+    }
+    
+    child->parent = new_parent;
+}
+
+void detach(Ast *parent, Ast *child) {
+    assert(child->parent == parent);
+    detach(children_of(parent), child);
+}
+
+#if 0
+void move(Ast *new_parent, Ast *child) {
+    move(new_parent, children_of(new_parent), child, children_of(child->parent));
+}
+#endif
 
 MAIN_DEC {
     Win32_Platform_API win32_api;
@@ -1435,13 +1575,12 @@ MAIN_DEC {
         preprocesor_path = { cast_p(u8, arguments[0]), path_count };
     }
     
-    Types types = {};
-    Functions functions = {};
+    Type root_type = make_kind(Type, structure, null);
+    
+    Types base_types = {};
     
 #define add_base_type(name) { \
-        auto type = ALLOCATE(allocator, Type); \
-        *type = make_kind(Type, base_type, { S(# name) }, sizeof(name), alignof(name)); \
-        *grow(allocator, &types) = type; \
+        *grow(allocator, &base_types) = new_kind(allocator, Type, base_type, { S(# name) }, sizeof(name), alignof(name));\
     }
     
     add_base_type(any);
@@ -1472,52 +1611,60 @@ MAIN_DEC {
     
 #undef add_base_type
     
+    Tokenizer it = make_tokenizer(allocator, source);
+    Report_Context reporter = { allocator, source_file_path, &it };
+    
+    Ast *root = ALLOCATE(allocator, Ast);
     {
-        Tokenizer it = make_tokenizer(allocator, source);
-        Report_Context reporter = { allocator, source_file_path, &it };
         
-        Ast *root = ALLOCATE(allocator, Ast);
         // TODO: add filescope? or/and global scope?
         *root = make_kind(Ast, scope);
         auto parent = root;
         
         Ast *top_function_node = null;
         Ast *top_loop_node = null;
-        Ast *top_scope_node = null;
+        
+        Ast *parent_scope = root;
+        Ast *parent_namespace = root;
         
         while (it.text.count) {
             
+            debug_break_once(it.line_count >= 5);
+            
             if (parent->parent && try_skip(&it, S("}"))) {
-                bool do_continue = true;
-                while (do_continue) {
-                    parent = parent->parent;
-                    
+                
+                LOOP {
                     switch (parent->kind) {
+                        case_kind(Ast, definition) {
+                            assert(parent_namespace == parent);
+                            parent_namespace = parent->definition.parent_namespace;
+                        } break;
+                        
+                        case_kind(Ast, scope) {
+                            assert(parent_scope == parent);
+                            parent_scope = parent->scope.parent_scope;
+                        } break;
+                        
                         case_kind(Ast, function) {
+                            assert(top_function_node == parent);
                             top_function_node = parent->function.parent_function;
                         } break;
                         
                         case_kind(Ast, conditional_loop);
                         case_kind(Ast, loop) {
+                            assert(top_loop_node == parent);
                             top_loop_node  = parent->loop.parent_loop;
                         } break;
-                        
-                        case_kind(Ast, scope) {
-                            top_scope_node = parent->scope.parent_scope;
-                            do_continue = false;
-                        } break;
-                        
-                        case_kind(Ast, temporary_declarations);
-                        case_kind(Ast, structure) {
-                            do_continue = false;
-                        } break;
                     }
+                    
+                    parent = parent->parent;
+                    
+                    if (!parent || children_of(parent, true))
+                        break;
                 }
                 
                 continue;
             }
-            
-            //assert(!parent || is_kind(*parent, scope) || is_kind(*parent, structure) || is_kind(*parent, declarations));
             
             if (is_kind(*parent, temporary_declarations)) {
                 bool do_cleanup = false;
@@ -1535,15 +1682,15 @@ MAIN_DEC {
                             *node = make_kind(Ast, declaration, identifier);
                         
                         // just temporary while processing
-                        attach(parent, node);
+                        attach(parent, &parent->temporary_declarations.list, node);
                         
                         // create anonymous struct and its type
-                        auto structure_node = parse_struct(allocator, &reporter);
+                        auto structure_node = parse_struct(allocator, &reporter, parent_namespace);
                         if (structure_node) {
                             // just temporary while processing
-                            attach(parent, structure_node);
+                            attach(parent, &parent->temporary_declarations.list, structure_node);
                             
-                            node->declaration.type = structure_node->structure.type;
+                            node->declaration.type = &structure_node->structure.type;
                             
                             parent->temporary_declarations.state = parent->temporary_declarations.State_Check_Continue;
                             parent = structure_node;
@@ -1551,7 +1698,7 @@ MAIN_DEC {
                             continue;
                         }
                         
-                        node->declaration.type = parse_type(allocator, &reporter, &types, true);
+                        node->declaration.type = parse_type(allocator, &reporter, base_types, true);
                     }
                     
                     // falltrough
@@ -1566,7 +1713,7 @@ MAIN_DEC {
                             continue;
                         
                         // if previous type was a structure_node we don't need to skip a ';'
-                        auto structure_node = try_kind_of(parent->children.tail, structure);
+                        auto structure_node = try_kind_of(parent->temporary_declarations.list.tail, structure);
                         if (structure_node) {
                             do_cleanup = true;
                             break;
@@ -1581,7 +1728,7 @@ MAIN_DEC {
                     
                     case parent->temporary_declarations.State_Parse_Expressions: {
                         // search unparse , seperated expressions
-                        auto node = parent->children.head;
+                        auto node = parent->temporary_declarations.list.head;
                         
                         while (node) {
                             node->unparsed_expression = next_expression(allocator, &reporter, node->next == null ? S(";") : S(","));
@@ -1596,19 +1743,23 @@ MAIN_DEC {
                 
                 if (do_cleanup) {
                     
-                    auto declarations = parent;
+                    auto declarations_node = parent;
                     parent = parent->parent;
-                    detach(declarations);
                     
-                    while (declarations->children.head) {
+                    detach(parent, declarations_node);
+                    
+                    auto declarations = kind_of(declarations_node, temporary_declarations);
+                    
+                    while (declarations->list.head) {
+                        auto it = declarations->list.head;
+                        detach(&declarations->list, it);
+                        
                         // NOTE: anonymous structs dont have a parent, so... yeah
-                        if (is_kind(*declarations->children.head, structure))
-                            detach(declarations->children.head);
-                        else
-                            move(parent, declarations->children.head);
+                        if (!is_kind(*it, structure))
+                            attach(parent, it);
                     }
                     
-                    free(allocator, declarations);
+                    free(allocator, declarations_node);
                     
                     continue;
                 }
@@ -1621,7 +1772,15 @@ MAIN_DEC {
             if (try_skip(&it, S("def"))) {
                 auto definition_node = ALLOCATE(allocator, Ast);
                 *definition_node = make_kind(Ast, definition);
+                
                 attach(parent, definition_node);
+                
+                // defer so we can look if there is an other definition
+                // and don't find ourself in the tree
+                defer {
+                    definition_node->definition.parent_namespace = parent_namespace;
+                    parent_namespace = definition_node;
+                };
                 
                 auto identifier = get_identifier(&reporter);
                 definition_node->definition.identifier = identifier;
@@ -1634,7 +1793,8 @@ MAIN_DEC {
                     function_node->function = { top_function_node, is_coroutine };
                     top_function_node = function_node;
                     
-                    attach(definition_node, function_node);
+                    definition_node->definition.value = function_node;
+                    function_node->parent = definition_node;
                     
                     skip(&reporter, S("("));
                     
@@ -1642,13 +1802,13 @@ MAIN_DEC {
                         LOOP {
                             auto declaration_node = ALLOCATE(allocator, Ast);
                             *declaration_node = make_kind(Ast, declaration);
-                            attach(function_node, declaration_node);
-                            *grow(allocator, &function_node->function.arguments) = declaration_node;
+                            insert_tail(&function_node->function.arguments, declaration_node);
+                            declaration_node->parent = function_node;
                             
                             declaration_node->declaration.identifier = get_identifier(&reporter);
                             skip(&reporter, S(":"));
                             
-                            declaration_node->declaration.type = parse_type(allocator, &reporter, &types, true);
+                            declaration_node->declaration.type = parse_type(allocator, &reporter, base_types, true);
                             
                             if (try_skip(&it, S(",")))
                                 continue;
@@ -1665,7 +1825,7 @@ MAIN_DEC {
                         skip(&reporter, S("("));
                         
                         LOOP {
-                            Type *type = parse_type(allocator, &reporter, &types, true);
+                            Type *type = parse_type(allocator, &reporter, base_types, true);
                             
                             *grow(allocator, &function_node->function.return_types) = type;
                             
@@ -1731,9 +1891,11 @@ MAIN_DEC {
 #endif
                 
                 {
-                    auto structure_node = parse_struct(allocator, &reporter, identifier, &types);
+                    auto structure_node = parse_struct(allocator, &reporter, parent_namespace, identifier);
                     if (structure_node) {
-                        attach(definition_node, structure_node);
+                        definition_node->definition.value = structure_node;
+                        structure_node->parent = definition_node;
+                        
                         parent = structure_node;
                         continue;
                     }
@@ -1765,7 +1927,7 @@ MAIN_DEC {
             
             {
                 Ast *conditional_node = null;
-                
+                bool is_loop;
                 if (try_skip(&it, S("if"))) {
                     conditional_node = ALLOCATE(allocator, Ast);
                     *conditional_node = make_kind(Ast, conditional_branch);
@@ -1782,7 +1944,12 @@ MAIN_DEC {
                 if (conditional_node) {
                     auto unparsed_expression_node = ALLOCATE(allocator, Ast);
                     *unparsed_expression_node = make_kind(Ast, unparsed_expression);
-                    attach(conditional_node, unparsed_expression_node);
+                    
+                    if (is_kind(*conditional_node, conditional_branch))
+                        conditional_node->conditional_branch.condition = unparsed_expression_node;
+                    else
+                        conditional_node->conditional_loop.condition = unparsed_expression_node;
+                    unparsed_expression_node = conditional_node;
                     
                     unparsed_expression_node->unparsed_expression = next_expression(allocator, &reporter, S("do"));
                     
@@ -1798,8 +1965,8 @@ MAIN_DEC {
                 
                 if (conditional_node || try_skip(&it, S("{"))) {
                     auto scope_node = ALLOCATE(allocator, Ast);
-                    *scope_node = make_kind(Ast, scope, top_scope_node);
-                    top_scope_node = scope_node;
+                    *scope_node = make_kind(Ast, scope, parent_namespace, parent_scope);
+                    parent_scope = scope_node;
                     attach(parent, scope_node);
                     
                     parent = scope_node;
@@ -1829,13 +1996,13 @@ MAIN_DEC {
                 Ast *return_or_yield_node = null;
                 if (try_skip(&it, S("return"))) {
                     return_or_yield_node = ALLOCATE(allocator, Ast);
-                    *return_or_yield_node = make_kind(Ast, return_statement);
+                    *return_or_yield_node = make_kind(Ast, return_statement, false);
                 }
                 
                 if (top_function_node->function.is_coroutine && !return_or_yield_node && try_skip(&it, S("yield")))
                 {
                     return_or_yield_node = ALLOCATE(allocator, Ast);
-                    *return_or_yield_node = make_kind(Ast, yield_statement);
+                    *return_or_yield_node = make_kind(Ast, return_statement, true);
                 }
                 
                 if (return_or_yield_node) {
@@ -1845,16 +2012,17 @@ MAIN_DEC {
                         
                         auto unparsed_expression_node = ALLOCATE(allocator, Ast);
                         *unparsed_expression_node = make_kind(Ast, unparsed_expression);
-                        attach(return_or_yield_node, unparsed_expression_node);
+                        insert_tail(&return_or_yield_node->return_statement.values, unparsed_expression_node);
+                        unparsed_expression_node->parent = return_or_yield_node;
                         
-                        unparsed_expression_node->unparsed_expression =next_expression(allocator, &reporter, (i == top_function_node->function.return_types.count - 1) ? S(";") : S(","));
+                        unparsed_expression_node->unparsed_expression = next_expression(allocator, &reporter, (i == top_function_node->function.return_types.count - 1) ? S(";") : S(","));
                     }
                     
                     continue;
                 }
             }
             
-            if (top_scope_node) {
+            if (parent_scope) {
                 if (try_skip(&it, S("break"))) {
                     skip(&reporter, S(";"));
                     
@@ -1908,93 +2076,119 @@ MAIN_DEC {
         }
     }
     
-    Type_Node type_dependency_root = {};
-    
-    for_array_item(self, types) {
-        Type_Node *iterator = &type_dependency_root;
-        auto self_node = find_next_node(&iterator, *self);
-        // make shure there are no double entries
-        assert(!iterator || !find_next_node(&iterator, *self));
+    // replace undeclared types now that we found all types
+    Type *defined_types_root = new_kind(allocator, Type, structure);
+    {
+        auto current = root;
+        auto parent_namespace = root;
+        Type *parent_type = null;
+        bool did_enter = true;
         
-        if (!self_node) {
-            self_node = ALLOCATE(allocator, Type_Node);
-            *self_node = { *self };
-            attach(&type_dependency_root, self_node);
-        }
-        
-        Types temp_dependencies = {};
-        defer { free_array(allocator, &temp_dependencies); };
-        
-        Types *dependencies;
-        switch ((*self)->kind) {
-            case_kind(Type, base_type) {
-                continue;
-            } break;
+        while (current) {
+            Type **type_storage = null;
             
-            case_kind(Type, structure) {
-                dependencies = &(*self)->structure.dependencies;
-            } break;
-            
-            case_kind(Type, list) {
-                auto list = kind_of(*self, list);
-                if (!is_kind(*list->entry_data.type, indirection))
-                    *grow(allocator, &temp_dependencies) = list->entry_data.type;
+            Ast *next = null;
+            switch (current->kind) {
                 
-                if (list->count_type)
-                    *grow(allocator, &temp_dependencies) = list->count_type;
+                case_kind(Ast, structure_kind);
+                case_kind(Ast, declaration) {
+                    if (did_enter)
+                        replace_undeclared_type(allocator, &reporter, parent_namespace, parent_type, &current->declaration.type);
+                } break;
                 
-                dependencies = &temp_dependencies;
-            } break;
-            
-            CASES_COMPLETE;
-        }
-        
-        write_line_out(allocator);
-        write_line_out(allocator, S("% depends on:"), f(**self));
-        
-        for_array_item(dependency, *dependencies) {
-            write_line_out(allocator, S("  %"), f(**dependency));
-            
-            assert(*dependency != *self);
-            
-            Type_Node *iterator = &type_dependency_root;
-            auto dependency_node = find_next_node(&iterator, *dependency);
-            // make shure there are no double entries
-            assert(!iterator || !find_next_node(&iterator, *dependency));
-            
-            if (dependency_node && is_ancesotor(self_node, dependency_node)) {
-                write_line_out(transient_allocator, S("ERROR cyclic struct dependency, % and % depend on each other"), f(**self), f(**dependency));
+                case_kind(Ast, definition) {
+                    if (did_enter) {
+                        parent_namespace = current;
+                        next = current->definition.value;
+                    }
+                    else {
+                        assert(parent_namespace == current);
+                        parent_namespace = current->definition.parent_namespace;
+                    }
+                } break;
                 
-                write_tree(transient_allocator, type_dependency_root);
-                assert(0, "circular dependency");
+                case_kind(Ast, structure) {
+                    if (did_enter) {
+                        if (is_kind(*current->parent, definition)) {
+                            parent_type = &current->structure.type;
+                            add_dependency(allocator, &reporter, defined_types_root, parent_type);
+                        }
+                        
+                        next = current->structure.body.head;
+                    }
+                    else {
+                        assert(is_kind(*parent_type, structure));
+                        
+                        auto it = parent_type->structure.node->parent;
+                        parent_type = null;
+                        
+                        while (it) {
+                            auto structure = try_kind_of(it, structure);
+                            if (structure && is_kind(*it->parent, definition)) {
+                                parent_type = &structure->type;
+                                break;
+                            }
+                            
+                            it = it->parent;
+                        }
+                    }
+                } break;
+                
+                case_kind(Ast, function) {
+                    if (did_enter) {
+                        for_array_item(type, current->function.return_types)
+                            replace_undeclared_type(allocator, &reporter, parent_namespace, parent_type, type);
+                        
+                        for_list_item(argument, current->function.arguments)
+                            replace_undeclared_type(allocator, &reporter, parent_namespace, parent_type, &argument->declaration.type);
+                        
+                        next = current->function.statement;
+                    }
+                } break;
+                
+                case_kind(Ast, unparsed_expression);
+                case_kind(Ast, return_statement);
+                case_kind(Ast, break_statement);
+                case_kind(Ast, continue_statement) {
+                } break;
+                
+                case_kind(Ast, conditional_branch) {
+                    if (did_enter)
+                        next = current->conditional_branch.statement;
+                } break;
+                
+                case_kind(Ast, conditional_loop) {
+                    if (did_enter)
+                        next = current->conditional_loop.statement;
+                } break;
+                
+                case_kind(Ast, loop) {
+                    if (did_enter)
+                        next = current->loop.statement;
+                } break;
+                
+                // TODO: add scope name to namespace_path
+                case_kind(Ast, scope) {
+                    if (did_enter)
+                        next = current->scope.body.head;
+                } break;
+                
+                CASES_COMPLETE;
             }
             
-            if (!dependency_node) {
-                dependency_node = ALLOCATE(allocator, Type_Node);
-                *dependency_node = { *dependency };
-                
-                attach(self_node->parent, dependency_node);
-                move(dependency_node, self_node);
+            if (!next) {
+                advance_up_or_right(&current, &did_enter);
             }
-            else if (!is_ancesotor(dependency_node, self_node)) {
-                
-                Type_Node *root = self_node;
-                while (root->parent != &type_dependency_root) {
-                    if (is_ancesotor(root->parent, dependency_node))
-                        break;
-                    
-                    root = root->parent;
-                }
-                
-                // move the all ancesotrs of self under dependency
-                move(dependency_node, root);
+            else {
+                current = next;
+                did_enter = true;
             }
         }
     }
     
     { 
         write_line_out(transient_allocator, S("type dependencies\n\n"));
-        write_tree(transient_allocator, type_dependency_root);
+        write_tree(allocator, &reporter, defined_types_root);
     }
     
 #if 0    

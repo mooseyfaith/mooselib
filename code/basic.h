@@ -80,9 +80,25 @@ const f64 f64_epsilon = DBL_EPSILON;
     } \
 }
 
+#define debug_break(condition) \
+if (condition) { __debugbreak(); }
+
+#define debug_break_once(condition) \
+{ \
+    static bool did_break ## __LINE__ = false; \
+    if (!did_break ## __LINE__ && (condition)) { \
+        did_break ## __LINE__ = true; \
+        __debugbreak(); \
+    } \
+}
+
 #else
 
 #define assert(x, ...)
+
+#define debug_break(condition)
+
+#define debug_break_once(condition)
 
 #endif
 

@@ -3,16 +3,21 @@ def B struct {
 	var bla: A;
 	var x: *B;
 
-	kind y: u32;
-	kind z: struct {
-		var a: *A;
+	def Z struct {
+		var a: A;
 		var b: *B;
 	}
 
-	kind as: A;
+	kind y: u32;
+	kind z: Z;
+	
+	kind as: As;
 }
 
+def As struct { var a: A; }
+
 def A struct {
+
 	var fun: string;
 	var sadness: s64;
 	var soul: f32;
@@ -51,7 +56,7 @@ def main function(argument_count: s32, arguments: **u8) -> (s32) {
 	var x: s32 = run &transient_memory, fun(S("fuuck"), 12);
 }
 
-def fun coroutine(text: string, count: u32) -> (s32){
+def fun coroutine(text: string, count: u32) -> (s32) {
 	var i: u32 = 0;
 
 	while i < count do {

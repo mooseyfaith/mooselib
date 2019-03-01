@@ -56,14 +56,6 @@ struct Node_List {
 #   error Template_List_Name needs to be defined befor including template_list.h
 #endif
 
-#if !defined Template_List_Data_Type
-#   error Template_List_Data_Type needs to be defined befor including template_list.h
-#endif
-
-#if !defined Template_List_Data_Name
-#   define Template_List_Data_Name value
-#endif
-
 #if !defined Template_List_Without_Count
 #   if !defined Template_List_Count_Type
 #      define Template_List_Count_Type usize
@@ -75,6 +67,14 @@ struct Node_List {
 #endif
 
 #if !defined Template_List_Struct_Is_Declared
+
+#if !defined Template_List_Data_Type
+#   error Template_List_Data_Type needs to be defined befor including template_list.h
+#endif
+
+#if !defined Template_List_Data_Name
+#   define Template_List_Data_Name value
+#endif
 
 struct Template_List_Name {
     
@@ -143,7 +143,7 @@ for (auto iterator = (list).head; iterator; iterator = iterator->next)
 
 #if defined Template_List_With_Double_Links
 
-INTERNAL Template_List_Data_Type *
+INTERNAL void
 insert(Template_List_Name *list, Template_List_Custom_Entry_Name *at, Template_List_Custom_Entry_Name *entry, u32 insert_after_at = 0)
 {
     if (!list->head) {
@@ -188,18 +188,18 @@ insert(Template_List_Name *list, Template_List_Custom_Entry_Name *at, Template_L
     list->count++;
 #endif
     
-    return &entry->Template_List_Data_Name;
+    //return &entry->Template_List_Data_Name;
 }
 
 #endif // Template_List_With_Double_Links
 
-INTERNAL Template_List_Data_Type * 
+INTERNAL void
 insert_head(Template_List_Name *list, Template_List_Custom_Entry_Name *entry, u32 insert_after_head = 0)
 {
     
 #if defined Template_List_With_Double_Links
     
-    return insert(list, list->head, entry, insert_after_head);
+    insert(list, list->head, entry, insert_after_head);
     
 #else
     
@@ -217,7 +217,7 @@ insert_head(Template_List_Name *list, Template_List_Custom_Entry_Name *entry, u3
     list->count++;
 #endif
     
-    return &entry->Template_List_Data_Name;
+    //return &entry->Template_List_Data_Name;
     
 #endif // Template_List_With_Double_Links
     
@@ -266,13 +266,13 @@ remove_head(Template_List_Name *list)
 
 #if defined Template_List_With_Tail
 
-INTERNAL Template_List_Data_Type * 
+INTERNAL void
 insert_tail(Template_List_Name *list, Template_List_Custom_Entry_Name *entry, u32 insert_after_tail = 1)
 {
     
 #if defined Template_List_With_Double_Links
     
-    return insert(list, list->tail, entry, insert_after_tail);
+    insert(list, list->tail, entry, insert_after_tail);
     
 #else
     
@@ -295,7 +295,7 @@ insert_tail(Template_List_Name *list, Template_List_Custom_Entry_Name *entry, u3
     list->count++;
 #endif
     
-    return &entry->Template_List_Data_Name;
+    //return &entry->Template_List_Data_Name;
     
 #endif // Template_List_With_Double_Links
     
@@ -318,54 +318,53 @@ remove_tail(Template_List_Name *list)
 
 #  if defined Template_List_With_Double_Links
 
-INTERNAL Template_List_Data_Type * 
+INTERNAL Template_List_Custom_Entry_Name * 
 insert(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Custom_Entry_Name *at, u32 insert_after_at = 0)
 {
     Template_List_Custom_Entry_Name *entry = ALLOCATE(allocator, Template_List_Custom_Entry_Name);
-    return insert(list, at, entry, insert_after_at);
+    insert(list, at, entry, insert_after_at);
+    return entry;
 }
 
 #  endif // Template_List_With_Double_Links
 
-INTERNAL Template_List_Data_Type * 
+INTERNAL Template_List_Custom_Entry_Name *
 insert_head(Memory_Allocator *allocator, Template_List_Name *list, u32 insert_after_head = 0)
 {
     Template_List_Custom_Entry_Name *entry = ALLOCATE(allocator, Template_List_Custom_Entry_Name);
-    return insert_head(list, entry, insert_after_head);
+    insert_head(list, entry, insert_after_head);
+    return entry;
 }
 
-INTERNAL Template_List_Data_Type 
+INTERNAL void 
 remove(Memory_Allocator *allocator, Template_List_Name *list, Template_List_Custom_Entry_Name *at)
 {
     Template_List_Custom_Entry_Name *entry = remove(list, at);
     assert(entry == at);
-    Template_List_Data_Type value = entry->Template_List_Data_Name;
     free(allocator, entry);
-    
-    return value;
 }
 
-INTERNAL Template_List_Data_Type
+INTERNAL void
 remove_head(Memory_Allocator *allocator, Template_List_Name *list)
 {
-    return remove(allocator, list, list->head);
+    remove(allocator, list, list->head);
 }
 
 #  if defined Template_List_With_Tail
 
-INTERNAL Template_List_Data_Type * 
+INTERNAL void
 insert_tail(Memory_Allocator *allocator, Template_List_Name *list, u32 insert_after_tail = 1)
 {
     Template_List_Custom_Entry_Name *entry = ALLOCATE(allocator, Template_List_Custom_Entry_Name);
-    return insert_tail(list, entry, insert_after_tail);
+    insert_tail(list, entry, insert_after_tail);
 }
 
 #    if defined Template_List_With_Double_Links
 
-INTERNAL Template_List_Data_Type 
+INTERNAL void
 remove_tail(Memory_Allocator *allocator, Template_List_Name *list)
 {
-    return remove(allocator, list, list->tail);
+    remove(allocator, list, list->tail);
 }
 
 #    endif
