@@ -800,10 +800,11 @@ Ast * find_type(Ast *parent, string_array relative_namespace_path) {
     return null;
 }
 
-void add_dependency(Memory_Allocator *allocator, Report_Context *context, Type *type, Type *dependency) {
-    //EXPECT(context, !is_ancesotor(type, dependency), S("cyclic type dependency, % and % depend on each other"), f(*type), f(*dependency));
-    
+void add_dependency(Memory_Allocator *allocator, Type *type, Type *dependency) {
     assert(is_kind(*type, structure));
+    
+    if (is_kind(*dependency, structure) && is_ancesotor(type->structure.node, dependency->structure.node))
+        return;
     
     for_array_item(it, type->structure.dependencies) {
         if (*it == dependency)
@@ -811,6 +812,11 @@ void add_dependency(Memory_Allocator *allocator, Report_Context *context, Type *
     }
     
     *grow(allocator, &type->structure.dependencies) = dependency;
+}
+
+void add_dependencies(Memory_Allocator *allocator, Type *type, Types dependencies) {
+    for_array_item(dependency, dependencies)
+        add_dependency(allocator, type, *dependency);
 }
 
 void replace_undeclared_type(Memory_Allocator *allocator, Report_Context *context, Ast *parent, Type *parent_type, Type **type_storage) {
@@ -842,7 +848,7 @@ void replace_undeclared_type(Memory_Allocator *allocator, Report_Context *contex
     EXPECT(context, *type_storage, S("type is undefined:\n\n%\n\n%"), f(context->file_path, identifier.line_count, identifier.column_count), f(identifier, 2));
     
     if (!is_indirection && parent_type) {
-        add_dependency(allocator, context, parent_type, *type_storage);
+        add_dependency(allocator, parent_type, *type_storage);
     }
 }
 
@@ -1346,83 +1352,127 @@ struct Type_Branch {
 };
 
 #define Template_Array_Name      Type_Path
-#define Template_Array_Data_Type Type_Branch
+#define Template_Array_Data_Type Types
 #include "template_array.h"
+
+
+void advance(Memory_Allocator *allocator, Type_Path *path, Types *visit_order, bool *did_enter) {
+    auto type = (*path)[path->count - 1][0];
+    assert(is_kind(*type, structure));
+    
+    if (*did_enter && type->structure.dependencies.count) {
+        *grow(allocator, path) = { type->structure.dependencies };
+        *did_enter = true;
+    } else {
+        if ((*path)[path->count - 1].count > 1) {
+            advance(&(*path)[path->count - 1]);
+            *did_enter = true;
+        }
+        else {
+            shrink(allocator, path);
+            *did_enter = false;
+        }
+    }
+}
 
 Types write_tree(Memory_Allocator *allocator, Report_Context *context, Type *root) {
     assert(root);
     
-    write_line_out(allocator, S("TREE:\n"));
-    // skip root, it contains no info
-    usize depth = 0;
-    
     write_line_out(allocator, S("root"));
+    
+    if (!root->structure.dependencies.count)
+        return {};
     
     Type_Path path = {};
     defer { assert(path.count == 0); };
-    
     Types dependency_order = {};
     
-    *grow(allocator, &path) = { root, root->structure.dependencies };
+    // skip root, it contains no info
+    *grow(allocator, &path) = { root->structure.dependencies };
     
+    bool do_add_line = false;
+    
+    usize depth = 0;
+    bool did_enter = true;
     while (path.count) {
-        auto type = path[path.count - 1].iterator[0];
+        defer { advance(allocator, &path, &dependency_order, &did_enter); };
         
-        if (path.count > 1) {
-            string foo = {};
-            defer { free_array(allocator, &foo); };
+        auto type = path[path.count - 1][0];
+        
+        if (!did_enter) {
+            *grow(allocator, &dependency_order) = type;
             
-            for (auto i = path.count - 2; i < path.count; i--) {
-                auto test = path[i];
-                string indent;
-                
-                if (test.iterator.count > 1)
-                    indent = S("| ");
-                else
-                    indent = S("  ");
-                
-                grow(allocator, &foo, indent.count);
-                copy(foo.data + indent.count, foo.data, foo.count - indent.count);
-                copy(foo.data, indent.data, indent.count);
+            do_add_line |= !type->structure.dependencies.count;
+            continue;
+        }
+        
+        if (do_add_line) {
+            if (path.count > 1) {
+                for (u32 i = 0; i < path.count - 1; i++) {
+                    // branch has a next child
+                    if (path[i].count > 1)
+                        write_out(allocator, S("| "));
+                    else
+                        write_out(allocator, S("  "));
+                }
             }
             
-            write_out(allocator, S("%"), f(foo));
+            write_line_out(allocator, S("| "));
+            
+            do_add_line = false;
+        }
+        
+        // skip visited types
+        bool do_next = false;
+        for_array_item(it, dependency_order) {
+            if (*it == type) {
+                did_enter = false;
+                do_next = true;
+                
+                if (path.count > 1) {
+                    for (u32 i = 0; i < path.count - 1; i++) {
+                        // branch has a next child
+                        if (path[i].count > 1)
+                            write_out(allocator, S("| "));
+                        else
+                            write_out(allocator, S("  "));
+                    }
+                }
+                
+                write_line_out(allocator, S("|-x [%]"), f(*type));
+                do_add_line = true;
+                break;
+            }
+        }
+        
+        if (do_next)
+            continue;
+        
+        // check new types for cyclic dependencies
+        if (path.count > 1) {
+            for (u32 i = 0; i < path.count - 1; i++) {
+                EXPECT(context, (path[i][0] != type), S("cyclic dependencies, % and % depend on each other"), f(*path[i][0]), f(*type));
+            }
+        }
+        
+        // check if we enter and leave
+        bool did_leave = !type->structure.dependencies.count;
+        if (did_leave) {
+            *grow(allocator, &dependency_order) = type;
+            do_add_line = true;
+        }
+        
+        if (path.count > 1) {
+            for (u32 i = 0; i < path.count - 1; i++) {
+                // branch has a next child
+                if (path[i].count > 1)
+                    write_out(allocator, S("| "));
+                else
+                    write_out(allocator, S(" "));
+            }
         }
         
         write_line_out(allocator, S("|-%"), f(*type));
-        
-        if (type->structure.dependencies.count) {
-            // first parent is root and is not a real type
-            for (u32 i = 1; i < path.count - 1; i++) {
-                EXPECT(context, (path[i].parent == type), S("cyclic dependencies, % and % depend on each other"), f(*path[i].parent), f(*type));
-            }
-            
-            *grow(allocator, &path) = { type, type->structure.dependencies }; 
-        }
-        else {
-            do {
-                {
-                    bool do_insert = true;
-                    for_array_item(it, dependency_order) {
-                        if (*it == path[path.count - 1].iterator[0]) {
-                            do_insert = false;
-                            break;
-                        }
-                    }
-                    
-                    if (do_insert)
-                        *grow(allocator, &dependency_order) = path[path.count - 1].iterator[0];
-                }
-                
-                if (path[path.count - 1].iterator.count > 1) {
-                    advance(&path[path.count - 1].iterator);
-                    break;
-                }
-                else {
-                    shrink(allocator, &path);
-                }
-            } while (path.count);
-        }
     }
     
     write_line_out(allocator, S("\ndependency order:\n"));
@@ -1469,11 +1519,15 @@ Ast::Children *children_of(Ast *parent, bool is_a_test = false) {
         case_kind(Ast, scope)
             return &parent->scope.body;
         
+        case_kind(Ast, temporary_declarations)
+            return &parent->temporary_declarations.list;
+        
         default:
         assert(is_a_test);
         return null;
     }
 }
+
 
 void attach(Ast *new_parent, Ast *child) {
     
@@ -1629,7 +1683,7 @@ MAIN_DEC {
         
         while (it.text.count) {
             
-            debug_break_once(it.line_count >= 5);
+            debug_break_once(it.line_count >= 9);
             
             if (parent->parent && try_skip(&it, S("}"))) {
                 
@@ -2092,8 +2146,16 @@ MAIN_DEC {
                 
                 case_kind(Ast, structure_kind);
                 case_kind(Ast, declaration) {
-                    if (did_enter)
-                        replace_undeclared_type(allocator, &reporter, parent_namespace, parent_type, &current->declaration.type);
+                    if (did_enter) {
+                        if (is_kind(*current->declaration.type, structure)) {
+                            // anonymous structs get reparented and there children types replaced
+                            next = current->declaration.type->structure.node;
+                            next->parent = current;
+                        }
+                        else {
+                            replace_undeclared_type(allocator, &reporter, parent_namespace, parent_type, &current->declaration.type);
+                        }
+                    }
                 } break;
                 
                 case_kind(Ast, definition) {
@@ -2111,25 +2173,30 @@ MAIN_DEC {
                     if (did_enter) {
                         if (is_kind(*current->parent, definition)) {
                             parent_type = &current->structure.type;
-                            add_dependency(allocator, &reporter, defined_types_root, parent_type);
+                            
+                            *grow(allocator, &defined_types_root->structure.dependencies) = parent_type;
                         }
                         
                         next = current->structure.body.head;
                     }
                     else {
-                        assert(is_kind(*parent_type, structure));
-                        
-                        auto it = parent_type->structure.node->parent;
-                        parent_type = null;
-                        
-                        while (it) {
-                            auto structure = try_kind_of(it, structure);
-                            if (structure && is_kind(*it->parent, definition)) {
-                                parent_type = &structure->type;
-                                break;
-                            }
+                        if (parent_type == &current->structure.type) {
+                            auto it = parent_type->structure.node->parent;
+                            parent_type = null;
                             
-                            it = it->parent;
+                            while (it) {
+                                auto structure = try_kind_of(it, structure);
+                                if (structure && is_kind(*it->parent, definition)) {
+                                    parent_type = &structure->type;
+                                    break;
+                                }
+                                
+                                it = it->parent;
+                            }
+                        }
+                        
+                        if (parent_type) {
+                            add_dependencies(allocator, parent_type, current->structure.type.structure.dependencies);
                         }
                     }
                 } break;

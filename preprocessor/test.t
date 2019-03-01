@@ -1,6 +1,8 @@
 
 def B struct {
-	var bla: A;
+
+	def X struct { var z: Z; }
+
 	var x: *B;
 
 	def Z struct {
@@ -8,10 +10,12 @@ def B struct {
 		var b: *B;
 	}
 
+
+	kind x: X;
+
 	kind y: u32;
-	kind z: Z;
+	kind z: Z;	
 	
-	kind as: As;
 }
 
 def As struct { var a: A; }

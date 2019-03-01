@@ -58,7 +58,7 @@ struct Template_Tree_Name {
 INTERNAL bool
 is_ancesotor(Template_Tree_Name *ancestor, Template_Tree_Name *decendent)
 {
-    assert(ancestor != decendent);
+    assert(ancestor && decendent && (ancestor != decendent));
     
     auto current = decendent;
     
