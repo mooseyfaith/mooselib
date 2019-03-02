@@ -220,10 +220,10 @@ u32 utf8_head(string text, OPTIONAL u32 *byte_count = null) {
 
 // UNSAFE: use at your own risk!!
 // TODO also get u32 token
-u32 utf8_unsafe_previous(u8 *one_past_last_data) {
+u32 utf8_unsafe_previous(u8 *one_past_last_data, u32 max_byte_count = 4) {
     u32 byte_count = 1;
     
-    while (((*one_past_last_data - byte_count) & 0xC0) == 0x80)
+    while ((byte_count < max_byte_count) && ((*one_past_last_data - byte_count) & 0xC0) == 0x80)
         byte_count++;
     
     return byte_count;
