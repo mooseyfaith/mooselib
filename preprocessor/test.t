@@ -32,6 +32,15 @@ def main function(argument_count: s32, arguments: **u8) -> (s32) {
 	var win32_api: Win32_Platform_API;
     init_win32_api(&win32_api);
 
+	loop a {
+
+		loop b {
+			if poop do break a;
+		}
+
+		continue b;
+	}
+
     var platform_api: *Platform_API = &win32_api.platform_api;
     init_c_allocator();
     init_Memory_Growing_Stack_allocators();
@@ -59,7 +68,8 @@ def main function(argument_count: s32, arguments: **u8) -> (s32) {
 def fun coroutine(text: string, count: u32) -> (s32) {
 	var i: u32 = 0;
 
-	while i < count do {
+	while i < count do fun {
+		continue fun;
 		printf("%.*s\n", FORMAT_S(&text));
 		yield 0;
 		i = i + 1;

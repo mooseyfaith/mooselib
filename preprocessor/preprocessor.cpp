@@ -44,7 +44,7 @@ Best_Token_Iterator begin_best_token(string *text_iterator) {
 }
 
 void test_token(Best_Token_Iterator *iterator, string end, bool skip_end = true) {
-    bool found;
+    bool found = false;
     
     auto test = *iterator->text_iterator;
     while (test.count) {
@@ -96,67 +96,22 @@ struct Tokenizer {
     u32 column_count;
 };
 
-enum Token_Kind {
-    // keysymbols
-    Token_Scope_Open,
-    Token_Scope_Close,
-    Token_Parenthesis_Open,
-    Token_Parenthesis_Close,
-    Token_Comma,
-    Token_Semicolon,
-    Token_Colon,
-    Token_Doublecolon,
-    Token_Star,
-    Token_Equals,
-    Token_Return_Arrow,
-    
-    // keywords
-    Token_Var,
-    Token_Def,
-    Token_Function,
-    Token_Coroutine,
-    Token_Struct,
-    Token_Type,
-    Token_If,
-    Token_Else,
-    Token_Loop,
-    Token_Return,
-    Token_Continue,
-    Token_Break,
-    
-    // ignored (debug)
-    Token_Whitespace,
-    Token_Newline,
-    Token_Comment,
-    
-    // info
-    Token_Identifier,
-    Token_Operator,
-    Token_String_Literal,
-    Token_Number_Unsigned_Literal,
-    Token_Number_Signed_Literal,
-    Token_Number_Float_Literal,
-    Token_Unparsed_Expression,
-    
-    // should never appear
-    Token_Invalid,
-};
-
 auto White_Space = S(" \t\r\0");
+auto White_Space_Ex = S(" \t\r\n\0");
 auto Operator_Symbols = S("+-*/%|&~<>=²³!?^");
 
 struct Tokenizer_Test {
     Tokenizer *it;
     string text;
-    string line_start;
     u32 line_count;
     u32 column_count;
 };
 
 Tokenizer_Test begin(Tokenizer *it) {
-    return { it, it->text, it->line_start, it->line_count, it->column_count };
+    return { it, it->text, it->line_count, it->column_count };
 }
 
+#if 0
 void skip_space(Tokenizer *it) {
     while (it->text.count) {
         u32 byte_count;
@@ -179,32 +134,32 @@ void skip_space(Tokenizer *it) {
         break;
     }
 }
+#endif
 
 Token end(Tokenizer_Test test) {
-    defer {
-        while (test.text.data != test.it->text.data) {
-            u32 head = utf8_advance(&test.text);
-            if (head == '\n') {
-                test.it->line_count++;
-                test.it->column_count = 1;
-                test.it->line_start = test.text;
-            }
-            else {
-                test.it->column_count++;
-            }
-        }
-        
-        skip_space(test.it);
-    };
-    
     free_array(test.it->allocator, &test.it->expected_tokens);
     
-    return { sub_string(test.text, test.it->text), test.line_count, test.column_count };
+    auto result = Token{ sub_string(test.text, test.it->text), test.line_count, test.column_count };
+    
+    skip_set(&test.it->text, White_Space_Ex);
+    
+    while (test.text.data != test.it->text.data) {
+        u32 head = utf8_advance(&test.text);
+        if (head == '\n') {
+            test.it->line_count++;
+            test.it->column_count = 1;
+            test.it->line_start = test.text;
+        }
+        else {
+            test.it->column_count++;
+        }
+    }
+    
+    return result;
 }
 
 void revert(Tokenizer_Test test) {
     test.it->text         = test.text;
-    test.it->line_start   = test.line_start;
     test.it->line_count   = test.line_count;
     test.it->column_count = test.column_count;
 }
@@ -218,7 +173,9 @@ Tokenizer make_tokenizer(Memory_Allocator *allocator, string source) {
     result.line_count = 1;
     result.column_count = 1;
     
-    skip_space(&result);
+    auto a = begin(&result);
+    skip_set(&result.text, White_Space_Ex);
+    end(a);
     
     return result;
 }
@@ -252,6 +209,8 @@ struct Format_Info_Marked_Line {
     u32 line_count;
     u32 column_count;
     u32 indent_count;
+    bool with_file_position;
+    string file_path;
 };
 
 STRING_WRITE_DEC(write_marked_line) {
@@ -263,7 +222,7 @@ STRING_WRITE_DEC(write_marked_line) {
     u32 pretty_column_count = 0;
     
     assert(format_info->column_count);
-    format_info->column_count--;
+    u32 column_count = format_info->column_count - 1;
     
     while (format_info->line.count) {
         u32 byte_count;
@@ -272,20 +231,23 @@ STRING_WRITE_DEC(write_marked_line) {
         if (head == '\t') {
             write(allocator, &pretty_line, S("  "));
             
-            if (format_info->column_count)
+            if (column_count)
                 pretty_column_count += 2;
         }
         else {
             write(allocator, &pretty_line, S("%"), f(sub(format_info->line, 0, byte_count)));
             
-            if (format_info->column_count)
+            if (column_count)
                 pretty_column_count++;
         }
         
         advance(&format_info->line, byte_count);
-        if (format_info->column_count)
-            format_info->column_count--;
+        if (column_count)
+            column_count--;
     }
+    
+    if (format_info->with_file_position)
+        write(allocator, output, S("%:\n\n"), f(format_info->file_path, format_info->line_count, format_info->column_count));
     
     write(allocator, output, S("%: %%\n"), f(format_info->line_count), f_indent(format_info->indent_count), f(pretty_line));
     
@@ -300,7 +262,7 @@ Format_Info_Marked_Line f(string line, u32 line_count, u32 column_count, u32 ind
 }
 
 
-Format_Info_Marked_Line f(string whole_text, Token token, u32 indent_count) {
+Format_Info_Marked_Line f(string whole_text, Token token, u32 indent_count, bool with_file_position = false, string file_path = {}) {
     string line = token.text;
     
     u32 max_byte_count = index_of(whole_text, token.text.data);
@@ -324,9 +286,8 @@ Format_Info_Marked_Line f(string whole_text, Token token, u32 indent_count) {
         max_byte_count -= byte_count;
     }
     
-    return { write_marked_line, line, token.line_count, token.column_count, indent_count };
+    return { write_marked_line, line, token.line_count, token.column_count, indent_count, with_file_position, file_path };
 }
-
 
 void report(Report_Context *context, string format, ...) {
     va_list va_args;
@@ -390,6 +351,18 @@ void skip(Report_Context *context, string pattern) {
     
     if (!ok) {
         EXPECT(context, ok, S("expected '%'"), f(pattern));
+    }
+}
+
+Token try_skip_identifier(Tokenizer *tokenizer) {
+    auto test = begin(tokenizer);
+    string identifier = get_identifier(&tokenizer->text, S("_"));
+    if (identifier.count) {
+        return end(test);
+    }
+    else {
+        revert(test);
+        return {};
     }
 }
 
@@ -475,18 +448,6 @@ struct Type {
     };
 };
 
-#if 0
-// yes an array of an array of Type*
-// used for depth first search iteration
-#define Template_Array_Name      Types_Array
-#define Template_Array_Data_Type Types
-#include "template_array.h"
-
-#define Template_Array_Name      Ast_Array
-#define Template_Array_Data_Type Ast*
-#include "template_array.h"
-#endif
-
 struct Ast {
     enum Kind {
         Kind_null,
@@ -525,6 +486,7 @@ struct Ast {
     
     union {
         struct {
+            Token token;
             Token identifier;
             Type *type;
         } declaration, structure_kind;
@@ -542,20 +504,22 @@ struct Ast {
         } temporary_declarations;
         
         struct {
-            Ast *parent_namespace;
+            Token token;
             Token identifier;
             Ast *value;
         } definition;
         
         struct {
+            Token token;
             Token open_bracket, closed_bracked;
             Type type;
             Children body;
         } structure;
         
         struct {
-            Ast *parent_function;
+            Token token;
             bool is_coroutine;
+            Ast *parent_function;
             Types return_types;
             Children arguments;
             Ast *statement;
@@ -564,32 +528,36 @@ struct Ast {
         Token comment;
         
         struct {
+            Token token;
             bool is_yield;
             Children values;
         } return_statement;
         
-        struct {} break_statement, continue_statement;
+        struct {
+            Token token;
+            Ast *parent_scope;
+        } break_statement, continue_statement;
         
         struct {
+            Token token;
             Ast *condition;
             Ast *statement;
         } conditional_branch;
         
         struct {
-            Ast *parent_loop;
+            Token token;
             Ast *condition;
             Ast *statement;
         } conditional_loop;
         
         struct {
-            Ast *parent_loop;
+            Token token;
             Ast *statement;
         } loop;
         
         struct {
+            Token identifier;
             Token open_bracket, closed_bracked;
-            Ast *parent_namespace;
-            Ast *parent_scope;
             Children body;
         } scope;
         
@@ -907,7 +875,7 @@ Type * parse_type(Memory_Allocator *allocator, Report_Context *context, Types ba
     
     u32 indirection_count = 0;
     while (try_skip(&context->tokenizer->text, S("*"))) {
-        skip_space(context->tokenizer);
+        skip_set(&context->tokenizer->text, White_Space_Ex);
         indirection_count++;
     }
     
@@ -924,19 +892,22 @@ Type * parse_type(Memory_Allocator *allocator, Report_Context *context, Types ba
         
         type_end = context->tokenizer->text;
         
-        skip_space(context->tokenizer);
+        skip_set(&context->tokenizer->text, White_Space_Ex);
         
         if (!try_skip(&context->tokenizer->text, S(".")))
             break;
         
-        skip_space(context->tokenizer);
+        skip_set(&context->tokenizer->text, White_Space_Ex);
     }
     
     // TOTAL HACK: to get the proper line count of the base_type, not the whole type...
     Token type_identifier;
+    
     {
-        SCOPE_PUSH(context->tokenizer->text, type_end);
+        auto backup = begin(context->tokenizer);
+        context->tokenizer->text = type_end;
         type_identifier = end(type_test);
+        revert(backup);
     }
     
     end(test);
@@ -1309,7 +1280,7 @@ void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buf
 }
 #endif
 
-Token next_expression(Memory_Allocator *allocator, Report_Context *context, string terminal = S(",")) {
+Token next_expression(Memory_Allocator *allocator, Report_Context *context, string terminal = S(","), u32 expected_expression_count = 0) {
     
     auto test = begin(context->tokenizer);
     u32 paranthesis_depth = 0;
@@ -1325,6 +1296,8 @@ Token next_expression(Memory_Allocator *allocator, Report_Context *context, stri
         test_token(&best, S("("));
         test_token(&best, S("{"));
         test_token(&best, close_tokens[close_tokens.count - 1], (close_tokens.count > 1));
+        test_token(&best, S(";"), false);
+        test_token(&best, S("do"), false);
         end(&best);
         
         switch (best.best_index) {
@@ -1338,6 +1311,12 @@ Token next_expression(Memory_Allocator *allocator, Report_Context *context, stri
             
             case 2: {
                 shrink(allocator, &close_tokens);
+            } break;
+            
+            case 3:
+            case 4: {
+                end(test);
+                EXPECT(context, 0, S("unexpected '%', expected % expressions"), f(best.best_end), f(expected_expression_count));
             } break;
             
             default: {
@@ -1556,10 +1535,9 @@ Ast * parse_struct(Memory_Allocator *allocator, Report_Context *context, Ast *pa
                           "\n"
                           "%"),
                         f(context->file_path, identifier.line_count, identifier.column_count), f(identifier.text),
-                        f(context->file_text, identifier, 2),
+                        f(context->file_text, identifier, 2, true, context->file_path),
                         
-                        f(context->file_path, node->definition.identifier.line_count, node->definition.identifier.column_count),
-                        f(context->file_text, node->definition.identifier, 2))
+                        f(context->file_text, node->definition.identifier, 2, true, context->file_path))
     }
     
     auto structure_node = new_kind(allocator, Ast, structure, context->tokenizer->skipped_token);
@@ -1590,23 +1568,26 @@ Ast::Children *children_of(Ast *parent, bool is_a_test = false) {
     }
 }
 
-
 void attach(Ast *new_parent, Ast *child) {
     
     switch (new_parent->kind) {
         case_kind(Ast, function) {
+            assert(!new_parent->function.statement);
             new_parent->function.statement = child;
         } break;
         
         case_kind(Ast, conditional_branch) {
+            assert(!new_parent->conditional_branch.statement);
             new_parent->conditional_branch.statement = child;
         } break;
         
         case_kind(Ast, conditional_loop) {
+            assert(!new_parent->conditional_loop.statement);
             new_parent->conditional_loop.statement = child;
         } break;
         
         case_kind(Ast, loop) {
+            assert(!new_parent->loop.statement);
             new_parent->loop.statement = child;
         } break;
         
@@ -1746,7 +1727,7 @@ MAIN_DEC {
         
         while (it.text.count) {
             
-            debug_break_once(it.line_count >= 33);
+            debug_break_once(it.line_count >= 29);
             
             {
                 parent_function_node = null;
@@ -1760,13 +1741,13 @@ MAIN_DEC {
                 while (!done && scope) {
                     switch (scope->kind) {
                         case_kind(Ast, structure) {
-                            if (!parent_function_node && !parent_loop_node && !parent_scope_node) {
+                            if (!parent_structure_node && !parent_function_node && !parent_loop_node && !parent_scope_node) {
                                 parent_structure_node = scope;
                             }
                         } break;
                         
                         case_kind(Ast, function) {
-                            if (!parent_structure_node) {
+                            if (!parent_function_node && !parent_structure_node) {
                                 parent_function_node = scope;
                                 
                                 if (parent_scope_node == scope->function.statement)
@@ -1776,13 +1757,13 @@ MAIN_DEC {
                         
                         case_kind(Ast, loop);
                         case_kind(Ast, conditional_loop) {
-                            if (!parent_structure_node) {
+                            if (!parent_loop_node && !parent_structure_node) {
                                 parent_loop_node = scope;
                             }
                         } break;
                         
                         case_kind(Ast, scope) {
-                            if (!parent_structure_node) {
+                            if (!parent_scope_node && !parent_structure_node) {
                                 parent_scope_node = scope;
                             }
                         } break;
@@ -1937,23 +1918,13 @@ MAIN_DEC {
                 
                 attach(parent, definition_node);
                 
-                // defer so we can look if there is an other definition
-                // and don't find ourself in the tree
-                defer {
-                    definition_node->definition.parent_namespace = parent_namespace_node;
-                    //parent_namespace = definition_node;
-                };
-                
                 auto identifier = get_identifier(&reporter);
                 definition_node->definition.identifier = identifier;
                 
                 bool is_coroutine = try_skip(&it, S("coroutine"));
                 if (is_coroutine || try_skip(&it, S("function"))) {
                     
-                    auto function_node = ALLOCATE(allocator, Ast);
-                    *function_node = make_kind(Ast, function);
-                    function_node->function = { null, is_coroutine };
-                    //parent_function_node = function_node;
+                    auto function_node = new_kind(allocator, Ast, function, it.skipped_token, is_coroutine);
                     
                     definition_node->definition.value = function_node;
                     function_node->parent = definition_node;
@@ -2090,44 +2061,29 @@ MAIN_DEC {
             // function only
             
             if (parent_function_node) {
-                if (try_skip(&it, S("{"))) {
-                    auto scope_node = ALLOCATE(allocator, Ast);
-                    *scope_node = make_kind(Ast, scope, it.skipped_token);
-                    
-                    attach(parent, scope_node);
-                    
-                    parent = scope_node;
-                    continue;
-                }
-                
                 {
                     Ast *conditional_node = null;
                     bool is_loop;
                     if (try_skip(&it, S("if"))) {
-                        conditional_node = ALLOCATE(allocator, Ast);
-                        *conditional_node = make_kind(Ast, conditional_branch);
-                        attach(parent, conditional_node);
+                        conditional_node = new_kind(allocator, Ast, conditional_branch);
                     }
                     
                     if (!conditional_node && try_skip(&it, S("while"))) {
-                        conditional_node = ALLOCATE(allocator, Ast);
-                        *conditional_node = make_kind(Ast, conditional_loop);
-                        //top_loop_node = conditional_node;
-                        attach(parent, conditional_node);
+                        conditional_node = new_kind(allocator, Ast, conditional_loop);
                     }
                     
                     if (conditional_node) {
-                        auto unparsed_expression_node = ALLOCATE(allocator, Ast);
-                        *unparsed_expression_node = make_kind(Ast, unparsed_expression);
+                        auto unparsed_expression_node = new_kind(allocator, Ast, unparsed_expression);
+                        
+                        unparsed_expression_node->parent = conditional_node;
+                        unparsed_expression_node->unparsed_expression = next_expression(allocator, &reporter, S("do"), 1);
                         
                         if (is_kind(*conditional_node, conditional_branch))
                             conditional_node->conditional_branch.condition = unparsed_expression_node;
                         else
                             conditional_node->conditional_loop.condition = unparsed_expression_node;
-                        unparsed_expression_node = conditional_node;
                         
-                        unparsed_expression_node->unparsed_expression = next_expression(allocator, &reporter, S("do"));
-                        
+                        attach(parent, conditional_node);
                         parent = conditional_node;
                         continue;
                     }
@@ -2142,14 +2098,13 @@ MAIN_DEC {
                 
                 Ast *return_or_yield_node = null;
                 if (try_skip(&it, S("return"))) {
-                    return_or_yield_node = ALLOCATE(allocator, Ast);
-                    *return_or_yield_node = make_kind(Ast, return_statement, false);
+                    return_or_yield_node = new_kind(allocator, Ast, return_statement, false);
                 }
                 
-                if (parent_function_node->function.is_coroutine && !return_or_yield_node && try_skip(&it, S("yield")))
+                if (!return_or_yield_node && try_skip(&it, S("yield")))
                 {
-                    return_or_yield_node = ALLOCATE(allocator, Ast);
-                    *return_or_yield_node = make_kind(Ast, return_statement, true);
+                    EXPECT_TOKEN(&reporter, parent_function_node->function.is_coroutine, it.skipped_token, S("'yield' is only allowed inside a coroutine body"));
+                    return_or_yield_node = new_kind(allocator, Ast, return_statement, it.skipped_token, true);
                 }
                 
                 if (return_or_yield_node) {
@@ -2162,32 +2117,58 @@ MAIN_DEC {
                         insert_tail(&return_or_yield_node->return_statement.values, unparsed_expression_node);
                         unparsed_expression_node->parent = return_or_yield_node;
                         
-                        unparsed_expression_node->unparsed_expression = next_expression(allocator, &reporter, (i == parent_function_node->function.return_types.count - 1) ? S(";") : S(","));
+                        unparsed_expression_node->unparsed_expression = next_expression(allocator, &reporter, (i == parent_function_node->function.return_types.count - 1) ? S(";") : S(","), parent_function_node->function.return_types.count);
+                        EXPECT_TOKEN(&reporter, unparsed_expression_node->unparsed_expression.text.count, unparsed_expression_node->unparsed_expression, S("expected expression"));
                     }
                     
                     continue;
                 }
                 
-                if (parent_scope_node) {
+                {
+                    Ast *break_or_continue_node = null;
                     if (try_skip(&it, S("break"))) {
-                        skip(&reporter, S(";"));
-                        
-                        auto break_node = ALLOCATE(allocator, Ast);
-                        *break_node = make_kind(Ast, break_statement);
-                        attach(parent, break_node);
-                        
-                        continue;
+                        break_or_continue_node = new_kind(allocator, Ast, break_statement, it.skipped_token);
                     }
-                }
-                
-                if (parent_loop_node) {
-                    if (try_skip(&it, S("continue"))) {
+                    
+                    if (!break_or_continue_node && try_skip(&it, S("continue"))) {
+                        break_or_continue_node = new_kind(allocator, Ast, continue_statement, it.skipped_token);
+                    }
+                    
+                    if (break_or_continue_node) {
+                        if (is_kind(*break_or_continue_node, break_statement)) {
+                            EXPECT_TOKEN(&reporter, parent_scope_node, it.skipped_token, S("'break' is only allowed inside sub scopes of a function"));
+                        }
+                        else {
+                            EXPECT_TOKEN(&reporter, parent_loop_node, it.skipped_token, S("'continue' is only allowed inside loops of a function"));
+                        }
+                        
+                        Ast *parent_scope = null;
+                        {
+                            auto parent_scope_identifier = try_skip_identifier(&it);
+                            
+                            auto it = parent;
+                            while (parent != parent_function_node) {
+                                if (is_kind(*parent, scope)) {
+                                    if ((parent_scope_identifier.text.count == 0) || (parent->scope.identifier.text == parent_scope_identifier.text)) {
+                                        parent_scope = it;
+                                        break;
+                                    }
+                                }
+                                
+                                parent = parent->parent;
+                            }
+                            
+                            EXPECT_TOKEN(&reporter, (parent_scope_identifier.text.count == 0) || parent_scope, parent_scope_identifier, S("unknown parent scope '%'"), f(parent_scope_identifier.text));
+                        }
+                        
                         skip(&reporter, S(";"));
                         
-                        auto continue_node = ALLOCATE(allocator, Ast);
-                        *continue_node = make_kind(Ast, continue_statement);
-                        attach(parent, continue_node);
+                        if (is_kind(*break_or_continue_node, break_statement))
+                            break_or_continue_node->break_statement.parent_scope = parent_scope;
+                        else
+                            break_or_continue_node->continue_statement.parent_scope = parent_scope;
                         
+                        attach(parent, break_or_continue_node);
                         continue;
                     }
                 }
@@ -2210,6 +2191,50 @@ MAIN_DEC {
                     continue;
                 }
 #endif
+                {
+                    // scopes can have a leading identifer as their names
+                    auto test = begin(&it);
+                    string identifier = get_identifier(&it.text, S("_"));
+                    skip_set(&it.text, White_Space_Ex);
+                    
+                    if (try_skip(&it.text, S("{"))) {
+                        revert(test);
+                        
+                        Token name = {};
+                        if (identifier.count)
+                            name = get_identifier(&reporter);
+                        
+                        //TODO: print function location
+                        if ((parent_function_node == parent) && name.text.count) {
+                            EXPECT_FORMATED(&reporter, 0, 
+                                            S("%: error function body must not be named\n"
+                                              "\n"
+                                              "%\n"
+                                              "\n"
+                                              "    of function:\n"
+                                              "\n"
+                                              "%"),
+                                            f(reporter.file_path, name.line_count, name.column_count),
+                                            f(reporter.file_text, name, 2),
+                                            f(reporter.file_text, parent_function_node->function.token, 2, true, reporter.file_path));
+                            
+                        }
+                        
+                        
+                        skip(&reporter, S("{"));
+                        
+                        auto scope_node = ALLOCATE(allocator, Ast);
+                        *scope_node = make_kind(Ast, scope, name, it.skipped_token);
+                        
+                        attach(parent, scope_node);
+                        
+                        parent = scope_node;
+                        continue;
+                    }
+                    else {
+                        revert(test);
+                    }
+                }
                 
                 // if all else fails, get en unparsed expression!!!
                 {
@@ -2253,6 +2278,22 @@ MAIN_DEC {
         while (current) {
             Type **type_storage = null;
             
+            // find parent namespace
+            {
+                auto it = current;
+                
+                parent_namespace = root;
+                
+                while (it) {
+                    if (is_kind(*it, definition)) {
+                        parent_namespace = it;
+                        break;
+                    }
+                    
+                    it = it->parent;
+                }
+            }
+            
             Ast *next = null;
             switch (current->kind) {
                 
@@ -2277,7 +2318,6 @@ MAIN_DEC {
                     }
                     else {
                         assert(parent_namespace == current);
-                        parent_namespace = current->definition.parent_namespace;
                     }
                 } break;
                 
