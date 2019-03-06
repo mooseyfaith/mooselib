@@ -85,6 +85,10 @@ struct Token {
     u32 column_count;
 };
 
+#define Template_Array_Name      Tokens
+#define Template_Array_Data_Type Token
+#include "template_array.h"
+
 struct Tokenizer {
     Memory_Allocator *allocator;
     string_array expected_tokens;
@@ -96,8 +100,8 @@ struct Tokenizer {
     u32 column_count;
 };
 
-auto White_Space = S(" \t\r\0");
-auto White_Space_Ex = S(" \t\r\n\0");
+auto White_Space      = S(" \t\r\0");
+auto White_Space_Ex   = S(" \t\r\n\0");
 auto Operator_Symbols = S("+-*/%|&~<>=²³!?^");
 
 struct Tokenizer_Test {
@@ -455,6 +459,10 @@ struct Ast {
         Kind_definition,
         Kind_declaration,
         
+        //Kind_enumaration,
+        
+        Kind_assignment,
+        
         Kind_temporary_declarations,
         
         Kind_structure,
@@ -489,10 +497,18 @@ struct Ast {
             Token token;
             Token identifier;
             Type *type;
+            Token unparsed_expression;
         } declaration, structure_kind;
         
         struct {
+            Token destination_unparsed_expression;
+            Token source_unparsed_expression;
+        } assignment;
+        
+        struct {
+            Token token;
             bool as_structure_kinds;
+            bool kinds_written; // for code generation
             
             enum State {
                 State_Parse_Identifier,
@@ -509,11 +525,21 @@ struct Ast {
             Ast *value;
         } definition;
         
+#if 0        
+        struct {
+            Tokens values;
+            Type *size_type;
+        } enumaration;
+#endif
+        
         struct {
             Token token;
             Token open_bracket, closed_bracked;
             Type type;
             Children body;
+            Ast *kind_enumaration;
+            Ast *kind_union;
+            Types ordered_sub_types;
         } structure;
         
         struct {
@@ -673,9 +699,10 @@ STRING_WRITE_DEC(write_type) {
         
         case_kind(Type, structure) {
             auto definition_node = type->structure.node->parent;
-            assert(definition_node && is_kind(*definition_node, definition));
-            
-            write(allocator, output, S("%"), f(definition_node->definition.identifier.text));
+            if (definition_node && is_kind(*definition_node, definition))
+                write(allocator, output, S("%"), f(definition_node->definition.identifier.text));
+            else
+                write(allocator, output, S("anonymous struct"));
         } break;
         
 #if 0        
@@ -691,7 +718,7 @@ STRING_WRITE_DEC(write_type) {
         write(allocator, output, S("%"), f_indent(indirection->level, '*'));
 }
 
-Type_Format_Info f(Type type, bool full_namespace = true) {
+Type_Format_Info f(Type type, bool full_namespace = false) {
     return { write_type, type, full_namespace };
 }
 
@@ -817,7 +844,7 @@ Ast * find_type(Ast *parent, string_array relative_namespace_path) {
 void add_dependency(Memory_Allocator *allocator, Report_Context *context, Type *type, Type *dependency) {
     assert(is_kind(*type, structure));
     
-    if (is_kind(*dependency, structure) && is_ancesotor(type->structure.node, dependency->structure.node))
+    if (!is_kind(*dependency, structure) || (is_ancesotor(type->structure.node, dependency->structure.node) > 2))
         return;
     
     for_array_item(it, type->structure.dependencies) {
@@ -829,6 +856,11 @@ void add_dependency(Memory_Allocator *allocator, Report_Context *context, Type *
 }
 
 void add_dependencies(Memory_Allocator *allocator, Report_Context *context, Type *type, Type *child) {
+    assert(is_kind(*child, structure));
+    
+    if (child->structure.node->parent && is_kind(*child->structure.node->parent, definition))
+        add_dependency(allocator, context, type, child);
+    
     for_array_item(dependency, child->structure.dependencies) {
         EXPECT(context, type != *dependency, S("cyclic dependency, % and % depend on each other"), f(*type), f(*child));
         
@@ -1374,35 +1406,107 @@ string to_forward_slashed_path(Memory_Allocator *allocator, string path) {
     return result;
 }
 
-struct Type_Branch {
-    Type *parent;
-    Types iterator;
-};
+#define Template_Tree_Name      Type_Node
+#define Template_Tree_Data_Type Type*
+#define Template_Tree_Data_Name type
+#include "template_tree.h"
 
-#define Template_Array_Name      Type_Path
-#define Template_Array_Data_Type Types
+#define Template_Array_Name      Type_Nodes
+#define Template_Array_Data_Type Type_Node
 #include "template_array.h"
 
-
-void advance(Memory_Allocator *allocator, Type_Path *path, Types *visit_order, bool *did_enter) {
-    auto type = (*path)[path->count - 1][0];
-    assert(is_kind(*type, structure));
+void order_sub_types(Memory_Allocator *allocator, Report_Context *context, Ast *structure_node) {
+    if (!structure_node->structure.type.structure.dependencies.count)
+        return;
     
-    if (*did_enter && type->structure.dependencies.count) {
-        *grow(allocator, path) = { type->structure.dependencies };
-        *did_enter = true;
-    } else {
-        if ((*path)[path->count - 1].count > 1) {
-            advance(&(*path)[path->count - 1]);
-            *did_enter = true;
+    Type_Nodes nodes = {};
+    defer { free_array(allocator, &nodes); };
+    
+    auto root = grow(allocator, &nodes);
+    *root = {};
+    root->type = &structure_node->structure.type;
+    
+    auto current = root;
+    
+    Types ordered_visited_types = {};
+    
+    bool did_enter = true, did_leave = false;
+    while (current) {
+        
+        defer { advance(&current, &did_enter, &did_leave); };
+        
+        if (did_enter) {
+            bool do_skip = false;
+            for_array_item(it, ordered_visited_types) {
+                if (*it == current->type) {
+                    do_skip = true;
+                    break;
+                }
+            }
+            
+            if (do_skip)
+                continue;
+            
+            for_array_item(it, current->type->structure.dependencies) {
+                bool is_sub_type = false;
+                auto statement = structure_node->structure.body.head;
+                while (statement) {
+                    if (is_kind(*statement, definition)) {
+                        auto structure = try_kind_of(statement->definition.value, structure);
+                        if (structure && (&structure->type == *it)) {
+                            is_sub_type = true;
+                            break;
+                        }
+                    }
+                    
+                    statement = statement->next;
+                }
+                
+                if (!is_sub_type)
+                    continue;
+                
+                auto child = grow(allocator, &nodes);
+                *child = {};
+                child->type = *it;
+                attach(current, child);
+            }
+            
+            did_leave = (current->children.count == 0);
         }
-        else {
-            shrink(allocator, path);
-            *did_enter = false;
-        }
+        
+        // dont add self
+        if (did_leave && current->parent)
+            *grow(allocator, &ordered_visited_types) = current->type;
     }
+    
+    auto types = ordered_visited_types;
+    while (types.count) {
+        
+        auto type = types[types.count - 1];
+        
+        auto node = type->structure.node;
+        
+        while (node->parent != structure_node)
+            node = node->parent;
+        
+        assert(node->parent == structure_node);
+        
+        // move node to front
+        // we insert last types first at head
+        // so we remain the original order
+        detach(&structure_node->structure.body, node);
+        
+        insert_head(&structure_node->structure.body, node);
+        node->parent = structure_node;
+        
+        types.count--;
+    }
+    
+    structure_node->structure.ordered_sub_types = ordered_visited_types;
 }
 
+
+#if 0
 Types write_tree(Memory_Allocator *allocator, Report_Context *context, Type *root) {
     assert(root);
     
@@ -1511,6 +1615,7 @@ Types write_tree(Memory_Allocator *allocator, Report_Context *context, Type *roo
     
     return dependency_order;
 }
+#endif
 
 Ast * parse_struct(Memory_Allocator *allocator, Report_Context *context, Ast *parent, Token identifier = {}, Type *parent_type = null) {
     if (!try_skip(context->tokenizer, S("struct")))
@@ -1546,11 +1651,9 @@ Ast * parse_struct(Memory_Allocator *allocator, Report_Context *context, Ast *pa
     return structure_node;
 }
 
-Ast::Children *children_of(Ast *parent, bool is_a_test = false) {
-    if (!parent) {
-        assert(!is_a_test);
+Ast::Children *children_of(Ast *parent) {
+    if (!parent)
         return null;
-    }
     
     switch (parent->kind) {
         case_kind(Ast, structure)
@@ -1562,42 +1665,84 @@ Ast::Children *children_of(Ast *parent, bool is_a_test = false) {
         case_kind(Ast, temporary_declarations)
             return &parent->temporary_declarations.list;
         
-        default:
-        assert(is_a_test);
-        return null;
+        CASES_COMPLETE;
     }
+    
+    UNREACHABLE_CODE;
+    return null;
 }
 
-void attach(Ast *new_parent, Ast *child) {
+
+bool attach_or_test(bool *out_is_one_child, Ast *new_parent, Ast *child, bool is_test, bool do_replace) {
+    
+    assert(is_test || child);
+    
+    Ast **destination = null;
+    
+    *out_is_one_child = true;
     
     switch (new_parent->kind) {
+        
+        case_kind(Ast, definition) {
+            destination = &new_parent->definition.value;
+        } break;
+        
         case_kind(Ast, function) {
-            assert(!new_parent->function.statement);
-            new_parent->function.statement = child;
+            destination = &new_parent->function.statement;
         } break;
         
         case_kind(Ast, conditional_branch) {
-            assert(!new_parent->conditional_branch.statement);
-            new_parent->conditional_branch.statement = child;
+            destination = &new_parent->conditional_branch.statement;
         } break;
         
         case_kind(Ast, conditional_loop) {
-            assert(!new_parent->conditional_loop.statement);
-            new_parent->conditional_loop.statement = child;
+            destination = &new_parent->conditional_loop.statement;
         } break;
         
         case_kind(Ast, loop) {
-            assert(!new_parent->loop.statement);
-            new_parent->loop.statement = child;
+            destination = &new_parent->loop.statement;
         } break;
         
         default: {
-            attach(new_parent, children_of(new_parent), child);
-            return;
+            assert(!do_replace);
+            *out_is_one_child = false;
+            
+            if (!is_test)
+                attach(new_parent, children_of(new_parent), child);
+            
+            return false;
         }
     }
     
-    child->parent = new_parent;
+    if (!is_test) {
+        assert(do_replace || (*destination == null));
+        *destination = child;
+        child->parent = new_parent;
+    }
+    
+    return (*destination != null);
+}
+
+bool is_done(Ast *new_parent) {
+    bool ignored;
+    return attach_or_test(&ignored, new_parent, null, true, false);
+}
+
+void attach(Ast *new_parent, Ast *child) {
+    bool ignored;
+    attach_or_test(&ignored, new_parent, child, false, false);
+}
+
+bool has_only_one_child(Ast *parent) {
+    bool result;
+    attach_or_test(&result, parent, null, true, false);
+    return result;
+}
+
+void replace_single_child(Ast *parent, Ast *child) {
+    bool has_one_child;
+    attach_or_test(&has_one_child, parent, child, false, true);
+    assert(has_one_child);
 }
 
 void detach(Ast *parent, Ast *child) {
@@ -1610,6 +1755,49 @@ void move(Ast *new_parent, Ast *child) {
     move(new_parent, children_of(new_parent), child, children_of(child->parent));
 }
 #endif
+
+void write(String_Buffer *buffer, u32 *indent_depth, string format, ...) {
+    
+    static bool do_new_line = false;
+    
+    va_list va_args;
+    va_start(va_args, format);
+    
+    string text = {};
+    defer { free_array(buffer->allocator, &text); };
+    write_va(buffer->allocator, &text, format, va_args);
+    
+    va_end(va_args);
+    
+    auto it = text;
+    
+    while (it.count) {
+        u32 byte_count;
+        u32 head = utf8_head(it, &byte_count);
+        
+        if (head == '}') {
+            assert(*indent_depth > 0);
+            (*indent_depth)--;
+        }
+        
+        if (do_new_line) {
+            auto dest = grow(buffer->allocator, &buffer->buffer, *indent_depth * 4);
+            reset(dest, *indent_depth * 4, ' ');
+            do_new_line = false;
+        }
+        
+        auto dest = grow(buffer->allocator, &buffer->buffer, byte_count);
+        copy(dest, it.data, byte_count);
+        
+        advance(&it, byte_count);
+        
+        if (head == '\n') {
+            do_new_line = true;
+        }
+        else if (head == '{')
+            (*indent_depth)++;
+    }
+}
 
 MAIN_DEC {
     Win32_Platform_API win32_api;
@@ -1712,14 +1900,15 @@ MAIN_DEC {
     Tokenizer it = make_tokenizer(allocator, source);
     Report_Context reporter = { allocator, source_file_path, source, &it };
     
-    Ast *root = ALLOCATE(allocator, Ast);
+    Ast *file_scope_node = new_kind(allocator, Ast, structure);
+    file_scope_node->structure.type = make_kind(Type, structure, file_scope_node);
+    
     {
         
         // TODO: add filescope? or/and global scope?
-        *root = make_kind(Ast, scope);
-        auto parent = root;
+        auto parent = file_scope_node;
         
-        Ast *parent_namespace_node = root;
+        Ast *parent_namespace_node = file_scope_node;
         Ast *parent_structure_node = null;
         Ast *parent_function_node = null;
         Ast *parent_loop_node = null;
@@ -1727,7 +1916,7 @@ MAIN_DEC {
         
         while (it.text.count) {
             
-            debug_break_once(it.line_count >= 29);
+            debug_break_once(it.line_count >= 33);
             
             {
                 parent_function_node = null;
@@ -1735,6 +1924,10 @@ MAIN_DEC {
                 parent_namespace_node = null;
                 parent_loop_node = null;
                 parent_scope_node = null;
+                
+                while (is_done(parent)) {
+                    parent = parent->parent;
+                }
                 
                 bool done = false;
                 auto scope = parent;
@@ -1778,7 +1971,7 @@ MAIN_DEC {
                 }
                 
                 if (!scope)
-                    parent_namespace_node = root;
+                    parent_namespace_node = file_scope_node;
             }
             
             if (is_kind(*parent, temporary_declarations)) {
@@ -1792,9 +1985,9 @@ MAIN_DEC {
                         
                         auto node = ALLOCATE(allocator, Ast);
                         if (parent->temporary_declarations.as_structure_kinds)
-                            *node = make_kind(Ast, structure_kind, identifier);
+                            *node = make_kind(Ast, structure_kind, parent->temporary_declarations.token, identifier);
                         else
-                            *node = make_kind(Ast, declaration, identifier);
+                            *node = make_kind(Ast, declaration, parent->temporary_declarations.token, identifier);
                         
                         // just temporary while processing
                         attach(parent, &parent->temporary_declarations.list, node);
@@ -1846,9 +2039,17 @@ MAIN_DEC {
                     case parent->temporary_declarations.State_Parse_Expressions: {
                         // search unparse , seperated expressions
                         auto node = parent->temporary_declarations.list.head;
+                        auto count = parent->temporary_declarations.list.count;
                         
-                        while (node) {
-                            node->unparsed_expression = next_expression(allocator, &reporter, node->next == null ? S(";") : S(","));
+                        for (u32 i = 0; i < count; i++) {
+                            assert(is_kind(*node, declaration));
+                            
+                            auto assignment_node = new_kind(allocator, Ast, assignment);
+                            assignment_node->assignment.destination_unparsed_expression = node->declaration.identifier;
+                            assignment_node->assignment.source_unparsed_expression = next_expression(allocator, &reporter, (i == count - 1) ? S(";") : S(","));
+                            
+                            attach(parent, assignment_node);
+                            
                             node = node->next;
                         }
                         
@@ -1859,22 +2060,35 @@ MAIN_DEC {
                 }
                 
                 if (do_cleanup) {
-                    
                     auto declarations_node = parent;
                     parent = parent->parent;
                     
-                    detach(parent, declarations_node);
-                    
-                    auto declarations = kind_of(declarations_node, temporary_declarations);
-                    
-                    while (declarations->list.head) {
-                        auto it = declarations->list.head;
-                        detach(&declarations->list, it);
+                    if (!declarations_node->temporary_declarations.as_structure_kinds) {
                         
-                        attach(parent, it);
+                        bool inserted_scope = has_only_one_child(parent);
+                        if (inserted_scope) {
+                            auto scope_node = new_kind(allocator, Ast, scope);
+                            replace_single_child(parent, scope_node);
+                            parent = scope_node;
+                        }
+                        else {
+                            detach(parent, declarations_node);
+                        }
+                        
+                        auto declarations = kind_of(declarations_node, temporary_declarations);
+                        
+                        while (declarations->list.head) {
+                            auto it = declarations->list.head;
+                            detach(&declarations->list, it);
+                            
+                            attach(parent, it);
+                        }
+                        
+                        free(allocator, declarations_node);
+                        
+                        if (inserted_scope)
+                            parent = parent->parent;
                     }
-                    
-                    free(allocator, declarations_node);
                     
                     continue;
                 }
@@ -1898,12 +2112,7 @@ MAIN_DEC {
                     CASES_COMPLETE;
                 }
                 
-                LOOP {
-                    parent = parent->parent;
-                    
-                    if (!parent || children_of(parent, true))
-                        break;
-                }
+                parent = parent->parent;
                 
                 continue;
             }
@@ -2040,9 +2249,17 @@ MAIN_DEC {
             {
                 Ast *declarations_node = null;
                 if (is_kind(*parent, structure) && try_skip(&it, S("kind"))) {
-                    declarations_node = ALLOCATE(allocator, Ast);
-                    *declarations_node = make_kind(Ast, temporary_declarations, true);
-                    attach(parent, declarations_node);
+                    
+                    if (!parent->structure.kind_union) {
+                        assert(!parent->structure.kind_union);
+                        declarations_node = new_kind(allocator, Ast, temporary_declarations, it.skipped_token, true);
+                        parent->structure.kind_union = declarations_node;
+                        
+                        insert_head(&parent->structure.body, declarations_node);
+                        declarations_node->parent = parent;
+                    }
+                    
+                    declarations_node = parent->structure.kind_union;
                     
                     parent = declarations_node;
                     continue;
@@ -2050,7 +2267,7 @@ MAIN_DEC {
                 
                 if (!declarations_node && try_skip(&it, S("var"))) {
                     declarations_node = ALLOCATE(allocator, Ast);
-                    *declarations_node = make_kind(Ast, temporary_declarations, false);
+                    *declarations_node = make_kind(Ast, temporary_declarations, it.skipped_token, false);
                     attach(parent, declarations_node);
                     
                     parent = declarations_node;
@@ -2147,15 +2364,15 @@ MAIN_DEC {
                             auto parent_scope_identifier = try_skip_identifier(&it);
                             
                             auto it = parent;
-                            while (parent != parent_function_node) {
-                                if (is_kind(*parent, scope)) {
-                                    if ((parent_scope_identifier.text.count == 0) || (parent->scope.identifier.text == parent_scope_identifier.text)) {
+                            while (it != parent_function_node) {
+                                if (is_kind(*it, scope)) {
+                                    if ((parent_scope_identifier.text.count == 0) || (it->scope.identifier.text == parent_scope_identifier.text)) {
                                         parent_scope = it;
                                         break;
                                     }
                                 }
                                 
-                                parent = parent->parent;
+                                it = it->parent;
                             }
                             
                             EXPECT_TOKEN(&reporter, (parent_scope_identifier.text.count == 0) || parent_scope, parent_scope_identifier, S("unknown parent scope '%'"), f(parent_scope_identifier.text));
@@ -2251,8 +2468,13 @@ MAIN_DEC {
             expected_tokens(&reporter);
         }
         
-        // file is parsed but we are not at root
-        if (parent != root) {
+        // check if all scopes are done
+        while (is_done(parent)) {
+            parent = parent->parent;
+        }
+        
+        // file is parsed but we are not at file_scope_node
+        if (parent != file_scope_node) {
             switch (parent->kind) {
                 case_kind(Ast, scope) {
                     EXPECT_TOKEN(&reporter, 0, parent->scope.open_bracket, S("scope not closed"));
@@ -2267,31 +2489,34 @@ MAIN_DEC {
         }
     }
     
-    // replace undeclared types now that we found all types
-    Type *defined_types_root = new_kind(allocator, Type, structure);
+    // replace undeclared types
     {
-        auto current = root;
-        auto parent_namespace = root;
-        Type *parent_type = null;
+        auto current = file_scope_node->structure.body.head;
         bool did_enter = true;
         
         while (current) {
             Type **type_storage = null;
             
             // find parent namespace
+            Ast *parent_namespace = null;
+            Type *parent_type = null;
             {
-                auto it = current;
+                auto it = current->parent;
                 
-                parent_namespace = root;
-                
-                while (it) {
-                    if (is_kind(*it, definition)) {
+                while (it && (!parent_type || !parent_namespace)) {
+                    if (!parent_namespace && is_kind(*it, definition)) {
                         parent_namespace = it;
-                        break;
+                    } else if (!parent_type && is_kind(*it, structure)) {
+                        parent_type = &it->structure.type;
                     }
                     
                     it = it->parent;
                 }
+                
+                assert((current == file_scope_node) || parent_type);
+                
+                if (!parent_namespace)
+                    parent_namespace = file_scope_node;
             }
             
             Ast *next = null;
@@ -2301,9 +2526,7 @@ MAIN_DEC {
                 case_kind(Ast, declaration) {
                     if (did_enter) {
                         if (is_kind(*current->declaration.type, structure)) {
-                            // anonymous structs get reparented and there children types replaced
                             next = current->declaration.type->structure.node;
-                            //next->parent = current;
                         }
                         else {
                             replace_undeclared_type(allocator, &reporter, parent_namespace, parent_type, &current->declaration.type);
@@ -2312,25 +2535,12 @@ MAIN_DEC {
                 } break;
                 
                 case_kind(Ast, definition) {
-                    if (did_enter) {
-                        parent_namespace = current;
+                    if (did_enter)
                         next = current->definition.value;
-                    }
-                    else {
-                        assert(parent_namespace == current);
-                    }
                 } break;
                 
                 case_kind(Ast, structure) {
                     if (did_enter) {
-                        if (is_kind(*current->parent, definition)) {
-                            *grow(allocator, &defined_types_root->structure.dependencies) = &current->structure.type;
-                            
-                            // empty struct will be skipped
-                            if (current->structure.body.head)
-                                parent_type = &current->structure.type;
-                        }
-                        
                         // empty struct, just skipp
                         if (!current->structure.body.head)
                             break;
@@ -2338,24 +2548,28 @@ MAIN_DEC {
                         next = current->structure.body.head;
                     }
                     else {
-                        if (parent_type == &current->structure.type) {
-                            auto it = parent_type->structure.node->parent;
-                            parent_type = null;
-                            
-                            while (it) {
-                                auto structure = try_kind_of(it, structure);
-                                if (structure && is_kind(*it->parent, definition)) {
-                                    parent_type = &structure->type;
-                                    break;
-                                }
-                                
-                                it = it->parent;
-                            }
+                        if (parent_type)
+                            add_dependencies(allocator, &reporter, parent_type, &current->structure.type);
+                        else {
+                            assert(current == file_scope_node);
                         }
                         
-                        if (parent_type) {
-                            add_dependencies(allocator, &reporter, parent_type, &current->structure.type);
-                        }
+                        write_line_out(allocator, S("%:\n"), f(current->structure.type, true));
+                        
+                        write_line_out(allocator, S("  dependencies:"));
+                        
+                        for_array_item(it, current->structure.type.structure.dependencies)
+                            write_line_out(allocator, S("    %"), f(**it, true));
+                        
+                        write_line_out(allocator);
+                        
+                        order_sub_types(allocator, &reporter, current);
+                        write_line_out(allocator, S("  ordered sub types:"));
+                        
+                        for_array_item(it, current->structure.ordered_sub_types)
+                            write_line_out(allocator, S("    %"), f(**it, true));
+                        
+                        write_line_out(allocator);
                     }
                 } break;
                 
@@ -2371,6 +2585,12 @@ MAIN_DEC {
                     }
                 } break;
                 
+                case_kind(Ast, temporary_declarations) {
+                    assert(current->temporary_declarations.as_structure_kinds);
+                    next = current->temporary_declarations.list.head;
+                } break;
+                
+                case_kind(Ast, assignment);
                 case_kind(Ast, unparsed_expression);
                 case_kind(Ast, return_statement);
                 case_kind(Ast, break_statement);
@@ -2417,648 +2637,239 @@ MAIN_DEC {
     
     { 
         write_line_out(transient_allocator, S("type dependencies\n\n"));
-        write_tree(allocator, &reporter, defined_types_root);
+        
+#if 0        
+        for_array_item(it, file_scope_node->structure.type.structure.dependencies) {
+            write_line_out(transient_allocator, S("%"), f(**it, true));
+        }
+#endif
+        
+        //write_tree(allocator, &reporter, &file_scope_node->structure.type);
     }
-    
-#if 0    
     
     String_Buffer output = { allocator };
     
+    // generate c code
+    {
+        
 #if defined _WIN64
-    write(&output, S(
-        "#if !defined _WIN64\r\n"
-        "#error this file was generated with x64 compiler on windows, offsets and sizes would be wrong on 32bit compiles\r\n"
-        "#endif\r\n\r\n"
-        ));
+        write(&output, S(
+            "#if !defined _WIN64\r\n"
+            "#error this file was generated with x64 compiler on windows, offsets and sizes would be wrong on 32bit compiles\r\n"
+            "#endif\r\n\r\n"
+            ));
 #else
-    write(&output, S(
-        "#if defined _WIN64\r\n"
-        "#error this file was generated with x86 compiler on windows, offsets and sizes would be wrong on 64bit compiles\r\n"
-        "#endif\r\n\r\n"
-        ));
+        write(&output, S(
+            "#if defined _WIN64\r\n"
+            "#error this file was generated with x86 compiler on windows, offsets and sizes would be wrong on 64bit compiles\r\n"
+            "#endif\r\n\r\n"
+            ));
 #endif
-    
-    write(&output, S(
-        "#include <stdio.h>" "\r\n"
-        "#include \"basic.h\"" "\r\n"
-        "#include \"mo_string.h\"" "\r\n"
-        "#include \"memory_growing_stack.h\"" "\r\n"
-        "#include \"win32_platform.h\"" "\r\n"
-        "#include \"memory_c_allocator.h\"" "\r\n"
-        ));
-    
-    for_array_item(it, types) {
-        auto structure = try_kind_of(*it, structure_node);
         
-        if (structure)
-            write(&output, S("struct %;\r\n"), f(**it));
-    }
-    
-    write(&output, S("\r\n"));
-    
-    {
-        // skip root, its does not contain a type
-        auto current_type = type_dependency_root.children.head;
+        write(&output, S(
+            "#include <stdio.h>" "\r\n"
+            "#include \"basic.h\"" "\r\n"
+            "#include \"mo_string.h\"" "\r\n"
+            "#include \"memory_growing_stack.h\"" "\r\n"
+            "#include \"win32_platform.h\"" "\r\n"
+            "#include \"memory_c_allocator.h\"" "\r\n"
+            ));
         
-        while (current_type) {
-            auto type = current_type->type;
-            defer { next(&current_type); };
+#if 0    
+        for_array_item(it, types) {
+            auto structure = try_kind_of(*it, structure_node);
             
-            {
-                auto list = try_kind_of(type, list);
-                if (list) {
-                    write(&output, S(
-                        "#define Template_List_Name      %" "\r\n"
-                        "#define Template_List_Data_Type %"  "\r\n"
-                        "#define Template_List_Data_Name % // optional"  "\r\n"
-                        ),
-                          f(list->identifier), f(*list->entry_data.type), f(list->entry_data.identifier));
-                    
-                    // sizeof(head)
-                    list->byte_count = sizeof(u8*);
-                    list->byte_alignment = alignof(u8*);
-                    
-                    if (list->with_tail) {
-                        write(&output, S("#define Template_List_With_Tail // optional"  "\r\n"));
-                        // sizeof(tail)
-                        list->byte_count += sizeof(u8*);
-                    }
-                    
-                    if (list->with_double_links)
-                        write(&output, S("#define Template_List_With_Double_Links // optional" "\r\n"));
-                    
-                    if (list->count_type) {
-                        u32 byte_alignment;
-                        u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *list->count_type);
-                        
-                        align_to(&list->byte_count, byte_alignment);
-                        list->byte_count += byte_count;
-                        list->byte_alignment = MAX(list->byte_alignment, byte_alignment);
-                        
-                        write(&output, S("#define Template_List_Count_Type % // optional" "\r\n"), f(*list->count_type));
-                    }
-                    
-                    write(&output, S("#include \"template_list.h\"" "\r\n\r\n"));
-                    
-                    continue;
-                }
-            }
-            
-            if (!is_kind(*type, structure_node))
-                continue;
-            
-            auto structure_node = kind_of(type, structure_node);
-            
-            assert(is_kind(structure_node->structure, def_structure));
-            
-            {
-                String_Buffer head_buffer = { allocator };
-                defer{ free(&head_buffer); };
-                
-                String_Buffer body_buffer = { allocator };
-                defer{ free(&body_buffer); };
-                
-                String_Buffer tail_buffer = { allocator };
-                defer{ free(&tail_buffer); };
-                
-                // skip root
-                auto current = structure_node;
-                bool did_enter = true, did_leave = current && !current->children.head;
-                
-                bool parent_is_kind = false;
-                
-                while (current) {
-                    defer { advance(&current, &did_enter, &did_leave); };
-                    
-                    if (is_kind(current->structure, var_structure))
-                        parent_is_kind = current->is_kind;
-                    
-                    bool is_kind = current->is_kind || parent_is_kind;
-                    
-                    switch (current->kind) {
-                        case_kind(Structure, def_structure) {
-                            if (did_enter) {
-                                write(&head_buffer, S("struct % {\r\n"), f(current->def_structure.identifier));
-                                
-                                if (current->def_structure.kind_count) {
-                                    write(&head_buffer, S("enum Kind {\r\nKind_null,\r\n"));
-                                    
-                                    write(&tail_buffer, S("union {\r\n"));
-                                }
-                                
-                                assert(!current->def_structure.byte_count);
-                                assert(!current->def_structure.byte_alignment);
-                            }
-                            
-                            if (did_leave) {
-                                if (current->def_structure.kind_count) {
-                                    u32 kind_count = current->def_structure.kind_count + 2;
-                                    u32 bit_count = bit_count_of(kind_count);
-                                    if (bit_count <= 8)
-                                        bit_count = 8;
-                                    else if (bit_count <= 16)
-                                        bit_count = 16;
-                                    else if (bit_count <= 32)
-                                        bit_count = 32;
-                                    else
-                                        UNREACHABLE_CODE;
-                                    
-                                    write(&head_buffer, S("Kind_Count,\r\n};\r\n\r\nu% kind;\r\n"), f(bit_count));
-                                    
-                                    update_byte_count_and_alignment(current, bit_count/8, bit_count/8);
-                                    update_byte_count_and_alignment(current, current->def_structure.max_kind_byte_count, current->def_structure.max_kind_byte_alignment);
-                                    
-                                    write(&tail_buffer, S("};\r\n"));
-                                }
-                                
-                                // struct size must be multiple of alignment
-                                align_to(&current->def_structure.byte_count, current->def_structure.byte_alignment);
-                                
-                                write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\n"), f(current->def_structure.byte_count));
-                                write(&tail_buffer, S("static const usize Byte_Alignment = %;\r\n"), f(current->def_structure.byte_alignment));
-                                
-                                write(&output, S("%\r\n%\r\n%};\r\n\r\n"), f(head_buffer.buffer), f(body_buffer.buffer), f(tail_buffer.buffer));
-                                
-                                free(&head_buffer);
-                                free(&tail_buffer);
-                                free(&body_buffer);
-                            }
-                        } break;
-                        
-                        case_kind(Structure, var_structure) {
-                            if (did_enter) {
-                                if (current->is_kind) {
-                                    write(&head_buffer, S("Kind_%,\r\n"), f(current->structure.var_structure.identifier));
-                                }
-                                
-                                if (is_kind) {
-                                    write(&tail_buffer, S("struct {\r\n"));
-                                }
-                                else
-                                    write(&body_buffer, S("struct {\r\n"));
-                                
-                                assert(!current->def_structure.byte_count);
-                                assert(!current->def_structure.byte_alignment);
-                            }
-                            
-                            if (did_leave) {
-                                if (is_kind) {
-                                    write(&tail_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->var_structure.byte_count), f(current->var_structure.byte_alignment));
-                                    write(&tail_buffer, S("} %;\r\n\r\n"), f(current->var_structure.identifier));
-                                }
-                                else {
-                                    write(&body_buffer, S("\r\nstatic const usize Byte_Count = %;\r\nstatic const usize Byte_Alignment = %;\r\n"), f(current->var_structure.byte_count), f(current->var_structure.byte_alignment));
-                                    write(&body_buffer, S("} %;\r\n\r\n"), f(current->var_structure.byte_count), f(current->var_structure.identifier));
-                                }
-                                
-                                // struct size must be multiple of alignment
-                                align_to(&current->var_structure.byte_count, current->var_structure.byte_alignment);
-                                
-                                if (current->parent) {
-                                    if (!current->is_kind) {
-                                        update_byte_count_and_alignment(current->parent, current->structure.var_structure.byte_count, current->var_structure.byte_alignment);
-                                    }
-                                    else {
-                                        current->parent->var_structure.max_kind_byte_alignment = MAX(current->parent->var_structure.max_kind_byte_alignment, current->var_structure.byte_alignment);
-                                        current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_alignment, current->var_structure.byte_count);
-                                    }
-                                }
-                            }
-                        } break;
-                        
-                        case_kind(Structure, field) {
-                            assert(did_enter && did_leave);
-                            
-                            if (current->is_kind) {
-                                write(&head_buffer, S("Kind_%,\r\n"), f(current->field.identifier));
-                            }
-                            
-                            if (is_kind) {
-                                write(&tail_buffer, S("% %;\r\n"), f(*current->field.type), f(current->field.identifier));
-                            }
-                            else
-                                write(&body_buffer, S("% %;\r\n"), f(*current->field.type), f(current->field.identifier));
-                            
-                            if (current->parent) {
-                                u32 byte_alignment;
-                                u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *current->field.type);
-                                
-                                if (!current->is_kind) {
-                                    update_byte_count_and_alignment(current->parent, byte_count, byte_alignment);
-                                }
-                                else {
-                                    current->parent->var_structure.max_kind_byte_alignment = MAX(current->parent->var_structure.max_kind_byte_alignment, byte_alignment);
-                                    current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_alignment, byte_count);
-                                }
-                            }
-                        } break;
-                        
-                        CASES_COMPLETE;
-                    }
-                }
-            }
+            if (structure)
+                write(&output, S("struct %;\r\n"), f(**it));
         }
-    }
-    
-    write(&output, S("\r\n"));
-    
-    // also here we calculate the local variable sizes
-    if (functions.count) {
-        write(&output, S("#include \"preprocessor_coroutines.h\"\r\n\r\n"));
+#endif
         
-        for_array_item(function, functions) {
-            write_signature(&output, **function);
-            write(&output, S(";\r\n"));
-            
-            auto current = &(*function)->local_variables;
-            bool did_enter = true, did_leave = false;
-            
-            while (current) {
-                defer { advance(&current, &did_enter, &did_leave); };
-                
-                auto def_structure = try_kind_of(&current->structure, def_structure);
-                if (def_structure) {
-                    if (did_enter) {
-                        def_structure->max_kind_byte_count = 0;
-                        def_structure->byte_count = 0;
-                        def_structure->byte_alignment = 0;
-                    }
-                    continue;
-                }
-                
-                auto var_structure = try_kind_of(&current->structure, var_structure);
-                if (var_structure) {
-                    if (did_enter) {
-                        var_structure->max_kind_byte_count = 0;
-                        var_structure->byte_count = 0;
-                        var_structure->byte_alignment = 0;
-                    }
-                    
-                    if (did_leave) {
-                        current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_count, var_structure->max_kind_byte_count);
-                        current->parent->var_structure.byte_count -= var_structure->byte_count;
-                        
-                        write_line_out(allocator, S("subscope has byte count of %"), f(var_structure->max_kind_byte_count));
-                        
-                    }
-                    
-                    continue;
-                }
-                
-                auto field = kind_of(&current->structure, field);
-                u32 byte_alignment;
-                u32 byte_count = byte_count_and_alignment_of(&byte_alignment, *field->type);
-                
-                current->parent->var_structure.byte_count += byte_count;
-                current->parent->var_structure.max_kind_byte_count = MAX(current->parent->var_structure.max_kind_byte_count, current->parent->var_structure.byte_count);
-            }
-            
-            write_line_out(allocator, S("function % has local byte count of %"), f((*function)->identifier), f((*function)->local_variables.def_structure.max_kind_byte_count));
-            
-            write(&output, S("\r\n"));
+        write(&output, S("\r\n"));
+        
+        u32 indent_depth = 0;
+        
+        auto node = file_scope_node->structure.body.head;
+        bool did_enter = true;
+        
+        // forward declare sub structs
+        for_array_item(it, file_scope_node->structure.ordered_sub_types) {
+            write(&output, &indent_depth, S("struct %;\n"), f(**it));
         }
-    }
-    
-    {
-        Text_Iterator it = { source, 1 };
         
-        string file_path = to_forward_slashed_path(allocator, source_file_path);
-        //write(&output, S("#line 1 \"%\"\r\n\r\n"), f(file_path));
+        write(&output, &indent_depth, S("\n"));
         
-        while (it.text.count) {
-            skip_space(&it, &output);
+        while (node) {
             
-            if (try_skip(&it, S("def"), &output)) {
-                skip_space(&it, &output);
+            Ast *node_children_head = null;
+            
+            defer { advance(&node, node_children_head, &did_enter); };
+            
+            switch (node->kind) {
                 
-                string identifier = get_identifier(&it.text, S("_"));
-                assert(identifier.count);
-                skip_space(&it, &output);
-                
-                if (try_skip(&it, S("list"), &output)) {
-                    skip_until_first_in_set(&it, S(";"), &output, true);
-                    
-                    continue;
-                }
-                
-                if (try_skip(&it, S("struct"), &output)) {
-                    skip_space(&it, &output);
-                    
-                    skip_scope(&it, S("{"), S("}"), &output);
-                    
-                    continue;
-                }
-                
-                bool is_coroutine = try_skip(&it, S("coroutine"), &output);
-                if (is_coroutine || try_skip(&it, S("function"), &output)) {
-                    skip_space(&it, &output);
-                    
-                    auto function = find_function(functions, identifier);
-                    write_signature(&output, *function);
-                    write(&output, S(" {\r\n"));
-                    
-                    auto switch_table = new_write_buffer(allocator, S("switch (CO_HEADER.current_label_index) {\r\n"));
-                    defer { free(&switch_table); };
-                    
-                    String_Buffer body = { allocator };
-                    defer { free(&body); };
-                    
-                    defer { 
-                        if (function->is_coroutine) 
-                            write(&output, S("%default:\r\nassert(0);\r\n}\r\n\r\n%"), f(switch_table.buffer), f(body.buffer)); 
-                        else
-                            write(&output, S("%\r\n\r\n"), f(body.buffer));
-                    };
-                    
-                    for_array_item(argument, function->arguments) {
-                        if (function->is_coroutine)
-                            write(&body, S("// argument: def %: %;\r\n"), f(argument->identifier), f(*argument->type));
-                    }
-                    
-                    u32 label_count = 0;
-                    
-                    if (function->is_coroutine)
-                        add_label(&switch_table, &body, &label_count);
-                    
-                    skip_until_first_in_set(&it, S("{"), &output, true);
-                    
-                    auto current = &function->local_variables;
-                    while (current) {
-                        skip_space(&it, &body);
-                        
-                        while (try_skip(&it, S(";"), &body))
-                            skip_space(&it, &body);
-                        
-                        if (try_skip(&it, S("}"), &body)) {
-                            current = current->parent;
-                            
-                            if (function->is_coroutine) {
-                                if (!current) {
-                                    //TODO if no return values this, else error state
-                                    write(&body, S("CO_HEADER.current_label_index = %;\r\n"), f(label_count));
-                                    write(&body, S("return Coroutine_Continue;\r\n"));
-                                }
-                            }
-                            
-                            write(&body, S("}\r\n\r\n"));
-                            continue;
-                        }
-                        
-                        if (try_skip(&it, S("{"), &body)) {
-                            current = current->children.head;
-                            
-                            write(&body, S("{\r\n"));
-                            continue;
-                        }
-                        
-                        bool is_return = try_skip(&it, S("return"), &body);
-                        
-                        bool is_yield;
-                        if (!is_return)
-                            is_yield = try_skip(&it, S("yield"), &body);
-                        else
-                            is_yield = false;
-                        
-                        if (is_return || is_yield) {
-                            skip_space(&it, &body);
-                            
-                            if (!function->is_coroutine) {
-                                assert(!is_yield);
-                                
-                                if (!function->return_types.count) {
-                                    skip(&it.text, S(";"));
-                                    write(&body, S("return;"));
+                case_kind(Ast, structure) {
+                    if (!did_enter) {
+                        // skip file scope
+                        if (node->parent) {
+                            if (node->structure.kind_union) {
+                                if (!node->structure.kind_union->temporary_declarations.kinds_written) {
+                                    write(&output, &indent_depth, S("union {\n"));
+                                    
+                                    // now iterate over kinds, and remember that we did this to avoid infite looping
+                                    node->structure.kind_union->temporary_declarations.kinds_written = true;
+                                    node_children_head = node->structure.kind_union->temporary_declarations.list.head;
+                                    did_enter = true;
                                     continue;
                                 }
-                                
-                                bool is_end;
-                                string first_expression = parse_next_expression(&it, S(";"), &is_end, &body);
-                                assert(is_end == (function->return_types.count == 1));
-                                
-                                for (u32 i = 1; i < function->return_types.count; i++) {
-                                    bool is_end;
-                                    string expression = parse_next_expression(&it, S(";"), &is_end, &body);
-                                    assert(expression.count);
-                                    assert(is_end == (i == function->return_types.count - 1));
-                                    
-                                    string expression_prime = replace_expression(allocator, expression, functions, function, current);
-                                    defer { free_array(allocator, &expression_prime); };
-                                    
-                                    write(&body, S("*_out% = %;\r\n"), f(i), f(expression_prime));
-                                }
-                                
-                                string first_expression_prime = replace_expression(allocator, first_expression, functions, function, current);
-                                defer { free_array(allocator, &first_expression_prime); };
-                                
-                                write(&body, S("return %;\r\n"), f(first_expression_prime));
-                                continue;
-                            }
-                            
-                            if (is_return)
-                                write(&body, S("{ // return\r\n"));
-                            else
-                                write(&body, S("{ // yield\r\n"));
-                            
-                            for (u32 i = 0; i < function->return_types.count; i++) {
-                                bool is_end;
-                                string expression = parse_next_expression(&it, S(";"), &is_end, &body);
-                                assert(expression.count);
-                                assert(is_end == (i == function->return_types.count - 1));
-                                
-                                string expression_prime = replace_expression(allocator, expression, functions, function, current);
-                                defer { free_array(allocator, &expression_prime); };
-                                
-                                write(&body, S("CO_RESULT(%, %) = %;\r\n"), f(*function->return_types[i]), f(return_value_byte_offset_of(function, i)), f(expression_prime));
-                            }
-                            
-                            if (is_return) {
-                                write(&body, S("CO_HEADER.current_label_index = u32_max;\r\n"));
-                                write(&body, S("call_stack->current_byte_index = CO_HEADER.previous_byte_index;\r\n"));
-                                write(&body, S("return Coroutine_Continue;\r\n}\r\n\r\n"));
-                            }
-                            else {
-                                
-                                write(&body, S("CO_HEADER.current_label_index = %;\r\n"), f(label_count));
-                                write(&body, S("return Coroutine_Wait;\r\n}\r\n\r\n"));
-                                
-                                add_label(&switch_table, &body, &label_count);
-                            }
-                            
-                            continue;
-                        }
-                        
-                        if (try_skip(&it, S("var"), &body))
-                        {
-                            string_array left_expressions = {};
-                            defer { free_array(allocator, &left_expressions); };
-                            
-                            LOOP {
-                                skip_space(&it, &body);
-                                
-                                auto identifier = get_identifier(&it.text, S("_"));
-                                assert(identifier.count);
-                                skip_space(&it, &body);
-                                
-                                skip(&it.text, S(":"));
-                                skip_space(&it, &body);
-                                
-                                Type *type = parse_type(allocator, &it, &types, &body);
-                                assert(type);
-                                skip_space(&it, &body);
-                                
-                                // can't go up, since we need declared variables to be visible by replace_expression
-                                if (current->next)
-                                    current = current->next;
-                                
-                                *grow(allocator, &left_expressions) = identifier;
-                                
-                                if (!function->is_coroutine)
-                                    write(&body, S("% %;\r\n"), f(*type), f(identifier));
-                                
-                                if (!try_skip(&it, S(","), &body)) {
-                                    break;
+                                else {
+                                    write(&output, &indent_depth, S("};\n"));
                                 }
                             }
                             
-                            if (try_skip(&it, S("="), &body)) {
-                                skip_space(&it, &body);
-                                
-                                if (try_skip(&it, S("run"), &body)) {
-                                    skip_space(&it, &body);
-                                    
-                                    // get allocator expression
-                                    
-                                    bool is_end;
-                                    auto allocator_expression = parse_next_expression(&it, S(";"), &is_end, &body);
-                                    assert(!is_end);
-                                    
-                                    string subroutine_identifier = get_identifier(&it.text, S("_"));
-                                    auto subroutine = find_function(functions, subroutine_identifier);
-                                    assert(subroutine && subroutine->is_coroutine);
-                                    skip_space(&it, &body);
-                                    
-                                    skip(&it.text, S("("));
-                                    
-                                    string_array arguments = {};
-                                    defer { free_array(allocator, &arguments); };
-                                    
-                                    LOOP {
-                                        skip_space(&it, &body);
-                                        bool is_end;
-                                        auto expression = parse_next_expression(&it, S(")"), &is_end, &body);
-                                        
-                                        *grow(allocator, &arguments) = expression;
-                                        
-                                        if (is_end) {
-                                            skip_space(&it, &body);
-                                            break;
-                                        }
-                                    }
-                                    
-                                    assert(arguments.count == subroutine->arguments.count);
-                                    
-                                    skip(&it.text, S(";"));
-                                    
-                                    write(&body, S("{\r\n"));
-                                    
-                                    {
-                                        string allocator_expression_prime = replace_expression(allocator, allocator_expression, functions, function, current);
-                                        defer { free_array(allocator, &allocator_expression_prime); };
-                                        
-                                        write(&body, S("Memory_Growing_Stack *_allocator = %;\r\n"), f(allocator_expression_prime));
-                                        write(&body, S("Coroutine_Stack _call_stack = { _allocator };\r\n"));
-                                    }
-                                    
-                                    // CO_ macros work on call_stack pointer
-                                    write(&body, S("auto call_stack = &_call_stack;\r\n"));
-                                    write(&body, S("*grow_item(_call_stack.allocator, &_call_stack.buffer, usize) = 0; // push terminal stack entry\r\n"));
-                                    write(&body, S("auto it = co_push_coroutine(call_stack, %, %);\r\n"), f(subroutine->identifier), f(sizeof(Coroutine_Header) + byte_count_of(*subroutine)));
-                                    
-                                    for (u32 i = 0; i < arguments.count; i++) {
-                                        string argument_prime = replace_expression(allocator, arguments[i], functions, function, current);
-                                        defer { free_array(allocator, &argument_prime); };
-                                        
-                                        write(&body, S("*next_item(&it, %) = %;\r\n"), f(*subroutine->arguments[i].type), f(argument_prime));
-                                    }
-                                    
-                                    write(&body, S(
-                                        "\r\n"
-                                        "if (!run_without_yielding(call_stack)) {\r\n"
-                                        "assert(0, \"todo: handle Coroutine_Abort\");\r\n"
-                                        "}\r\n\r\n"
-                                        ));
-                                    
-                                    write_read_coroutine_results(allocator, &body, subroutine, left_expressions, functions, function, current);
-                                    
-                                    write(&body, S("free_array(_allocator, &call_stack->buffer);\r\n"));
-                                    
-                                    write(&body, S("}\r\n"));
-                                    
-                                    // check scope later ...
-                                    
-                                    continue;
-                                }
-                                
-                                parse_call_subroutine_or_expression(allocator, &switch_table, &body, &it, left_expressions, &label_count, functions, function, current);
-                            }
-                            else {
-                                skip(&it.text, S(";"));
-                            }
-                            
-                            continue;
+                            write(&output, &indent_depth, S("};\n\n"));
                         }
-                        
-                        {
-                            string start = it.text;
-                            bool is_directive = try_skip(&it, S("if"), &body);
-                            
-                            if (!is_directive)
-                                is_directive = try_skip(&it, S("switch"), &body);
-                            
-                            if (!is_directive)
-                                is_directive = try_skip(&it, S("while"), &body);
-                            
-                            if (!is_directive)
-                                is_directive = try_skip(&it, S("loop"), &body);
-                            
-                            if (is_directive) {
-                                string directive = sub_string(start, it.text);
-                                skip_space(&it, &body);
-                                
-                                string expression = skip_until_first_in_set(&it, S("{"), &body);
-                                assert(expression.count);
-                                
-                                auto expression_prime = replace_expression(allocator, expression, functions, function, current);
-                                defer { free_array(allocator, &expression_prime); };
-                                
-                                write(&body, S("% (%) "), f(directive), f(expression_prime));
-                                continue;
-                            }
-                        }
-                        
-                        {
-                            parse_call_subroutine_or_expression(allocator, &switch_table, &body, &it, {}, &label_count, functions, function, current);
-                            continue;
-                        }
-                        
-                        UNREACHABLE_CODE;
+                        continue;
                     }
                     
-                    continue;
-                }
+                } break;
                 
-                UNREACHABLE_CODE;
+                case_kind(Ast, function) {
+                    if (!did_enter) {
+                        write(&output, &indent_depth, S("}\n\n"));
+                        continue;
+                    }
+                    
+                } break;
+                
+                case_kind(Ast, scope) {
+                    if (!did_enter && node->parent && !is_kind(*node->parent, function)) {
+                        
+                        if (node->scope.identifier.text.count)
+                            write(&output, &indent_depth, S("} %_end:\n\n"), f(node->scope.identifier.text));
+                        else
+                            write(&output, &indent_depth, S("}\n\n"));
+                        
+                        continue;
+                    }
+                    else if (did_enter) {
+                        write(&output, &indent_depth, S("{\n"));
+                        
+                        if (node->scope.identifier.text.count)
+                            write(&output, &indent_depth, S("%_begin:\n"), f(node->scope.identifier.text));
+                        
+                        node_children_head = node->scope.body.head;
+                        continue;
+                    }
+                    
+                } break;
+                
+                case_kind(Ast, structure_kind);
+                case_kind(Ast, declaration) {
+                    assert(did_enter);
+                    write(&output, &indent_depth, S("% %;\n"), f(*node->declaration.type), f(node->declaration.identifier.text));
+                    continue;
+                } break;
+                
+                case_kind(Ast, assignment) {
+                    assert(did_enter);
+                    write(&output, &indent_depth, S("% = %;\n"), f(node->assignment.destination_unparsed_expression.text), f(node->assignment.source_unparsed_expression.text));
+                    continue;
+                } break;
+                
+                case_kind(Ast, conditional_branch) {
+                    if (did_enter) {
+                        write(&output, &indent_depth, S("if (%) "), f(node->conditional_branch.condition->unparsed_expression.text));
+                        node_children_head = node->conditional_branch.statement;
+                        continue;
+                    }
+                    
+                } break;
+                
+                case_kind(Ast, conditional_loop) {
+                    if (did_enter) {
+                        write(&output, &indent_depth, S("while (%) "), f(node->conditional_branch.condition->unparsed_expression.text));
+                        node_children_head = node->conditional_loop.statement;
+                        continue;
+                    }
+                    
+                } break;
             }
             
-            if (try_skip(&it, S("type"), &output)) {
-                skip_until_first_in_set(&it, S(";"), &output, true);
-                continue;
+            if_kind(node, definition) {
+                if (did_enter) {
+                    if_kind(definition->value, structure) {
+                        write(&output, &indent_depth, S("struct % {\n"), f(definition->identifier.text));
+                        
+                        // forward declare sub structs
+                        if (structure->ordered_sub_types.count) {
+                            write(&output, &indent_depth, S("\n"));
+                            
+                            for_array_item(it, structure->ordered_sub_types) {
+                                write(&output, &indent_depth, S("struct %;\n"), f(**it));
+                            }
+                            
+                            write(&output, &indent_depth, S("\n"));
+                        }
+                        
+                        if (structure->kind_union) {
+                            write(&output, &indent_depth, S("enum Kind {\n"));
+                            write(&output, &indent_depth, S("Kind_null,\n"));
+                            
+                            auto kind = structure->kind_union->temporary_declarations.list.head;
+                            while (kind) {
+                                write(&output, &indent_depth, S("Kind_%,\n"), f(kind->declaration.identifier.text));
+                                kind = kind->next;
+                            }
+                            
+                            write(&output, &indent_depth, S("};\n\n"));
+                            // TODO: find best matching size
+                            write(&output, &indent_depth, S("u32 kind;\n\n"));
+                        }
+                        
+                        node_children_head = structure->body.head;
+                        continue;
+                    }
+                    
+                    if_kind(definition->value, function) {
+                        if (function->return_types.count) 
+                            write(&output, &indent_depth, S("% "), f(*function->return_types[0]));
+                        else
+                            write(&output, &indent_depth, S("void "));
+                        
+                        write(&output, &indent_depth, S("%("), f(definition->identifier.text));
+                        
+                        u32 i = 1;
+                        for (; i < function->return_types.count; i++) {
+                            if (i < function->return_types.count + function->arguments.count - 1)
+                                write(&output, &indent_depth, S("%* _out%, "), f(*function->return_types[i]), f(i));
+                            else
+                                write(&output, &indent_depth, S("%* _out%) {\n"), f(*function->return_types[i]), f(i));
+                        }
+                        
+                        for_list_item(argument_node, function->arguments) {
+                            auto argument = kind_of(argument_node, declaration);
+                            
+                            if (i < function->return_types.count + function->arguments.count - 1)
+                                write(&output, &indent_depth, S("% %, "), f(*argument->type), f(argument->identifier.text));
+                            else
+                                write(&output, &indent_depth, S("% %) {\n"), f(*argument->type), f(argument->identifier.text));
+                            
+                            i++;
+                        }
+                        
+                        node_children_head = function->statement;
+                        
+                        if (is_kind(*node_children_head, scope))
+                            node_children_head = node_children_head->scope.body.head;
+                        
+                        continue;
+                    }
+                }
             }
-            
-            UNREACHABLE_CODE;
         }
     }
     
+    
+#if 0    
 #if INCLUDE_TEST
     printf("factorial(3) = %u\n", run_factorial(&transient_memory, 3));
     s32 x;

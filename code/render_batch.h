@@ -185,7 +185,7 @@ Render_Batch make_render_batch(u32 vertex_buffer_size, u32 index_buffer_size,
     
     Memory_Stack stack = make_memory_stack(allocator, vertex_buffer_size + index_buffer_size + render_command_count * sizeof(Render_Batch_Command) + 3 * (sizeof(usize) + MEMORY_MAX_ALIGNMENT));
     
-    batch.memory = stack.buffer + 0;
+    batch.memory = stack.buffer.data;
     batch.vertex_buffer = ALLOCATE_ARRAY_INFO(&stack, u8, vertex_buffer_size);
     
     batch.indices.buffer = ALLOCATE_ARRAY_INFO(&stack, u8, index_buffer_size);
@@ -220,7 +220,7 @@ void push_render_command(Render_Batch *batch, u32 material_index,
                          u32 index_count)
 {
     //Render_Batch_Command *last_command = back_or_null(batch->command_buffer);
-    Render_Batch_Command *last_command = batch->command_buffer.count ? batch->command_buffer + batch->command_buffer.count - 1 : null;
+    Render_Batch_Command *last_command = batch->command_buffer.count ? batch->command_buffer.data + batch->command_buffer.count - 1 : null;
     
     if (last_command &&
         (last_command->material_index == material_index) &&
@@ -277,7 +277,7 @@ struct Static_Render_Batch {
 
 Static_Render_Batch flush(Render_Batch *batch) {
     Static_Render_Batch result;
-    result.commands = batch->command_buffer;
+    result.commands = batch->command_buffer.data;
     result.command_count = batch->command_buffer.count;
     
     result.vertex_array_object = batch->vertex_array_object;

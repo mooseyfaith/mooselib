@@ -55,21 +55,24 @@ struct Template_Tree_Name {
 
 #endif // !Template_Tree_Struct_Is_Declared
 
-INTERNAL bool
+INTERNAL u32
 is_ancesotor(Template_Tree_Name *ancestor, Template_Tree_Name *decendent)
 {
     assert(ancestor && decendent && (ancestor != decendent));
     
     auto current = decendent;
     
+    u32 depth = 0;
+    
     while (current) {
         if (current->parent == ancestor)
-            return true;
+            return depth + 1;
         
         current = current->parent;
+        depth++;
     }
     
-    return false;
+    return 0;
 }
 
 #if !defined Template_Tree_With_Leafs

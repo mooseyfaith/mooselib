@@ -5,7 +5,7 @@ def B struct {
 	var x: *B;
 
 	def Z struct {
-		var a: A;
+		var a: As;
 		var b: *B;
 	}
 
@@ -37,9 +37,11 @@ def main function(argument_count: s32, arguments: **u8) -> (s32) {
 		loop b {
 			if poop do break a;
 		}
-
-		continue b;
+		continue a;
 	}
+
+	if poop do
+		var a: s16, b: s16 = 0, 1;
 
     var platform_api: *Platform_API = &win32_api.platform_api;
     init_c_allocator();

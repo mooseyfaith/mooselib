@@ -352,11 +352,12 @@ remove_head(Memory_Allocator *allocator, Template_List_Name *list)
 
 #  if defined Template_List_With_Tail
 
-INTERNAL void
+INTERNAL Template_List_Custom_Entry_Name *
 insert_tail(Memory_Allocator *allocator, Template_List_Name *list, u32 insert_after_tail = 1)
 {
     Template_List_Custom_Entry_Name *entry = ALLOCATE(allocator, Template_List_Custom_Entry_Name);
     insert_tail(list, entry, insert_after_tail);
+    return entry;
 }
 
 #    if defined Template_List_With_Double_Links

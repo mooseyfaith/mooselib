@@ -76,6 +76,8 @@ const f64 f64_epsilon = DBL_EPSILON;
 #define assert(x, ...) { \
     if (!(x)) { \
         printf("\n\n%s:%d:\n\n\t Assertion ( %s ) failed\n\n\t" __VA_ARGS__, __FILE__, __LINE__, # x); \
+        printf("\n\n"); \
+        fflush(stdout); \
         *((int*)0) = 0; \
     } \
 }

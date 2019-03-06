@@ -137,7 +137,7 @@ Font make_font(Memory_Allocator *allocator, FT_Library ft_library, u8_array sour
         u32 min_side_diff = abs(resolution.width - resolution.height);
         while (resolution.width > height * 2) {
             resolution.height <<= 1;
-            resolution.width = 1 << bit_count(estimated_area / resolution.height + 1);
+            resolution.width = 1 << bit_count_of(estimated_area / resolution.height + 1);
             u32 area = resolution.width * resolution.height;
             u32 side_diff = abs(resolution.width - resolution.height);
             if ((area < min_area) || ((area == min_area) && (side_diff < min_side_diff))) {
@@ -149,7 +149,7 @@ Font make_font(Memory_Allocator *allocator, FT_Library ft_library, u8_array sour
         
         free_array(allocator, &bitmap);
         grow(allocator, &bitmap, bitmap_resolution.width * bitmap_resolution.height);
-        reset(bitmap, byte_count_of(bitmap));
+        reset(bitmap.data, byte_count_of(bitmap));
         
         s16 x = 0;
         s16 y = 0;
@@ -216,7 +216,7 @@ Font make_font(Memory_Allocator *allocator, FT_Library ft_library, u8_array sour
                     
                     // copy flipped
                     for (u32 row = 0; row < glyph_slot->bitmap.rows; row++) {
-                        copy(bitmap + x + (y + row) * bitmap_resolution.width, glyph_slot->bitmap.buffer + (glyph_slot->bitmap.rows - row - 1) * glyph_slot->bitmap.pitch, glyph_slot->bitmap.pitch);
+                        copy(bitmap.data + x + (y + row) * bitmap_resolution.width, glyph_slot->bitmap.buffer + (glyph_slot->bitmap.rows - row - 1) * glyph_slot->bitmap.pitch, glyph_slot->bitmap.pitch);
                     }
                     
                 }
@@ -262,7 +262,7 @@ area2f get_text_rect(u32 *line_count, const Font *font, string text, s16 line_sp
         f32 bottom, top;
     };
     
-    const u8 *it = text, *end = one_past_last(text);
+    const u8 *it = text.data, *end = one_past_last(text);
     Rect text_rect;
     for (; it != end; ++it) {
         Font_Glyph *glyph = get_font_glyph(font, *it);

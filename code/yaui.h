@@ -145,7 +145,7 @@ Texture * ui_set_texture(UI_Context *context, Texture *texture) {
     }
     
     if (!group) {
-        group = insert_tail(&context->memory_stack.allocator, &context->groups);
+        group = &insert_tail(&context->memory_stack.allocator, &context->groups)->group;
         *group = {};
         group->texture = texture;
     }
@@ -412,7 +412,7 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
     else
         offset = 0.0f;
     
-    auto command = insert_tail(&context->memory_stack.allocator, &context->current_group->commands);
+    auto command = &insert_tail(&context->memory_stack.allocator, &context->current_group->commands)->command;
     *command = make_kind(UI_Command, draw);
     
     if (is_filled)
@@ -421,14 +421,14 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
         command->draw.vertices = ALLOCATE_ARRAY_INFO(&context->memory_stack, UI_Vertex, 4);
         command->draw.indices = ALLOCATE_ARRAY_INFO(&context->memory_stack, u32, 6);
         
-        ui_set_quad_vertices(context, command->draw.vertices, draw_rect, texture_rect, color, offset);
+        ui_set_quad_vertices(context, command->draw.vertices.data, draw_rect, texture_rect, color, offset);
         
         // 3--2   l - counter clockwise (left)
         // |l/|
         // |/l|
         // 0--1
         
-        ui_set_quad_triangles_indices(command->draw.indices, 0, 1, 2, 3);
+        ui_set_quad_triangles_indices(command->draw.indices.data, 0, 1, 2, 3);
     }
     else if (thickness <= 1.0f)
     {
@@ -436,7 +436,7 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
         command->draw.vertices = ALLOCATE_ARRAY_INFO(&context->memory_stack, UI_Vertex, 4);
         command->draw.indices = ALLOCATE_ARRAY_INFO(&context->memory_stack, u32, 8);
         
-        ui_set_quad_vertices(context, command->draw.vertices, draw_rect, texture_rect, color, offset);
+        ui_set_quad_vertices(context, command->draw.vertices.data, draw_rect, texture_rect, color, offset);
         
         command->draw.indices[0] = 0;
         command->draw.indices[1] = 1;
@@ -453,14 +453,14 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
         command->draw.vertices = ALLOCATE_ARRAY_INFO(&context->memory_stack, UI_Vertex, 8);
         command->draw.indices = ALLOCATE_ARRAY_INFO(&context->memory_stack, u32, 24);
         
-        ui_set_quad_vertices(context, command->draw.vertices, draw_rect, texture_rect, color, offset);
+        ui_set_quad_vertices(context, command->draw.vertices.data, draw_rect, texture_rect, color, offset);
         
         draw_rect.x += thickness;
         draw_rect.y += thickness;
         draw_rect.width  -= 2 * thickness;
         draw_rect.height -= 2 * thickness;
         
-        ui_set_quad_vertices(context, command->draw.vertices + 4, draw_rect, texture_rect, color, offset);
+        ui_set_quad_vertices(context, command->draw.vertices.data + 4, draw_rect, texture_rect, color, offset);
         
         // 3-------2
         // | 7---6 |
@@ -470,13 +470,13 @@ void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rg
         // 0-------1
         
         // bottom border
-        ui_set_quad_triangles_indices(command->draw.indices + 0, 0, 1, 5, 4);
+        ui_set_quad_triangles_indices(command->draw.indices.data + 0, 0, 1, 5, 4);
         // right border
-        ui_set_quad_triangles_indices(command->draw.indices + 6, 5, 1, 2, 6);
+        ui_set_quad_triangles_indices(command->draw.indices.data + 6, 5, 1, 2, 6);
         // top border
-        ui_set_quad_triangles_indices(command->draw.indices + 12, 7, 6, 2, 3);
+        ui_set_quad_triangles_indices(command->draw.indices.data + 12, 7, 6, 2, 3);
         // left border
-        ui_set_quad_triangles_indices(command->draw.indices + 18, 0, 4, 7, 3);
+        ui_set_quad_triangles_indices(command->draw.indices.data + 18, 0, 4, 7, 3);
     }
 }
 
@@ -592,8 +592,9 @@ UI_Text_Info ui_fitt_text(UI_Context *context, area2f area, vec2f alignment, str
 area2f ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_list params)
 {
     string output = {};
+    defer { free_array(context->transient_allocator, &output); };
+    
     auto text = write_va(context->transient_allocator, &output, format, params);
-    defer { free(context->transient_allocator, text); };
     
     area2f result = ui_text(context, info, text, context->font_rendering.do_render, context->font_rendering.color);
     
@@ -763,7 +764,7 @@ void ui_end(UI_Context *context) {
                 auto draw = try_kind_of(&command_it->command, draw);
                 if (draw) {
                     auto dest = grow(&context->memory_stack.allocator, &vertices, byte_count_of(draw->vertices));
-                    copy(dest, draw->vertices, byte_count_of(draw->vertices));
+                    copy(dest, draw->vertices.data, byte_count_of(draw->vertices));
                 }
             }
         }
@@ -785,7 +786,7 @@ void ui_end(UI_Context *context) {
                 auto draw = try_kind_of(&command_it->command, draw);
                 if (draw) {
                     auto dest = grow(&context->memory_stack.allocator, &indices, draw->indices.count);
-                    copy(dest, draw->indices, byte_count_of(draw->indices));
+                    copy(dest, draw->indices.data, byte_count_of(draw->indices));
                     
                     for (u32 i = 0; i < draw->indices.count; i++)
                         dest[i] += vertex_offset;
