@@ -29,37 +29,27 @@ def div_mod function(a: u32, b: u32) -> (u32, u32) {
 
 def main function(argument_count: s32, arguments: **u8) -> (s32) {
 
-	var win32_api: Win32_Platform_API;
-    init_win32_api(&win32_api);
-
-	loop a {
-
-		loop b {
-			if poop do break a;
-		}
-		continue a;
+	def foo function() {
+		printf("foo!");
 	}
 
-	if 1 do
-		var a: s16, b: s16 = 0, 1;
+	var win32_api: Win32_Platform_API;
+    init_win32_api(&win32_api);
 
     var platform_api: *Platform_API = &win32_api.platform_api;
     init_c_allocator();
     init_Memory_Growing_Stack_allocators();
 
-	var c: s32 = 12;
-
 	printf("hello world\n");
 
-	printf("A c: %u, t: %u\n", (u32)sizeof(A), (u32)A::Byte_Count);
-	printf("B c: %u, t: %u\n", (u32)sizeof(B), (u32)B::Byte_Count);
+	printf("A c: %u, t: todo\n", (u32)sizeof(A));
+	printf("B c: %u, t: todo\n", (u32)sizeof(B));
 
 	var b: B = {};
-	b = make_kind(B, y, 12);
-	printf("B.kind: %u (%u)\n", (u32)b.kind, (u32)b.Byte_Count);
+	b = make_kind(B, y);
 
 	auto y = kind_of(&b, y);
-	printf("B as y: %u\n", *y);
+	printf("B as y: %p\n", y);
 
 	var transient_memory: Memory_Growing_Stack = make_memory_growing_stack(platform_api->allocator);
 	var transient_allocator: *Memory_Allocator = &transient_memory.allocator;

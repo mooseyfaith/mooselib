@@ -393,8 +393,6 @@ void expected_tokens(Report_Context *context) {
     EXPECT(context, 0, S("%"), f(output));
 }
 
-struct Ast;
-
 struct Type;
 
 #define Template_Array_Name      Types
@@ -405,15 +403,17 @@ struct Type;
 #define Template_Array_Data_Type Types
 #include "template_array.h"
 
+struct Ast;
+
 struct Type {
     enum Kind {
         Kind_null,
+        
         Kind_undeclared_type,
         Kind_base_type,
         Kind_indirection,
         Kind_structure,
-        
-        Kind_list,
+        Kind_function,
         
         Kind_Count,
     } kind;
@@ -439,17 +439,16 @@ struct Type {
             Types dependencies;
         } structure;
         
-#if 0        
         struct {
-            Token identifier;
-            Declaration entry_data;
-            Type *count_type;
-            bool with_tail, with_double_links;
-            u32 byte_count, byte_alignment;
-        } list;
-#endif
+            Ast *node;
+            Types dependencies;
+        } function;
     };
 };
+
+#define Template_Array_Name Ast_Array
+#define Template_Array_Data_Type Ast*
+#include "template_array.h"
 
 struct Ast {
     enum Kind {
@@ -507,7 +506,6 @@ struct Ast {
         struct {
             Token token;
             bool as_structure_kinds;
-            bool kinds_written; // for code generation
             
             enum State {
                 State_Parse_Identifier,
@@ -536,7 +534,6 @@ struct Ast {
             Token open_bracket, closed_bracked;
             Type type;
             Children body;
-            Ast *kind_enumaration;
             Ast *kind_union;
             Types ordered_sub_types;
         } structure;
@@ -544,7 +541,7 @@ struct Ast {
         struct {
             Token token;
             bool is_coroutine;
-            Ast *parent_function;
+            Type type;
             Types return_types;
             Children arguments;
             Ast *statement;
@@ -1207,114 +1204,6 @@ void write_signature(String_Buffer *output, Function function) {
 }
 #endif
 
-#if 0
-void parse_call_subroutine_or_expression(Memory_Allocator *allocator, String_Buffer *switch_table, String_Buffer *body, Text_Iterator *it, string_array left_expressions, u32 *label_count, Functions functions, Function *function, Structure *function_scope) {
-    auto test = *it;
-    auto function_identifier = get_identifier(&test.text, S("_"));
-    if (function_identifier.count) {
-        skip_space(&test, body);
-        
-        auto subroutine = find_function(functions, function_identifier);
-        if (subroutine) {
-            *it = test;
-            
-            if (subroutine->is_coroutine) {
-                write_call_subroutine(allocator, switch_table, body, it, subroutine, left_expressions, label_count, functions, function, function_scope);
-                skip(&it->text, S(";"));
-            }
-            else {
-                bool use_dummy_returns = false;
-                
-                String_Buffer dummy_return_values = { allocator };
-                defer { 
-                    if (use_dummy_returns) {
-                        free_array(allocator, &left_expressions);
-                        free(&dummy_return_values);
-                        write(body, S("}\r\n"));
-                    }
-                };
-                
-                if (!left_expressions.count && (subroutine->return_types.count > 1)) {
-                    use_dummy_returns = true;
-                    write(body, S("{\r\n"));
-                    
-                    for (u32 i = 1; i < subroutine->return_types.count; i++) {
-                        *grow(allocator, &left_expressions) = write(&dummy_return_values, S("_ignored%"), f(i));
-                        write(body, S("% _ignored%;\r\n"), f(*subroutine->return_types[i]), f(i));
-                    }
-                }
-                
-                assert(use_dummy_returns || (left_expressions.count == subroutine->return_types.count));
-                
-                skip(&it->text, S("("));
-                skip_space(it, body);
-                
-                if (use_dummy_returns) {
-                    write(body, S("%("), f(subroutine->identifier.text));
-                }
-                else {
-                    string expression_prime = replace_expression(allocator, left_expressions[0], functions, function, function_scope);
-                    defer { free_array(allocator, &expression_prime); };
-                    
-                    write(body, S("% = %("), f(expression_prime), f(subroutine->identifier.text));
-                }
-                
-                for (u32 i = 1; i < subroutine->return_types.count; i++) {
-                    string expression;
-                    if (use_dummy_returns)
-                        expression = left_expressions[i - 1];
-                    else
-                        expression = left_expressions[i];
-                    
-                    string expression_prime = replace_expression(allocator, expression, functions, function, function_scope);
-                    defer { free_array(allocator, &expression_prime); };
-                    
-                    if (i == subroutine->return_types.count + subroutine->arguments.count - 1)
-                        write(body, S("&(%)"), f(expression_prime));
-                    else
-                        write(body, S("&(%), "), f(expression_prime));
-                }
-                
-                auto rest = skip_until_first_in_set(it, S(";"), body, true);
-                
-                string rest_prime = replace_expression(allocator, rest, functions, function, function_scope);
-                defer { free_array(allocator, &rest_prime); };
-                
-                write(body, S("%;\r\n"), f(rest_prime));
-            }
-            
-            return;
-        }
-    }
-    
-    // not a function call
-    {
-        u32 left_index = 0;
-        bool is_end = false;
-        
-        while (!is_end) {
-            auto expression = parse_next_expression(it, S(";"), &is_end, body);
-            assert(expression.count);
-            
-            string expression_prime = replace_expression(allocator, expression, functions, function, function_scope);
-            defer { free_array(allocator, &expression_prime); };
-            
-            if (left_expressions.count) {
-                string left_expression_prime = replace_expression(allocator, left_expressions[left_index], functions, function, function_scope);
-                defer { free_array(allocator, &left_expression_prime); };
-                
-                write(body, S("% = %;\r\n"), f(left_expression_prime), f(expression_prime));
-            }
-            else {
-                write(body, S("%;\r\n"), f(expression_prime));
-            }
-            
-            left_index++;
-        }
-    }
-}
-#endif
-
 Token next_expression(Memory_Allocator *allocator, Report_Context *context, string terminal = S(","), u32 expected_expression_count = 0) {
     
     auto test = begin(context->tokenizer);
@@ -1333,6 +1222,7 @@ Token next_expression(Memory_Allocator *allocator, Report_Context *context, stri
         test_token(&best, close_tokens[close_tokens.count - 1], (close_tokens.count > 1));
         test_token(&best, S(";"), false);
         test_token(&best, S("do"), false);
+        test_token(&best, S("\""), false);
         end(&best);
         
         switch (best.best_index) {
@@ -1352,6 +1242,10 @@ Token next_expression(Memory_Allocator *allocator, Report_Context *context, stri
             case 4: {
                 end(test);
                 EXPECT(context, 0, S("unexpected '%', expected % expressions"), f(best.best_end), f(expected_expression_count));
+            } break;
+            
+            case 5: {
+                parse_quoted_string(&context->tokenizer->text);
             } break;
             
             default: {
@@ -1654,6 +1548,61 @@ Ast * parse_struct(Memory_Allocator *allocator, Report_Context *context, Ast *pa
     return structure_node;
 }
 
+Ast * parse_function(Memory_Allocator *allocator, Report_Context *context, Ast *parent, Types base_types, Token identifier = {}) 
+{
+    bool is_coroutine = try_skip(context->tokenizer, S("coroutine"));
+    if (!is_coroutine && !try_skip(context->tokenizer, S("function")))
+        return null;
+    
+    auto function_node = new_kind(allocator, Ast, function, context->tokenizer->skipped_token, is_coroutine);
+    
+    skip(context, S("("));
+    
+    if (!try_skip(context->tokenizer, S(")"))) {
+        LOOP {
+            auto declaration_node = ALLOCATE(allocator, Ast);
+            *declaration_node = make_kind(Ast, declaration);
+            insert_tail(&function_node->function.arguments, declaration_node);
+            declaration_node->parent = function_node;
+            
+            declaration_node->declaration.identifier = get_identifier(context);
+            skip(context, S(":"));
+            
+            declaration_node->declaration.type = parse_type(allocator, context, base_types, true);
+            
+            if (try_skip(context->tokenizer, S(",")))
+                continue;
+            
+            if (try_skip(context->tokenizer, S(")")))
+                break;
+            
+            expected_tokens(context);
+        }
+    }
+    
+    if (try_skip(context->tokenizer, S("->"))) {
+        
+        skip(context, S("("));
+        
+        LOOP {
+            Type *type = parse_type(allocator, context, base_types, true);
+            
+            *grow(allocator, &function_node->function.return_types) = type;
+            
+            if (try_skip(context->tokenizer, S(",")))
+                continue;
+            
+            if (try_skip(context->tokenizer, S(")")))
+                break;
+            
+            expected_tokens(context);
+        }
+        
+    }
+    
+    return function_node;
+}
+
 Ast::Children *children_of(Ast *parent) {
     if (!parent)
         return null;
@@ -1758,6 +1707,72 @@ void detach(Ast *parent, Ast *child) {
     detach(children_of(parent), child);
 }
 
+Ast *children_head_of(Ast *node) {
+    Ast *children_head = null;
+    
+    switch (node->kind) {
+        case_kind(Ast, structure_kind);
+        case_kind(Ast, declaration);
+        case_kind(Ast, assignment);
+        case_kind(Ast, comment);
+        case_kind(Ast, break_statement);
+        case_kind(Ast, continue_statement);
+        case_kind(Ast, unparsed_expression);
+        {
+        } break;
+        
+        case_kind(Ast, temporary_declarations) {
+            children_head = node->temporary_declarations.list.head;
+        } break;
+        
+        case_kind(Ast, definition) {
+            children_head = node->definition.value;
+        } break;
+        
+        case_kind(Ast, structure) {
+            children_head = node->structure.body.head;
+        } break;
+        
+        case_kind(Ast, function) {
+            children_head = node->function.statement;
+        } break;
+        
+        case_kind(Ast, return_statement) {
+            children_head = node->return_statement.values.head;
+        } break;
+        
+        case_kind(Ast, conditional_branch) {
+            children_head = node->conditional_branch.statement;
+        } break;
+        
+        case_kind(Ast, conditional_loop) {
+            children_head = node->conditional_loop.statement;
+        } break;
+        
+        case_kind(Ast, loop) {
+            children_head = node->loop.statement;
+        } break;
+        
+        case_kind(Ast, scope) {
+            children_head = node->scope.body.head;
+        } break;
+        
+        CASES_COMPLETE;
+    }
+    
+    return children_head;
+}
+
+void advance(Ast **iterator, bool *did_enter, bool *did_leave, usize *depth = null) {
+    
+    advance(iterator, children_head_of(*iterator), did_enter, depth);
+    
+    if (*did_enter)
+        *did_leave = (children_head_of(*iterator) == null);
+    else
+        *did_leave = true;
+}
+
 #if 0
 void move(Ast *new_parent, Ast *child) {
     move(new_parent, children_of(new_parent), child, children_of(child->parent));
@@ -1805,6 +1820,10 @@ void write(String_Buffer *buffer, u32 *indent_depth, string format, ...) {
         else if (head == '{')
             (*indent_depth)++;
     }
+}
+
+void write_scope_name(String_Buffer *output, u32 *indent_depth,Ast *scope_node) {
+    write(output, indent_depth, S("_scope_%_%_%"), f(scope_node->scope.identifier.text), f(scope_node->scope.open_bracket.line_count), f(scope_node->scope.open_bracket.column_count));
 }
 
 MAIN_DEC {
@@ -2073,7 +2092,9 @@ MAIN_DEC {
                         
                         bool inserted_scope = has_only_one_child(parent);
                         if (inserted_scope) {
-                            auto scope_node = new_kind(allocator, Ast, scope);
+                            // token is required to give the scope a unique name
+                            // to break or continue
+                            auto scope_node = new_kind(allocator, Ast, scope, {}, declarations_node->temporary_declarations.token);
                             replace_single_child(parent, scope_node);
                             parent = scope_node;
                         }
@@ -2138,10 +2159,9 @@ MAIN_DEC {
                 auto definition_node = ALLOCATE(allocator, Ast);
                 *definition_node = make_kind(Ast, definition);
                 
-                attach(parent, definition_node);
-                
                 auto identifier = get_identifier(&reporter);
                 definition_node->definition.identifier = identifier;
+                attach(parent, definition_node);
                 
                 bool is_coroutine = try_skip(&it, S("coroutine"));
                 if (is_coroutine || try_skip(&it, S("function"))) {
@@ -2452,7 +2472,6 @@ MAIN_DEC {
                             
                         }
                         
-                        
                         skip(&reporter, S("{"));
                         
                         auto scope_node = ALLOCATE(allocator, Ast);
@@ -2664,6 +2683,23 @@ MAIN_DEC {
         //write_tree(allocator, &reporter, &file_scope_node->structure.type);
     }
     
+    // collect functions
+    Ast_Array functions = {};
+    {
+        auto node = file_scope_node->structure.body.head;
+        
+        bool did_enter = true, did_leave = false;
+        while (node) {
+            defer { advance(&node, &did_enter, &did_leave); };
+            
+            if_kind(node, function) {
+                if (did_enter) {
+                    *grow(allocator, &functions) = node;
+                }
+            }
+        }
+    }
+    
     String_Buffer output = { allocator };
     
     // generate c code
@@ -2691,15 +2727,6 @@ MAIN_DEC {
             "#include \"win32_platform.h\"" "\r\n"
             "#include \"memory_c_allocator.h\"" "\r\n"
             ));
-        
-#if 0    
-        for_array_item(it, types) {
-            auto structure = try_kind_of(*it, structure_node);
-            
-            if (structure)
-                write(&output, S("struct %;\r\n"), f(**it));
-        }
-#endif
         
         write(&output, S("\r\n"));
         
@@ -2805,18 +2832,23 @@ MAIN_DEC {
                 case_kind(Ast, scope) {
                     if (!did_enter && node->parent && !is_kind(*node->parent, function)) {
                         
-                        if (node->scope.identifier.text.count)
-                            write(&output, &indent_depth, S("} %_end:\n\n"), f(node->scope.identifier.text));
-                        else
-                            write(&output, &indent_depth, S("}\n\n"));
+                        //if (node->scope.identifier.text.count)
+                        write(&output, &indent_depth, S("} "));
+                        write_scope_name(&output, &indent_depth, node);
+                        write(&output, &indent_depth, S("_end:;\n\n"));
+                        //else
+                        //write(&output, &indent_depth, S("}\n\n"));
                         
                         continue;
                     }
                     else if (did_enter) {
-                        write(&output, &indent_depth, S("{\n"));
+                        write(&output, &indent_depth, S("/* "));
+                        write_scope_name(&output, &indent_depth, node);
+                        write(&output, &indent_depth, S(" */ {\n"));
                         
-                        if (node->scope.identifier.text.count)
-                            write(&output, &indent_depth, S("%_begin:\n"), f(node->scope.identifier.text));
+                        //if (node->scope.identifier.text.count)
+                        write_scope_name(&output, &indent_depth, node);
+                        write(&output, &indent_depth, S("_begin:;\n"));
                         
                         node_children_head = node->scope.body.head;
                         continue;
@@ -2853,8 +2885,8 @@ MAIN_DEC {
                     if (did_enter) {
                         write(&output, &indent_depth, S("if (%) "), f(node->conditional_branch.condition->unparsed_expression.text));
                         node_children_head = node->conditional_branch.statement;
-                        continue;
                     }
+                    continue;
                     
                 } break;
                 
@@ -2862,9 +2894,67 @@ MAIN_DEC {
                     if (did_enter) {
                         write(&output, &indent_depth, S("while (%) "), f(node->conditional_branch.condition->unparsed_expression.text));
                         node_children_head = node->conditional_loop.statement;
-                        continue;
                     }
+                    continue;
                     
+                } break;
+                
+                case_kind(Ast, loop) {
+                    if (did_enter) {
+                        write(&output, &indent_depth, S("for (;;) "));
+                        node_children_head = node->loop.statement;
+                    }
+                    continue;
+                } break;
+                
+                case_kind(Ast, return_statement) {
+                    if (did_enter) {
+                        if (node->return_statement.values.count > 1) {
+                            auto it = node->return_statement.values.head->next;
+                            
+                            u32 i = 1;
+                            while (it) {
+                                assert(is_kind(*it, unparsed_expression));
+                                write(&output, &indent_depth, S("(*_out%) = %;\n"), f(i), f(it->unparsed_expression.text));
+                                i++;
+                                it = it->next;
+                            }
+                        }
+                        
+                        if (node->return_statement.values.count > 0) {
+                            assert(is_kind(*node->return_statement.values.head, unparsed_expression));
+                            
+                            write(&output, &indent_depth, S("return %;\n"), f(node->return_statement.values.head->unparsed_expression.text));
+                        }
+                        else {
+                            write(&output, &indent_depth, S("return "));
+                        }
+                    } 
+                    continue;
+                } break;
+                
+                case_kind(Ast, continue_statement) {
+                    assert(did_enter);
+                    auto scope = node->break_statement.parent_scope;
+                    write(&output, &indent_depth, S("goto "));
+                    write_scope_name(&output, &indent_depth, scope);
+                    write(&output, &indent_depth, S("_begin; // continue\n"));
+                    continue;
+                } break;
+                
+                case_kind(Ast, break_statement) {
+                    assert(did_enter);
+                    auto scope = node->break_statement.parent_scope;
+                    write(&output, &indent_depth, S("goto "));
+                    write_scope_name(&output, &indent_depth, scope);
+                    write(&output, &indent_depth, S("_end; // break\n"));
+                    continue;
+                } break;
+                
+                case_kind(Ast, unparsed_expression) {
+                    assert(did_enter);
+                    write(&output, &indent_depth, S("%;\n"), f(node->unparsed_expression.text));
+                    continue;
                 } break;
             }
             
@@ -2888,7 +2978,7 @@ MAIN_DEC {
                             if (i < function->return_types.count + function->arguments.count - 1)
                                 write(&output, &indent_depth, S("%* _out%, "), f(*function->return_types[i]), f(i));
                             else
-                                write(&output, &indent_depth, S("%* _out%) {\n"), f(*function->return_types[i]), f(i));
+                                write(&output, &indent_depth, S("%* _out%\n"), f(*function->return_types[i]), f(i));
                         }
                         
                         for_list_item(argument_node, function->arguments) {
@@ -2897,10 +2987,12 @@ MAIN_DEC {
                             if (i < function->return_types.count + function->arguments.count - 1)
                                 write(&output, &indent_depth, S("% %, "), f(*argument->type), f(argument->identifier.text));
                             else
-                                write(&output, &indent_depth, S("% %) {\n"), f(*argument->type), f(argument->identifier.text));
+                                write(&output, &indent_depth, S("% %"), f(*argument->type), f(argument->identifier.text));
                             
                             i++;
                         }
+                        
+                        write(&output, &indent_depth, S(") {\n"));
                         
                         node_children_head = function->statement;
                         
