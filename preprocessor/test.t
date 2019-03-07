@@ -11,7 +11,7 @@ def B struct {
 
 	kind y: struct { 
 		var x: X;
-	} , z: Z;
+	}, z: Z;
 }
 
 def As struct { var a: A; }
@@ -40,7 +40,7 @@ def main function(argument_count: s32, arguments: **u8) -> (s32) {
 		continue a;
 	}
 
-	if poop do
+	if 1 do
 		var a: s16, b: s16 = 0, 1;
 
     var platform_api: *Platform_API = &win32_api.platform_api;
@@ -64,7 +64,6 @@ def main function(argument_count: s32, arguments: **u8) -> (s32) {
 	var transient_memory: Memory_Growing_Stack = make_memory_growing_stack(platform_api->allocator);
 	var transient_allocator: *Memory_Allocator = &transient_memory.allocator;
 
-	var x: s32 = run &transient_memory, fun(S("fuuck"), 12);
 }
 
 def fun coroutine(text: string, count: u32) -> (s32) {

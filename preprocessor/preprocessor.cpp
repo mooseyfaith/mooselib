@@ -265,7 +265,6 @@ Format_Info_Marked_Line f(string line, u32 line_count, u32 column_count, u32 ind
     return { write_marked_line, line, line_count, column_count, indent_count };
 }
 
-
 Format_Info_Marked_Line f(string whole_text, Token token, u32 indent_count, bool with_file_position = false, string file_path = {}) {
     string line = token.text;
     
@@ -944,19 +943,23 @@ Type * parse_type(Memory_Allocator *allocator, Report_Context *context, Types ba
     
     end(test);
     
-    for_array_item(type, base_types) {
-        if ((*type)->base_type.identifier.text == type_identifier.text)
-            return *type;
+    Type *type = null;
+    for_array_item(it, base_types) {
+        if ((*it)->base_type.identifier.text == type_identifier.text) {
+            type = *it;
+            break;
+        }
     }
     
-    Type *undeclared_type = new_kind(allocator, Type, undeclared_type, type_identifier);
+    if (!type)
+        type = new_kind(allocator, Type, undeclared_type, type_identifier);
     
     if (indirection_count) {
-        auto type = new_kind(allocator, Type, indirection, undeclared_type, indirection_count);
-        return type;
+        auto indirection = new_kind(allocator, Type, indirection, type, indirection_count);
+        return indirection;
     }
     
-    return undeclared_type;
+    return type;
 }
 
 #if 0
@@ -1682,6 +1685,11 @@ bool attach_or_test(bool *out_is_one_child, Ast *new_parent, Ast *child, bool is
     *out_is_one_child = true;
     
     switch (new_parent->kind) {
+        case_kind(Ast, structure_kind);
+        case_kind(Ast, declaration) {
+            assert(is_test);
+            return true;
+        } break;
         
         case_kind(Ast, definition) {
             destination = &new_parent->definition.value;
@@ -1916,7 +1924,7 @@ MAIN_DEC {
         
         while (it.text.count) {
             
-            debug_break_once(it.line_count >= 33);
+            debug_break_once(it.line_count >= 45);
             
             {
                 parent_function_node = null;
@@ -1995,10 +2003,8 @@ MAIN_DEC {
                         // create anonymous struct and its type
                         auto structure_node = parse_struct(allocator, &reporter, parent_namespace_node);
                         if (structure_node) {
-                            // just temporary while processing
-                            attach(parent, &parent->temporary_declarations.list, structure_node);
-                            
                             node->declaration.type = &structure_node->structure.type;
+                            structure_node->parent = node;
                             
                             parent->temporary_declarations.state = parent->temporary_declarations.State_Check_Continue;
                             parent = structure_node;
@@ -2103,6 +2109,13 @@ MAIN_DEC {
                 switch (parent->kind) {
                     case_kind(Ast, structure) {
                         parent->structure.closed_bracked = it.skipped_token;
+                        
+                        // only after the whole struct is defined, we add the kinds
+                        if (parent->structure.kind_union != null) {
+                            parent->structure.kind_union->parent = null;
+                            attach(parent, &parent->structure.body, parent->structure.kind_union);
+                        }
+                        
                     } break;
                     
                     case_kind(Ast, scope) {
@@ -2255,7 +2268,9 @@ MAIN_DEC {
                         declarations_node = new_kind(allocator, Ast, temporary_declarations, it.skipped_token, true);
                         parent->structure.kind_union = declarations_node;
                         
-                        insert_head(&parent->structure.body, declarations_node);
+                        // dont add to body
+                        // only after the whole struct is defined, we add the kinds
+                        // see "}" for structures
                         declarations_node->parent = parent;
                     }
                     
@@ -2586,8 +2601,10 @@ MAIN_DEC {
                 } break;
                 
                 case_kind(Ast, temporary_declarations) {
-                    assert(current->temporary_declarations.as_structure_kinds);
-                    next = current->temporary_declarations.list.head;
+                    if (did_enter) {
+                        assert(current->temporary_declarations.as_structure_kinds);
+                        next = current->temporary_declarations.list.head;
+                    }
                 } break;
                 
                 case_kind(Ast, assignment);
@@ -2706,30 +2723,75 @@ MAIN_DEC {
             
             switch (node->kind) {
                 
+                case_kind(Ast, temporary_declarations) {
+                    assert(node->temporary_declarations.as_structure_kinds);
+                    
+                    if (did_enter) {
+                        write(&output, &indent_depth, S("\nunion {\n"));
+                        
+                        node_children_head = node->temporary_declarations.list.head;
+                    }
+                    else {
+                        write(&output, &indent_depth, S("};\n"));
+                    }
+                    
+                    continue;
+                } break;
+                
+                
                 case_kind(Ast, structure) {
-                    if (!did_enter) {
-                        // skip file scope
-                        if (node->parent) {
-                            if (node->structure.kind_union) {
-                                if (!node->structure.kind_union->temporary_declarations.kinds_written) {
-                                    write(&output, &indent_depth, S("union {\n"));
-                                    
-                                    // now iterate over kinds, and remember that we did this to avoid infite looping
-                                    node->structure.kind_union->temporary_declarations.kinds_written = true;
-                                    node_children_head = node->structure.kind_union->temporary_declarations.list.head;
-                                    did_enter = true;
-                                    continue;
-                                }
-                                else {
-                                    write(&output, &indent_depth, S("};\n"));
-                                }
+                    if (did_enter) {
+                        if (node->parent && is_kind(*node->parent, definition))
+                            write(&output, &indent_depth, S("struct % {\n"), f(node->parent->definition.identifier.text));
+                        else
+                            write(&output, &indent_depth, S("struct {\n"));
+                        
+                        
+                        auto structure = kind_of(node, structure);
+                        
+                        // forward declare sub structs
+                        if (structure->ordered_sub_types.count) {
+                            write(&output, &indent_depth, S("\n"));
+                            
+                            for_array_item(it, structure->ordered_sub_types) {
+                                write(&output, &indent_depth, S("struct %;\n"), f(**it));
+                            }
+                            
+                            write(&output, &indent_depth, S("\n"));
+                        }
+                        
+                        if (structure->kind_union) {
+                            write(&output, &indent_depth, S("enum Kind {\n"));
+                            write(&output, &indent_depth, S("Kind_null,\n"));
+                            
+                            auto kind = structure->kind_union->temporary_declarations.list.head;
+                            while (kind) {
+                                write(&output, &indent_depth, S("Kind_%,\n"), f(kind->declaration.identifier.text));
+                                kind = kind->next;
                             }
                             
                             write(&output, &indent_depth, S("};\n\n"));
+                            
+                            write(&output, &indent_depth, S("static const u32 Kind_Count = %;\n\n"), f(structure->kind_union->temporary_declarations.list.count + 1));
+                            
+                            // TODO: find best matching size
+                            write(&output, &indent_depth, S("u32 kind;\n\n"));
                         }
-                        continue;
+                        
+                        node_children_head = structure->body.head;
+                    }
+                    else {
+                        // skip file scope
+                        if (node->parent) {
+                            // anonymous structs dont get closed with a ';'
+                            if (is_kind(*node->parent, definition))
+                                write(&output, &indent_depth, S("};\n\n"));
+                            else
+                                write(&output, &indent_depth, S("}"));
+                        }
                     }
                     
+                    continue;
                 } break;
                 
                 case_kind(Ast, function) {
@@ -2764,8 +2826,20 @@ MAIN_DEC {
                 
                 case_kind(Ast, structure_kind);
                 case_kind(Ast, declaration) {
-                    assert(did_enter);
-                    write(&output, &indent_depth, S("% %;\n"), f(*node->declaration.type), f(node->declaration.identifier.text));
+                    if (did_enter) {
+                        // its an anonymous struct we own
+                        if (is_kind(*node->declaration.type, structure) && (node->declaration.type->structure.node->parent == node)) {
+                            node_children_head = node->declaration.type->structure.node;
+                        }
+                        else {
+                            write(&output, &indent_depth, S("% %;\n"), f(*node->declaration.type), f(node->declaration.identifier.text));
+                        }
+                    }
+                    else {
+                        assert(is_kind(*node->declaration.type, structure));
+                        write(&output, &indent_depth, S(" %;\n"), f(node->declaration.identifier.text));
+                    }
+                    
                     continue;
                 } break;
                 
@@ -2797,35 +2871,7 @@ MAIN_DEC {
             if_kind(node, definition) {
                 if (did_enter) {
                     if_kind(definition->value, structure) {
-                        write(&output, &indent_depth, S("struct % {\n"), f(definition->identifier.text));
-                        
-                        // forward declare sub structs
-                        if (structure->ordered_sub_types.count) {
-                            write(&output, &indent_depth, S("\n"));
-                            
-                            for_array_item(it, structure->ordered_sub_types) {
-                                write(&output, &indent_depth, S("struct %;\n"), f(**it));
-                            }
-                            
-                            write(&output, &indent_depth, S("\n"));
-                        }
-                        
-                        if (structure->kind_union) {
-                            write(&output, &indent_depth, S("enum Kind {\n"));
-                            write(&output, &indent_depth, S("Kind_null,\n"));
-                            
-                            auto kind = structure->kind_union->temporary_declarations.list.head;
-                            while (kind) {
-                                write(&output, &indent_depth, S("Kind_%,\n"), f(kind->declaration.identifier.text));
-                                kind = kind->next;
-                            }
-                            
-                            write(&output, &indent_depth, S("};\n\n"));
-                            // TODO: find best matching size
-                            write(&output, &indent_depth, S("u32 kind;\n\n"));
-                        }
-                        
-                        node_children_head = structure->body.head;
+                        node_children_head = definition->value;
                         continue;
                     }
                     
@@ -2869,7 +2915,7 @@ MAIN_DEC {
     }
     
     
-#if 0    
+#if 1
 #if INCLUDE_TEST
     printf("factorial(3) = %u\n", run_factorial(&transient_memory, 3));
     s32 x;
