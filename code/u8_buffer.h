@@ -47,6 +47,17 @@
 #define Template_Array_Is_Buffer
 #include "template_array.h"
 
+
+
+#define Template_Array_Name      f32_array
+#define Template_Array_Data_Type f32
+#include "template_array.h"
+
+#define Template_Array_Name      f64_array
+#define Template_Array_Data_Type f64
+#include "template_array.h"
+
+
 #define grow_items(allocator, array, type, count) cast_p(type, grow(allocator, array, sizeof(type) * count))
 #define grow_item(allocator, array, type)         grow_items(allocator, array, type, 1)
 

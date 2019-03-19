@@ -107,8 +107,8 @@ struct UI_Context {
     struct {
         u32 hot_id;
         u32 active_id;
-        //u32 triggerd_id;
-        u32 current_id;
+        bool active_is_done;
+        //u32 current_id;
         
         area2f cursor_area;
         bool cursor_was_pressed;
@@ -563,7 +563,7 @@ area2f ui_text(UI_Context *context, UI_Text_Info *info, string text, bool do_ren
             cast_v(f32, glyph->rect.height)
         };
         
-        bool do_merge = ui_clip(context, &draw_area, &texture_area);
+        bool do_merge = !do_render || ui_clip(context, &draw_area, &texture_area);
         if (do_merge) {
             area = merge(area, draw_area);
             
@@ -598,14 +598,14 @@ UI_Text_Info ui_text(UI_Context *context, s16 x, s16 y, string text, bool do_ren
     return info;
 }
 
-UI_Text_Info ui_fitt_text(UI_Context *context, area2f area, vec2f alignment, string text, rgba32 color = { 0, 0, 0, 255 }, bool sissor_area = true)
+UI_Text_Info ui_fitt_text(UI_Context *context, area2f area, vec2f alignment, string text, rgba32 color = { 0, 0, 0, 255 }, f32 margin = 0, bool sissor_area = true)
 {
     auto info = ui_text(context, 0, 0, text, false);
     
     area.is_valid = true;
     SCOPE_PUSH(context->sissor_area, sissor_area ? area : context->sissor_area);
     
-    return ui_text(context, area.x - info.area.x + MAX(0, area.width - info.area.width) * alignment.x, area.y - info.area.y + MAX(0, area.height - info.area.height) * alignment.y, text, true, color);
+    return ui_text(context, area.x - info.area.x + margin + MAX(0, area.width - 2 * margin - info.area.width) * alignment.x, area.y - info.area.y + margin + MAX(0, area.height - 2 * margin - info.area.height) * alignment.y, text, true, color);
 }
 
 
@@ -667,17 +667,28 @@ INTERNAL bool ui_control(UI_Context *context, f32 delta_seconds, area2f cursor_a
 {
     auto control = &context->control;
     
-    if ((control->hot_id != -1) && (control->hot_id == control->next_hot_id)) {
-        control->tooltip_countdown -= delta_seconds;
-        if (control->tooltip_countdown <= 0.0f) {
-            control->tooltip_is_active = true;
+    if ((control->hot_id != -1)) {
+        if (control->hot_id == control->next_hot_id) {
+            control->tooltip_countdown -= delta_seconds;
+            if (control->tooltip_countdown <= 0.0f) {
+                control->tooltip_is_active = true;
+            }
         }
     }
-    else if (control->active_id == -1) {
+    else {
+        control->tooltip = {};
+    }
+    
+    if (control->active_id == -1) {
         control->hot_id = control->next_hot_id;
         control->tooltip_countdown = 1.5f;
         control->tooltip_is_active = false;
         control->tooltip_position = cursor_area.min;
+    }
+    
+    if (control->active_is_done) {
+        control->active_is_done = false;
+        control->active_id = -1;
     }
     
     control->next_hot_id = -1;
@@ -724,42 +735,6 @@ INTERNAL bool ui_control(UI_Context *context, f32 delta_seconds, area2f cursor_a
     return needs_update;
 }
 
-#if 0
-INTERNAL UI_Control_State ui_button(UI_Context *context, area2f button_area, f32 priority = 0.0f, bool is_enabled = true)
-{
-    auto control = &context->control;
-    control->current_id++;
-    
-    if (((control->next_hot_id == -1) || (control->next_hot_priority > priority)) && intersects(button_area, control->cursor_area)) {
-        control->next_hot_priority = priority;
-        control->next_hot_id = control->current_id;
-    }
-    
-    if (!is_enabled)
-        return UI_Control_State_Disabled;
-    
-    //else if (control->triggerd_id == control->current_id)
-    
-    else if (control->active_id == control->current_id)
-    {
-        if (control->cursor_was_released)
-        {
-            if (control->active_id == control->hot_id)
-                return UI_Control_State_Triggered;
-            else
-                return UI_Control_State_Idle;
-        }
-        
-        return UI_Control_State_Active;
-    }
-    
-    else if ((control->active_id == -1) && (control->hot_id == control->current_id))
-        return UI_Control_State_Hot;
-    
-    return UI_Control_State_Idle;
-}
-#endif
-
 bool ui_request_hot(UI_Context *context, u32 id, f32 priority) {
     if ((context->control.next_hot_id == -1) || (context->control.next_hot_priority > priority))
     {
@@ -774,10 +749,26 @@ bool ui_request_hot(UI_Context *context, u32 id, f32 priority) {
 bool ui_request_active(UI_Context *context, u32 id) {
     if (context->control.hot_id == id) {
         context->control.active_id = id;
+        context->control.hot_id = -1;
         return true;
     }
     
     return false;
+}
+
+void ui_release_active(UI_Context *context) {
+    context->control.active_is_done = true;
+}
+
+INTERNAL UI_Control_State ui_state_of(UI_Context *context, u32 id) {
+    if (context->control.active_id == id) {
+        return UI_Control_State_Active;
+    }
+    else if (context->control.hot_id == id) {
+        return UI_Control_State_Hot;
+    }
+    
+    return UI_Control_State_Idle;
 }
 
 INTERNAL bool ui_drag(UI_Context *context, u32 id, area2f area, vec2f *delta, f32 priority = 0.0f) {
@@ -786,13 +777,12 @@ INTERNAL bool ui_drag(UI_Context *context, u32 id, area2f area, vec2f *delta, f3
     bool was_triggered = false;
     *delta = {};
     
-    if (control->active_id == id)
-    {
+    if (control->active_id == id) {
         *delta = control->cursor_area.min - control->drag_start_position;
         
         if (control->cursor_was_released) {
             was_triggered = true;
-            control->active_id = -1;
+            ui_release_active(context);
         }
     }
     else if (control->cursor_was_pressed && ui_request_active(context, id)) {
@@ -812,14 +802,12 @@ INTERNAL bool ui_button(UI_Context *context, u32 id, area2f button_area, f32 pri
     bool was_triggered = false;
     bool is_hot = intersects(button_area, control->cursor_area);
     
-    if (control->active_id == id)
-    {
-        if (control->cursor_was_released)
-        {
+    if (control->active_id == id) {
+        if (control->cursor_was_released) {
             if (is_hot)
                 was_triggered = true;
             
-            control->active_id = -1;
+            ui_release_active(context);
         }
     }
     else if (control->cursor_was_pressed) {
@@ -835,9 +823,10 @@ INTERNAL bool ui_button(UI_Context *context, u32 id, area2f button_area, f32 pri
 // apply_selection will be passed, so it can not be accidentally forgotten
 void ui_area_selector(UI_Context *context, u32 id, area2f area, bool *apply_selection, f32 priority) {
     vec2f delta;
-    *apply_selection |= ui_drag(context, id, area, &delta, priority);
+    bool was_triggerd = ui_drag(context, id, area, &delta, priority);
+    *apply_selection |= was_triggerd;
     
-    if ((context->control.active_id == id) || apply_selection) {
+    if (context->control.active_id == id) {
         context->control.selection_area.min  = context->control.drag_start_position;
         context->control.selection_area.size = delta;
         context->control.selection_area.is_valid = true;
@@ -853,6 +842,17 @@ void ui_area_selector(UI_Context *context, u32 id, area2f area, bool *apply_sele
 
 bool ui_selectable(UI_Context *context, area2f area) {
     return (context->control.selection_area.is_valid && intersects(area, context->control.selection_area));
+}
+
+bool ui_slider(UI_Context *context, u32 id, area2f area, f32 *value, vec2f influence, f32 min_value, f32 max_value, f32 priority) {
+    vec2f delta;
+    bool is_done = ui_drag(context, id, area, &delta, priority);
+    
+    if (context->control.active_id == id) {
+        *value = CLAMP(dot(context->control.drag_start_position + delta, influence), min_value, max_value);
+    }
+    
+    return is_done;
 }
 
 #if 0
