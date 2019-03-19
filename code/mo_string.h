@@ -1,6 +1,7 @@
 #if !defined STRING_H
 #define STRING_H
 
+#include <stdio.h>
 //#include "basic.h"
 
 #include "u8_buffer.h"

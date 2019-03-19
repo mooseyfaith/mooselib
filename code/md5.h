@@ -136,7 +136,7 @@ void md5_advance(MD5_Value *value, u8 *data, usize data_count, bool is_last_chun
         u8 last_chunk[64] = {};
         
         if (data_count)
-            COPY(last_chunk, data, data_count);
+            copy(last_chunk, data, data_count);
         
         // add '1' bit to stream
         last_chunk[data_count] = (1 << 7);
@@ -181,7 +181,7 @@ MD5_Value md5(u8 *data, usize data_count) {
         
         u32 offset = data_count % sizeof(Chunk);
         if (offset)
-            COPY(last_chunk.data, data + data_count - offset, offset);
+            copy(last_chunk.data, data + data_count - offset, offset);
         
         // add '1' bit to stream
         last_chunk.data[offset] = (1 << 7);
@@ -200,11 +200,11 @@ MD5_Value md5(u8 *data, usize data_count) {
 }
 
 string make_md5_string(Memory_Allocator *allocator, MD5_Value value, u8 first_symbol_after_9 = 'a') {
-    string result = write(C_Allocator, S("%%%%"),
-                          f(swap_endian(value.abcd[0]), 8, '0', 16, first_symbol_after_9),
-                          f(swap_endian(value.abcd[1]), 8, '0', 16, first_symbol_after_9),
-                          f(swap_endian(value.abcd[2]), 8, '0', 16, first_symbol_after_9),
-                          f(swap_endian(value.abcd[3]), 8, '0', 16, first_symbol_after_9));
+    string result = new_write(C_Allocator, S("%%%%"),
+                              f(swap_endian(value.abcd[0]), 8, '0', 16, first_symbol_after_9),
+                              f(swap_endian(value.abcd[1]), 8, '0', 16, first_symbol_after_9),
+                              f(swap_endian(value.abcd[2]), 8, '0', 16, first_symbol_after_9),
+                              f(swap_endian(value.abcd[3]), 8, '0', 16, first_symbol_after_9));
     
     return result;
 }

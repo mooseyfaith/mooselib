@@ -359,6 +359,6 @@ auto CHAIN(_scope_backup_, __LINE__) = var; \
 var = value; \
 defer { var = CHAIN(_scope_backup_, __LINE__); };
 
-#define MAIN_DEC int main(int argument_count, char**arguments)
+#define MAIN_DEC s32 main(s32 argument_count, u8**arguments)
 
 #endif // BASIC_H

@@ -1,3 +1,6 @@
+#if !defined WIN32_PLATFORM_H
+#define WIN32_PLATFORM_H
+
 #include <Windows.h>
 #include <Windowsx.h> // mouse message macros ... stupid>
 #include <Xinput.h>
@@ -46,18 +49,21 @@ struct Application_Info {
     any data;
 };
 
+struct Win32_Worker_Queue;
+
 struct Win32_Worker_Thread_Info {
-    Platform_Worker_Queue *queue;
+    Platform_API *platform_api;
+    Win32_Worker_Queue *queue;
     HANDLE handle;
     u32 index;
 };
 
-struct Platform_Worker_Queue {
+struct Win32_Worker_Queue {
     Win32_Worker_Thread_Info *thread_infos;
     u32 thread_count;
     HANDLE semaphore_handle;
     
-    Platform_Work *works;
+    Platform_Work *entries;
     volatile u32 next_index;
     volatile u32 done_count;
     volatile u32 count;
@@ -81,7 +87,7 @@ struct Win32_Platform_API {
     IDirectSoundBuffer *sound_buffer;
     LARGE_INTEGER last_time;
     LARGE_INTEGER ticks_per_second;
-    Platform_Worker_Queue worker_queue;
+    Win32_Worker_Queue worker_queue;
     HANDLE pipe_read, pipe_write;
     string working_directory;
 };
@@ -531,7 +537,7 @@ bool win32_load_application(Memory_Allocator *temporary_allocator, Application_I
             //printf("(re-)loading dll\n");
             
             if (application_info->dll) {
-                //return; // disbales relaod
+                //return false; // disbales relaod
                 
                 BOOL result = FreeLibrary(application_info->dll);
                 assert(result);
@@ -788,6 +794,11 @@ PLATFORM_DISPLAY_WINDOW_DEC(win32_display_window) {
         // set userdata after initial resize, otherwise requestet size would be overwriten by WM_SIZE message
         SetWindowLongPtr(window->handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window));
     }
+    else {
+        char name_buffer[MAX_PATH];
+        write_c_string(name_buffer, ARRAY_COUNT(name_buffer), title);
+        SetWindowText(window->handle, name_buffer);
+    }
     
     assert(!window->is_active, "tried to draw on the same window twice in on frame");
     
@@ -958,12 +969,14 @@ INTERNAL LPDIRECTSOUNDBUFFER win32_init_dsound(HWND window_handle, u32 samples_p
 
 #define THREAD_PROC_DEC(name) DWORD WINAPI name(LPVOID parameter)
 
-bool win32_do_work(Platform_Worker_Queue *queue, u32 thread_index) {
+PLATFORM_DO_NEXT_WORK(win32_do_next_work) {
+    auto queue = &(cast_p(Win32_Platform_API, platform_api)->worker_queue);
+    
     if (queue->next_index < queue->count)
     {
         u32 index = InterlockedIncrement(&queue->next_index) - 1;
         _ReadBarrier();
-        auto work = queue->works + index;
+        auto work = queue->entries + index;
         
         work->do_work(work->data, thread_index);
         InterlockedIncrement(&queue->done_count);
@@ -976,12 +989,12 @@ bool win32_do_work(Platform_Worker_Queue *queue, u32 thread_index) {
 THREAD_PROC_DEC(win32_worker_thread)
 {
     auto info = cast_p(Win32_Worker_Thread_Info, parameter);
-    auto queue = info->queue;
-    
+    auto platform_api = info->platform_api;
+    auto queue = &(cast_p(Win32_Platform_API, platform_api)->worker_queue);
     //printf("worker thread %i started\n", info->index);
     
     LOOP {
-        if (!win32_do_work(queue, info->index)) {
+        if (!win32_do_next_work(platform_api, info->index)) {
             //printf("worker thread %i sleeping...\n", info->index);
             WaitForSingleObjectEx(queue->semaphore_handle, INFINITE, FALSE);
             //printf("worker thread %i woke up\n", info->index);
@@ -989,35 +1002,47 @@ THREAD_PROC_DEC(win32_worker_thread)
     }
 }
 
-void win32_create_worker_threads(Memory_Allocator *allocator, Platform_Worker_Queue *queue)
-{
+PLATFORM_GET_LOGICAL_PROCESSOR_COUNT_DEC(win32_get_logical_processor_count) {
     SYSTEM_INFO system_info;
     GetSystemInfo(&system_info);
-    queue->thread_count = system_info.dwNumberOfProcessors;
-    printf("logical processor count: %u\n", queue->thread_count);
+    return system_info.dwNumberOfProcessors;
+}
+
+PLATFORM_CREATE_WORKER_THREADS_DEC(win32_create_worker_threads) {
+    Win32_Platform_API *win32_api = cast_p(Win32_Platform_API, platform_api);
     
-    queue->thread_count--;
-    queue->next_index = 0;
-    queue->capacity = 1024;
-    queue->count = 0;
-    queue->works = ALLOCATE_ARRAY(allocator, Platform_Work, queue->capacity);
+    assert(win32_api->worker_queue.semaphore_handle == 0);
     
-    queue->thread_infos = ALLOCATE_ARRAY(allocator, Win32_Worker_Thread_Info, queue->thread_count);
+    win32_api->worker_queue.thread_count = thread_count;
+    win32_api->worker_queue.next_index = 0;
+    win32_api->worker_queue.capacity = work_entry_capacity;
+    win32_api->worker_queue.count = 0;
+    win32_api->worker_queue.entries = ALLOCATE_ARRAY(allocator, Platform_Work, win32_api->worker_queue.capacity);
     
-    queue->semaphore_handle = CreateSemaphoreExA(null, 0, queue->thread_count, "Worker Queue Semaphore", 0, SEMAPHORE_ALL_ACCESS);
+    win32_api->worker_queue.thread_infos = ALLOCATE_ARRAY(allocator, Win32_Worker_Thread_Info, win32_api->worker_queue.thread_count);
     
-    for (u32 thread_index = 0; thread_index < queue->thread_count; ++thread_index)
+    win32_api->worker_queue.semaphore_handle = CreateSemaphoreExA(null, 0, win32_api->worker_queue.thread_count, "Worker Queue Semaphore", 0, SEMAPHORE_ALL_ACCESS);
+    
+    if (win32_api->worker_queue.semaphore_handle == INVALID_HANDLE_VALUE) {
+        printf("FATAL ERROR could not create worker queue semaphore, errorno: %u\n", GetLastError());
+        UNREACHABLE_CODE;
+    }
+    
+    for (u32 thread_index = 0; thread_index < win32_api->worker_queue.thread_count; ++thread_index)
     {
-        queue->thread_infos[thread_index].queue = queue;
-        queue->thread_infos[thread_index].index = thread_index;
-        queue->thread_infos[thread_index].handle = CreateThread(null, 0, win32_worker_thread, queue->thread_infos + thread_index, 0, null);
+        win32_api->worker_queue.thread_infos[thread_index].platform_api = &win32_api->platform_api;
+        win32_api->worker_queue.thread_infos[thread_index].queue = &win32_api->worker_queue;
+        win32_api->worker_queue.thread_infos[thread_index].index = thread_index;
+        win32_api->worker_queue.thread_infos[thread_index].handle = CreateThread(null, 0, win32_worker_thread, win32_api->worker_queue.thread_infos + thread_index, 0, null);
     }
 }
 
-PLATFORM_WORK_ENQUEUE_DEC(win32_work_enqueue)
+PLATFORM_ENQUEUE_WORK_DEC(win32_enqueue_work)
 {
+    auto queue = &(cast_p(Win32_Platform_API, platform_api)->worker_queue);
+    
     assert(queue->count < queue->capacity);
-    queue->works[queue->count] = work;
+    queue->entries[queue->count] = work;
     
     _WriteBarrier();
     
@@ -1025,17 +1050,19 @@ PLATFORM_WORK_ENQUEUE_DEC(win32_work_enqueue)
     ReleaseSemaphore(queue->semaphore_handle, 1, 0);
 }
 
-PLATFORM_GET_DONE_WORK_DEC(win32_get_done_work)
+PLATFORM_GET_FINISHED_WORK_DEC(win32_get_finished_work)
 {
+    auto queue = &(cast_p(Win32_Platform_API, platform_api)->worker_queue);
+    
     u32 my_total_work_count = queue->count;
     u32 my_done_work_count  = queue->done_count;
     
     bool all_work_done = (my_done_work_count == my_total_work_count);
     
     if (all_work_done)
-        *works = queue->works;
+        *work_entries = queue->entries;
     else
-        *works = null;
+        *work_entries = null;
     
     if (total_work_count)
         *total_work_count = my_total_work_count;
@@ -1048,6 +1075,7 @@ PLATFORM_GET_DONE_WORK_DEC(win32_get_done_work)
 
 PLATFORM_WORK_RESET_DEC(win32_work_reset)
 {
+    auto queue = &(cast_p(Win32_Platform_API, platform_api)->worker_queue);
     assert(queue->done_count == queue->count);
     queue->next_index = 0;
     queue->done_count = 0;
@@ -1057,6 +1085,25 @@ PLATFORM_WORK_RESET_DEC(win32_work_reset)
 struct Platform_Mutex {
     HANDLE handle;
 };
+
+struct Platform_Thread {
+    HANDLE handle;
+    Platform_Thread_Entry_Function thread_fuction;
+    any user_data;
+};
+
+THREAD_PROC_DEC(win32_thread_wrapper) {
+    auto thread = cast_p(Platform_Thread, parameter);
+    return thread->thread_fuction(thread->user_data);
+}
+
+PLATFORM_CREATE_THREAD(win32_create_thread) {
+    Platform_Thread *thread = ALLOCATE(allocator, Platform_Thread);
+    thread->thread_fuction = thread_fuction;
+    thread->user_data = user_data;
+    thread->handle = CreateThread(null, 0, win32_thread_wrapper, thread, 0, null);
+    return thread;
+}
 
 PLATFORM_MUTEX_CREATE_DEC(win32_mutex_create) {
     auto mutex = ALLOCATE(allocator, Platform_Mutex);
@@ -1252,9 +1299,17 @@ void init_win32_api(Win32_Platform_API *win32_api) {
         win32_write_entire_file,
         win32_display_window,
         win32_skip_window_update,
-        win32_work_enqueue,
-        win32_get_done_work,
+        
+        win32_get_logical_processor_count,
+        
+        win32_create_worker_threads,
+        win32_enqueue_work,
+        win32_do_next_work,
+        win32_get_finished_work,
         win32_work_reset,
+        
+        win32_create_thread,
+        
         win32_mutex_create,
         win32_mutex_destroy,
         win32_mutex_lock,
@@ -1264,4 +1319,4 @@ void init_win32_api(Win32_Platform_API *win32_api) {
     };
 }
 
-
+#endif // WIN32_PLATFORM_H

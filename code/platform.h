@@ -19,6 +19,8 @@
 
 #endif 
 
+struct Platform_API;
+
 #define PLATFORM_SYNC_ALLOCATORS_DEC(name) void name(Memory_Allocate_Function *allocate_functions, Memory_Reallocate_Function *reallocate_functions, Memory_Free_Function *free_functions)
 typedef PLATFORM_SYNC_ALLOCATORS_DEC((*Platform_Sync_Allocators_Function));
 
@@ -54,7 +56,7 @@ typedef PLATFORM_WRITE_ENTIRE_FILE_DEC((*Platform_Write_Entire_File_Function));
 
 // worker queue
 
-struct Platform_Worker_Queue;
+//struct Platform_Worker_Queue;
 
 #define PLATFORM_DO_WORK_DEC(name) void name(any data, u32 thread_index)
 typedef PLATFORM_DO_WORK_DEC((*Platform_Do_Work_Function));
@@ -64,16 +66,20 @@ struct Platform_Work {
     any data;
 };
 
-#define PLATFORM_WORK_ENQUEUE_DEC(name) void name(Platform_Worker_Queue *queue, Platform_Work work)
-typedef PLATFORM_WORK_ENQUEUE_DEC((*Platform_Work_Enqueue_Function));
+#define PLATFORM_CREATE_WORKER_THREADS_DEC(name) void name(Platform_API *platform_api, Memory_Allocator *allocator, u32 thread_count, u32 work_entry_capacity)
+typedef PLATFORM_CREATE_WORKER_THREADS_DEC((*Platform_Create_Worker_Threads_Function));
 
-#define PLATFORM_GET_DONE_WORK_DEC(name) bool name(Platform_Worker_Queue *queue, OUTPUT Platform_Work **works, OUTPUT u32 *total_work_count, OUTPUT OPTIONAL u32 *done_work_count)
-typedef PLATFORM_GET_DONE_WORK_DEC((*Platform_Get_Done_Work_Function));
+#define PLATFORM_ENQUEUE_WORK_DEC(name) void name(Platform_API *platform_api, Platform_Work work)
+typedef PLATFORM_ENQUEUE_WORK_DEC((*Platform_Enqueue_Work_Function));
 
-#define PLATFORM_WORK_RESET_DEC(name) void name(Platform_Worker_Queue *queue)
+#define PLATFORM_DO_NEXT_WORK(name) bool name(Platform_API *platform_api, u32 thread_index)
+typedef PLATFORM_DO_NEXT_WORK((*Platform_Do_Next_Work_Funtion));
+
+#define PLATFORM_GET_FINISHED_WORK_DEC(name) bool name(Platform_API *platform_api, OUTPUT Platform_Work **work_entries, OUTPUT u32 *total_work_count, OUTPUT OPTIONAL u32 *done_work_count)
+typedef PLATFORM_GET_FINISHED_WORK_DEC((*Platform_Get_Finished_Work_Function));
+
+#define PLATFORM_WORK_RESET_DEC(name) void name(Platform_API *platform_api)
 typedef PLATFORM_WORK_RESET_DEC((*Platform_Work_Reset_Function));
-
-struct Platform_API;
 
 struct Platform_Window {
     bool mouse_is_inside;
@@ -87,9 +93,18 @@ typedef PLATFORM_DISPLAY_WINDOW_DEC((*Platform_Display_Window_Function));
 #define PLATFORM_SKIP_WINDOW_UPDATE_DEC(name) void name(Platform_API *platform_api)
 typedef PLATFORM_SKIP_WINDOW_UPDATE_DEC((*Platform_Skip_Window_Update_Function));
 
+
 // mutex functions
 
+
+struct Platform_Thread;
 struct Platform_Mutex;
+
+#define PLATFORM_THREAD_ENTRY_DEC(name) s32 name(any user_data)
+typedef PLATFORM_THREAD_ENTRY_DEC((*Platform_Thread_Entry_Function));
+
+#define PLATFORM_CREATE_THREAD(name) Platform_Thread * name(Memory_Allocator *allocator, Platform_Thread_Entry_Function thread_fuction, any user_data)
+typedef PLATFORM_CREATE_THREAD((*Platform_Create_Thread_Function));
 
 #define PLATFORM_MUTEX_CREATE_DEC(name) Platform_Mutex * name(Memory_Allocator *allocator)
 typedef PLATFORM_MUTEX_CREATE_DEC((*Platform_Mutex_Create_Function));
@@ -105,6 +120,9 @@ typedef PLATFORM_MUTEX_DESTROY_DEC((*Platform_Mutex_Destroy_Function));
 
 #define PLATFORM_RUN_COMMAND(name) string name(u32 *out_exit_code, bool *out_ok, Platform_API *platform_api, string command_line, Memory_Allocator *allocator)
 typedef PLATFORM_RUN_COMMAND((*Platform_Run_Command_Function));
+
+#define PLATFORM_GET_LOGICAL_PROCESSOR_COUNT_DEC(name) u32 name(Platform_API *platform_api)
+typedef PLATFORM_GET_LOGICAL_PROCESSOR_COUNT_DEC((*Platform_Get_Logical_Processor_Count_Function));
 
 #define PLATFORM_GET_WORKING_DIRECTORY(name) string name(Platform_API *platform_api)
 typedef PLATFORM_GET_WORKING_DIRECTORY((*Platform_Get_Working_Directory_Function));
@@ -177,10 +195,16 @@ struct Platform_API {
     Platform_Display_Window_Function     display_window;
     Platform_Skip_Window_Update_Function skip_window_update;
     
-    Platform_Work_Enqueue_Function      work_enqueue;
-    //Platform_Work_All_Done_Function     work_all_done;
-    Platform_Get_Done_Work_Function     get_done_work;
-    Platform_Work_Reset_Function        work_reset;
+    Platform_Get_Logical_Processor_Count_Function get_logical_processor_count;
+    
+    Platform_Create_Worker_Threads_Function create_worker_threads;
+    Platform_Enqueue_Work_Function          enqueue_work;
+    Platform_Do_Next_Work_Funtion           do_next_work;
+    //Platform_Work_All_Done_Function       work_all_done;
+    Platform_Get_Finished_Work_Function     get_finished_work;
+    Platform_Work_Reset_Function            work_reset;
+    
+    Platform_Create_Thread_Function   create_thread;
     
     Platform_Mutex_Create_Function    mutex_create;
     Platform_Mutex_Destroy_Function   mutex_destroy;
@@ -190,7 +214,6 @@ struct Platform_API {
     Platform_Run_Command_Function           run_command;
     Platform_Get_Working_Directory_Function get_working_directory;
     
-    Platform_Worker_Queue *worker_queue;
     u32 worker_thread_count;
     
     Platform_Messages messages;

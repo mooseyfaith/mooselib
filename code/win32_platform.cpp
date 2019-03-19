@@ -55,10 +55,6 @@ int main(int argc, const char **args)
     win32_platform_api.input.gamepads = gamepads;
     win32_platform_api.input.gamepad_count = XUSER_MAX_COUNT;
     
-    win32_create_worker_threads(&win32_platform_api.persistent_memory.allocator, &win32_platform_api.worker_queue);
-    win32_platform_api.platform_api.worker_queue        = &win32_platform_api.worker_queue;
-    win32_platform_api.platform_api.worker_thread_count = win32_platform_api.worker_queue.thread_count;
-    
     const u32 sound_buffer_samples_per_second = 48000;
     const u32 sound_buffer_bytes_per_sample   = sizeof(s16) * 2;
     const u32 sound_buffer_scond_count        = 1;
@@ -113,8 +109,10 @@ int main(int argc, const char **args)
 #endif
         win32_platform_api.application_info.data = win32_platform_api.application_info.init(cast_p(Platform_API, &win32_platform_api), &win32_platform_api.input);
         
+#if 0        
         win32_platform_api.sound_buffer = win32_init_dsound(dummy_window.handle, sound_buffer_samples_per_second, sound_buffer_byte_count);
         win32_platform_api.sound_buffer->Play(0, 0, DSBPLAY_LOOPING);
+#endif
         
         // we only need the gl_context and the sound_buffer, so destroy the dummy window
         wglMakeCurrent(NULL, NULL);
@@ -127,6 +125,22 @@ int main(int argc, const char **args)
     
     QueryPerformanceFrequency(&win32_platform_api.ticks_per_second);
     QueryPerformanceCounter(&win32_platform_api.last_time);
+    
+    
+    TIMECAPS timecaps;
+    timeGetDevCaps(&timecaps, sizeof(timecaps));
+    //// HACK: we are never calling timeEndPeriod, hopfully windows can figure this out on its own
+    if (timeBeginPeriod(timecaps.wPeriodMin) == TIMERR_NOCANDO) {
+        printf("timeBeginPeriod no can do...");
+        UNREACHABLE_CODE;
+    }
+    
+    defer { 
+        timeEndPeriod(timecaps.wPeriodMin);
+    };
+    
+    LARGE_INTEGER delta_time = {};
+    f64 delta_seconds = 0;
     
     MSG msg;
     bool do_continue = true;
@@ -324,6 +338,7 @@ int main(int argc, const char **args)
                     
                     for (u32 i = 0; i < file_count; ++i) {
                         auto *message = ALLOCATE(&win32_platform_api.transient_memory.allocator, Platform_Message_File_Drop);
+                        *message = {};
                         message->kind = Platform_Message_Kind_File_Drop;
                         
                         u32 full_path_count = DragQueryFileA(drop, i, null, 0);
@@ -458,14 +473,6 @@ int main(int argc, const char **args)
             break;
         
         {
-            LARGE_INTEGER time;
-            QueryPerformanceCounter(&time);
-            
-            LARGE_INTEGER delta_time;
-            delta_time.QuadPart = time.QuadPart - win32_platform_api.last_time.QuadPart;
-            
-            f64 delta_seconds = delta_time.QuadPart / cast_v(f64, win32_platform_api.ticks_per_second.QuadPart);
-            win32_platform_api.last_time = time;
             
             if (win32_load_application(&win32_platform_api.transient_memory.allocator, &win32_platform_api.application_info))
             {
@@ -543,6 +550,7 @@ int main(int argc, const char **args)
                 win32_platform_api.window_buffer[i].is_active = false;
             }
             
+#if 0            
             u8 _sound_output[sound_buffer_byte_count];
             
             Sound_Buffer output_sound_buffer       = {};
@@ -616,6 +624,7 @@ int main(int argc, const char **args)
 #endif
                 }
             }
+#endif
             
             win32_platform_api.platform_api.messages = win32_messages;
             
@@ -630,17 +639,61 @@ int main(int argc, const char **args)
                 }
             }
 #endif
+            
+            
+#if 0            
             LARGE_INTEGER frame_start;
             QueryPerformanceCounter(&frame_start);
+#endif
             
-            auto main_loop_result = win32_platform_api.application_info.main_loop(cast_p(Platform_API, &win32_platform_api), &win32_platform_api.input, &output_sound_buffer, win32_platform_api.application_info.data, delta_seconds);
+            auto main_loop_result = win32_platform_api.application_info.main_loop(cast_p(Platform_API, &win32_platform_api), &win32_platform_api.input, null /*&output_sound_buffer*/, win32_platform_api.application_info.data, delta_seconds);
             
             if (main_loop_result == Platform_Main_Loop_Quit)
                 PostQuitMessage(0);
             
-            LARGE_INTEGER frame_end;
-            QueryPerformanceCounter(&frame_end);
+            if (win32_platform_api.current_window && win32_platform_api.current_window->is_active)
+            {
+                SwapBuffers(win32_platform_api.current_window->device_context);
+                win32_platform_api.current_window = null;
+            }
             
+            {
+                LARGE_INTEGER time;
+                QueryPerformanceCounter(&time);
+                
+                delta_time.QuadPart = time.QuadPart - win32_platform_api.last_time.QuadPart;
+                
+                delta_seconds = delta_time.QuadPart / cast_v(f64, win32_platform_api.ticks_per_second.QuadPart);
+                
+#if 1
+                static f64 missed_ms = 0;
+                
+                const f64 target_frame_ms = 1000.0 / 60.0;
+                f64 frame_ms = 1000 * delta_seconds - missed_ms;
+                
+                if (target_frame_ms > frame_ms) {
+                    Sleep(target_frame_ms - frame_ms);
+                    
+                    LARGE_INTEGER time;
+                    QueryPerformanceCounter(&time);
+                    
+                    delta_time.QuadPart = time.QuadPart - win32_platform_api.last_time.QuadPart;
+                    
+                    delta_seconds = delta_time.QuadPart / cast_v(f64, win32_platform_api.ticks_per_second.QuadPart);
+                    win32_platform_api.last_time = time;
+                    
+                    missed_ms = frame_ms - ((u64)frame_ms);
+                    missed_ms += target_frame_ms - 1000 * delta_seconds;
+                }
+                else {
+                    win32_platform_api.last_time = time;
+                    missed_ms = 0;
+                }
+#endif
+                
+            }
+            
+#if 0            
             if (output_sound_buffer.output.count) {
                 u32 output_offset = 0;
                 
@@ -654,31 +707,51 @@ int main(int argc, const char **args)
                     win32_platform_api.sound_buffer->Unlock(sound_buffer_region_data[0], sound_buffer_region_count[0], sound_buffer_region_data[1], sound_buffer_region_count[1]);
                 }
             }
+#endif
             
             win32_platform_api.swap_buffer_count = 0;
             
             advance_input(&win32_platform_api.input, delta_seconds);
             
+#if 0            
             auto render_time = (frame_end.QuadPart - frame_start.QuadPart) / cast_v(f64, win32_platform_api.ticks_per_second.QuadPart);
+#endif
             
-            {
-                // wait a little shorter than we just required to render
-                // assuming the render time is stable
-                const f64 target_seconds_per_frame = 1.0 / 60.0;
-                auto sleep_time = (target_seconds_per_frame - render_time * 1.2f);
+            
+            if (main_loop_result == Platform_Main_Loop_Wait_For_Input) {
+                HANDLE handles[] = { win32_platform_api.worker_queue.semaphore_handle };
                 
-                if (sleep_time > 0.0f)
-                    Sleep(sleep_time * 1000);
+                u32 handle_count = 0;
+                if (win32_platform_api.worker_queue.semaphore_handle != 0)
+                    handle_count++;
+                
+                auto result = MsgWaitForMultipleObjects(handle_count, handles, FALSE, INFINITE, QS_INPUT | QS_POSTMESSAGE | QS_TIMER | QS_HOTKEY | QS_SENDMESSAGE);
+                switch (result) {
+                    case WAIT_OBJECT_0:
+                    // work is done
+                    case WAIT_OBJECT_0 + 1:
+                    // new message
+                    break;
+                    
+                    case WAIT_ABANDONED_0: {
+                        printf("WARNING worker queue semaphore was abonded\n");
+                    } break;
+                    
+                    case WAIT_TIMEOUT: {
+                        printf("ERROR MsgWaitForMultipleObjects TIMEOUT, wich is not supposed to happen\n");
+                        
+                        UNREACHABLE_CODE;
+                    } break;
+                    
+                    case WAIT_FAILED: {
+                        printf("ERROR MsgWaitForMultipleObjects failed with errorno: %u\n", GetLastError());
+                    }
+                    
+                    CASES_COMPLETE;
+                }
+                
+                //WaitMessage();
             }
-            
-            if (win32_platform_api.current_window && win32_platform_api.current_window->is_active)
-            {
-                SwapBuffers(win32_platform_api.current_window->device_context);
-                win32_platform_api.current_window = null;
-            }
-            
-            if (main_loop_result == Platform_Main_Loop_Wait_For_Input)
-                WaitMessage();
             
             {
                 u32 i = 0;

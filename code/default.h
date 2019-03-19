@@ -263,17 +263,9 @@ void debug_update_camera(Debug_Camera *camera) {
     camera->to_world = make_transform(rotation, camera->to_world.translation);
 }
 
-void init(Default_State *state, Platform_API *platform_api, usize worker_thread_memory_count = MEGA(256))
+void init(Default_State *state, Platform_API *platform_api)
 {
     state->transient_memory = make_memory_growing_stack(platform_api->allocator);
-    
-    {
-        state->worker_thread_stacks = ALLOCATE_ARRAY(&state->persistent_memory.allocator, Memory_Stack, platform_api->worker_thread_count);
-        for (u32 i = 0; i < platform_api->worker_thread_count; ++i)
-            state->worker_thread_stacks[i] = make_memory_stack(&state->persistent_memory.allocator, worker_thread_memory_count / platform_api->worker_thread_count);
-        
-        state->work_memory = make_memory_growing_stack(platform_api->allocator);
-    }
     
     {
         auto ft_library = begin_font_loading();
@@ -342,6 +334,14 @@ void init(Default_State *state, Platform_API *platform_api, usize worker_thread_
     state->debug.camera.beta = Pi32 * -0.25f;
     debug_update_camera(&state->debug.camera);
     state->debug.camera.to_world.translation = transform_direction(state->debug.camera.to_world, vec3f{ 0, 0, 20.f });
+}
+
+void default_init_worker_queue_memory(Default_State *state, Platform_API *platform_api, usize total_byte_count, u32 stack_count) {
+    state->worker_thread_stacks = ALLOCATE_ARRAY(&state->persistent_memory.allocator, Memory_Stack, stack_count);
+    for (u32 i = 0; i < stack_count; ++i)
+        state->worker_thread_stacks[i] = make_memory_stack(&state->persistent_memory.allocator, total_byte_count / stack_count);
+    
+    state->work_memory = make_memory_growing_stack(platform_api->allocator);
 }
 
 bool default_begin_frame(Default_State *state, const Game_Input *input, Platform_API *platform_api, f64 *delta_seconds)
@@ -437,7 +437,7 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     
     auto ui = &state->ui;
     
-    do_update &= ui_control(ui, { window.mouse_position, { 1, 1 } }, cursor_was_pressed, cursor_was_released);
+    do_update &= ui_control(ui, delta_seconds, { window.mouse_position, { 1, 1 } }, cursor_was_pressed, cursor_was_released);
     
     //if (!allways_update && !do_update)
     //return null;

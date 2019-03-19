@@ -57,7 +57,7 @@ Config_Table make_config_table(const string config_text, Memory_Allocator *alloc
         skip_set(&it, line_endings);
         
         if (line.count) {
-            memory_units max_length;
+            usize max_length;
             
             string token = skip_until_first_in_set(&line, token_endings);			
             config_table.variable_names[variable_count] = make_string(allocator, token);
@@ -81,8 +81,8 @@ Config_Table make_config_table(const string config_text, Memory_Allocator *alloc
     return config_table;
 }
 
-Config_Table make_config_table(string file_path, Platform_Read_Text_File_Function read_text_file, Memory_Allocator *allocator, Memory_Allocator *temporary_allocator) {
-    string text = read_text_file(file_path, temporary_allocator);
+Config_Table make_config_table(string file_path, Platform_Read_Entire_File_Function read_entire_file, Memory_Allocator *allocator, Memory_Allocator *temporary_allocator) {
+    string text = read_entire_file(file_path, temporary_allocator);
     Config_Table table = make_config_table(text, allocator);
     free(temporary_allocator, text.data);
     

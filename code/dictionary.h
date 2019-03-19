@@ -46,7 +46,7 @@ u32 hash_djb2(const u8 *it, const u8 *end) {
 #define GET_DICTIONARY_ENTRY(optional_ok, dict, key, type) ((type *)get_entry(optional_ok, dict, key))
 
 Dictionary_Entry_Header * get_entry(bool *optional_ok, Dictionary *dict, string key) {
-    u32 slot = hash_djb2(key, one_past_last(key)) % dict->count;
+    u32 slot = hash_djb2(key.data, one_past_last(key)) % dict->count;
     
     if (!dict->entries[slot])
         goto failed;
@@ -84,7 +84,7 @@ Dictionary_Entry_Header * get_entry(bool *optional_ok, Dictionary *dict, string 
 #define SET_DICTIONARY_ENTRY(dict, entry) set_entry(dict, (Dictionary_Entry_Header *)entry)
 
 void set_entry(Dictionary *dict, Dictionary_Entry_Header *entry) {
-    u32 slot = hash_djb2(entry->key, one_past_last(entry->key)) % dict->count;
+    u32 slot = hash_djb2(entry->key.data, one_past_last(entry->key)) % dict->count;
     
     if (dict->entries[slot] && dict->entries[slot]->key != entry->key) {
         u32 i = slot + 1;

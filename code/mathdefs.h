@@ -16,35 +16,35 @@
 // Unit in the last place (ulp) comparision
 // numbers should not be close to zero, thats what they said ...
 // see: https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
-inline bool are_close(float a, float b, s32 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
+INTERNAL bool are_close(float a, float b, s32 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
     if ((a > 0.0f) != (b > 0.0f))
         return a == b;
     
     return abs(*cast_p(s32, &a) - *cast_p(s32, &b)) <= max_ulp_diff;
 }
 
-inline bool are_close(double a, double b, s64 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
+INTERNAL bool are_close(double a, double b, s64 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
     if ((a > 0.0) != (b > 0.0))
         return a == b;
     
     return abs(*cast_p(s64, &a) - *cast_p(s64, &b)) <= max_ulp_diff;
 }
 
-u32 binary_distance(float a, float b) {
+INTERNAL u32 binary_distance(float a, float b) {
     if ((a > 0.0f) != (b > 0.0f))
         return -1;
     
     return abs(*cast_p(s32, &a) - *cast_p(s32, &b));
 }
 
-u64 binary_distance(double a, double b) {
+INTERNAL u64 binary_distance(double a, double b) {
     if ((a > 0.0) != (b > 0.0))
         return -1;
     
     return abs(*cast_p(s64, &a) - *cast_p(s64, &b));
 }
 
-inline float sign(float a) {
+INTERNAL float sign(float a) {
     if (a < 0.0f)
         return -1.0f;
     else if (a > 0.0f)
@@ -53,7 +53,7 @@ inline float sign(float a) {
         return 0.0f;
 }
 
-inline double sign(double a) {
+INTERNAL double sign(double a) {
     if (a < 0.0)
         return -1.0;
     else if (a > 0.0)
@@ -62,7 +62,7 @@ inline double sign(double a) {
         return 0.0;
 }
 
-f32 dirty_mod(f32 value, f32 divisor) {
+INTERNAL f32 dirty_mod(f32 value, f32 divisor) {
     s64 x = value / divisor;
     return value - x * divisor;
 }

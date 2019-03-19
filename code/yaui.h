@@ -116,6 +116,15 @@ struct UI_Context {
         
         u32 next_hot_id;
         f32 next_hot_priority;
+        
+        string tooltip;
+        f32 tooltip_countdown;
+        bool tooltip_is_active;
+        vec2f tooltip_position;
+        
+        vec2f drag_start_position;
+        
+        area2f selection_area;
     } control;
     
 #if 0
@@ -400,6 +409,17 @@ void ui_set_quad_triangles_indices(u32 indices[4], u32 a, u32 b, u32 c, u32 d)
     indices[5] = d;
 }
 
+UI_Command * ui_begin_draw(UI_Context *context, GLenum mode, u32 vertex_count, u32 index_count) {
+    auto command = &insert_tail(&context->memory_stack.allocator, &context->current_group->commands)->command;
+    *command = make_kind(UI_Command, draw);
+    
+    command->draw.mode = mode;
+    command->draw.vertices = ALLOCATE_ARRAY_INFO(&context->memory_stack, UI_Vertex, vertex_count);
+    command->draw.indices = ALLOCATE_ARRAY_INFO(&context->memory_stack, u32, index_count);
+    
+    return command;
+}
+
 void ui_rect(UI_Context *context, area2f draw_rect, area2f texture_rect = {}, rgba32 color = { 255, 255, 255, 255 }, bool is_filled = true)
 {
     context->current_area = merge(context->current_area, draw_rect);
@@ -643,15 +663,39 @@ inline area2f ui_write(UI_Context *context, UI_Text_Info *info, rgba32 color, st
     return result;
 }
 
-INTERNAL bool ui_control(UI_Context *context, area2f cursor_area, bool cursor_was_pressed, bool cursor_was_released, bool force_update = true)
+INTERNAL bool ui_control(UI_Context *context, f32 delta_seconds, area2f cursor_area, bool cursor_was_pressed, bool cursor_was_released, bool force_update = true)
 {
     auto control = &context->control;
     
+    if ((control->hot_id != -1) && (control->hot_id == control->next_hot_id)) {
+        control->tooltip_countdown -= delta_seconds;
+        if (control->tooltip_countdown <= 0.0f) {
+            control->tooltip_is_active = true;
+        }
+    }
+    else if (control->active_id == -1) {
+        control->hot_id = control->next_hot_id;
+        control->tooltip_countdown = 1.5f;
+        control->tooltip_is_active = false;
+        control->tooltip_position = cursor_area.min;
+    }
+    
+    control->next_hot_id = -1;
+    
+    control->cursor_area = cursor_area;
+    control->cursor_was_pressed  = cursor_was_pressed;
+    control->cursor_was_released = cursor_was_released;
+    
+    return true;
+    
+#if 0    
     if (control->cursor_was_released)
         control->active_id = -1;
+#endif
     
     bool needs_update = force_update || cursor_was_pressed || cursor_was_released || !are_equal(&cursor_area, &control->cursor_area, sizeof(cursor_area));
     
+#if 0    
     if (needs_update)
     {
         control->hot_id = control->next_hot_id;
@@ -675,10 +719,12 @@ INTERNAL bool ui_control(UI_Context *context, area2f cursor_area, bool cursor_wa
         }
 #endif
     }
+#endif
     
     return needs_update;
 }
 
+#if 0
 INTERNAL UI_Control_State ui_button(UI_Context *context, area2f button_area, f32 priority = 0.0f, bool is_enabled = true)
 {
     auto control = &context->control;
@@ -712,7 +758,104 @@ INTERNAL UI_Control_State ui_button(UI_Context *context, area2f button_area, f32
     
     return UI_Control_State_Idle;
 }
+#endif
 
+bool ui_request_hot(UI_Context *context, u32 id, f32 priority) {
+    if ((context->control.next_hot_id == -1) || (context->control.next_hot_priority > priority))
+    {
+        context->control.next_hot_id = id;
+        context->control.next_hot_priority = priority;
+        return true;
+    }
+    
+    return false;
+}
+
+bool ui_request_active(UI_Context *context, u32 id) {
+    if (context->control.hot_id == id) {
+        context->control.active_id = id;
+        return true;
+    }
+    
+    return false;
+}
+
+INTERNAL bool ui_drag(UI_Context *context, u32 id, area2f area, vec2f *delta, f32 priority = 0.0f) {
+    auto control = &context->control;
+    
+    bool was_triggered = false;
+    *delta = {};
+    
+    if (control->active_id == id)
+    {
+        *delta = control->cursor_area.min - control->drag_start_position;
+        
+        if (control->cursor_was_released) {
+            was_triggered = true;
+            control->active_id = -1;
+        }
+    }
+    else if (control->cursor_was_pressed && ui_request_active(context, id)) {
+        control->drag_start_position = control->cursor_area.min;
+    }
+    
+    if (intersects(area, control->cursor_area))
+        ui_request_hot(context, id, priority);
+    
+    return was_triggered;
+}
+
+INTERNAL bool ui_button(UI_Context *context, u32 id, area2f button_area, f32 priority = 0.0f)
+{
+    auto control = &context->control;
+    
+    bool was_triggered = false;
+    bool is_hot = intersects(button_area, control->cursor_area);
+    
+    if (control->active_id == id)
+    {
+        if (control->cursor_was_released)
+        {
+            if (is_hot)
+                was_triggered = true;
+            
+            control->active_id = -1;
+        }
+    }
+    else if (control->cursor_was_pressed) {
+        ui_request_active(context, id);
+    }
+    
+    if (is_hot)
+        ui_request_hot(context, id, priority);
+    
+    return was_triggered;
+}
+
+// apply_selection will be passed, so it can not be accidentally forgotten
+void ui_area_selector(UI_Context *context, u32 id, area2f area, bool *apply_selection, f32 priority) {
+    vec2f delta;
+    *apply_selection |= ui_drag(context, id, area, &delta, priority);
+    
+    if ((context->control.active_id == id) || apply_selection) {
+        context->control.selection_area.min  = context->control.drag_start_position;
+        context->control.selection_area.size = delta;
+        context->control.selection_area.is_valid = true;
+        
+        for (u32 i = 0; i < 2; i++) {
+            if (context->control.selection_area.size[i] < 0) {
+                context->control.selection_area.min[i] += context->control.selection_area.size[i];
+                context->control.selection_area.size[i] = -context->control.selection_area.size[i];
+            }
+        }
+    }
+}
+
+bool ui_selectable(UI_Context *context, area2f area) {
+    return (context->control.selection_area.is_valid && intersects(area, context->control.selection_area));
+}
+
+#if 0
 INTERNAL UI_Control_State ui_selectable(UI_Context *context, area2f area, u32 selection_id, bool *is_selected, bool invert_selection = false)
 {
     auto control = &context->control;
@@ -751,6 +894,7 @@ INTERNAL UI_Control_State ui_selectable(UI_Context *context, area2f area, u32 se
     
     return UI_Control_State_Idle;
 }
+#endif
 
 void ui_end(UI_Context *context) {
     
@@ -827,7 +971,9 @@ void ui_end(UI_Context *context) {
                 if (draw) {
                     if (current_draw_command.draw.mode == -1) {
                         current_draw_command = command_it->command;
-                    } else if (current_draw_command.draw.mode == draw->mode) {
+                    } else if (
+                        (current_draw_command.draw.mode == draw->mode) && (draw->mode != GL_LINE_STRIP) && (draw->mode != GL_TRIANGLE_STRIP)
+                        ) {
                         // ok since we are not using the actual data, we only need the count
                         current_draw_command.draw.vertices.count += draw->vertices.count;
                         current_draw_command.draw.indices.count += draw->indices.count;
