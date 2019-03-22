@@ -71,7 +71,11 @@ class GLMeshExporter(bpy.types.Operator):
 
 			return new_vertex['index']
 
-		if uvs:
+		if mesh.vertex_colors and uvs:
+			vertex = (mesh.loops[loop_index].vertex_index, uvs[loop_index].uv[:], mesh.vertex_colors[0].data[loop_index].color[:])
+		elif mesh.vertex_colors:
+			vertex = (mesh.loops[loop_index].vertex_index, mesh.vertex_colors[0].data[loop_index].color[:])
+		elif uvs:
 			vertex = (mesh.loops[loop_index].vertex_index, uvs[loop_index].uv[:])
 		else:
 			vertex = (mesh.loops[loop_index].vertex_index)
@@ -120,7 +124,8 @@ class GLMeshExporter(bpy.types.Operator):
 		self.write("%.6f %.6f %.6f " % self.swap_yz(mesh.vertices[vertex_index].co[:]))
 			
 		if mesh.vertex_colors:
-			self.write("u8 4 %d %d %d %d " % int(255 * mesh.vertex_colors[vertex_index].co[:]))
+			color = mesh.vertex_colors[0].data[loop_index].color
+			self.write("u8 4 %d %d %d 255 " % (255 * color[0], 255 * color[1], 255 * color[2]))
 
 		if polygon_index_plus_one == 0:
 			vertex = mesh.vertices[vertex_index]

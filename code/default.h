@@ -310,7 +310,7 @@ void init(Default_State *state, Platform_API *platform_api)
     
     state->default_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->default_shader.uniforms), S(MOOSELIB_PATH "shaders/default.shader.txt"), 
                                                        //S("WITH_SHADOW_MAP, WITH_ENVIRONMENT_MAP, WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
-                                                       S("WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
+                                                       S("WITH_VERTEX_COLOR, WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
                                                        default_shader_uniforms);
     
     state->shadow_map_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->shadow_map_shader.uniforms), S(MOOSELIB_PATH "shaders/shadow_map.shader.txt"), S("WITH_DIFFUSE_COLOR"),
