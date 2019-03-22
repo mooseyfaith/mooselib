@@ -896,6 +896,7 @@ PLATFORM_DISPLAY_WINDOW_DEC(win32_display_window) {
     
     result.was_destroyed = false;
     ScreenToClient(window->handle, &point);
+    result.area = window->new_area;
     result.mouse_position = { cast_v(f32, point.x), cast_v(f32, window->new_area.height - point.y - 1) };
     
     result.mouse_is_inside = contains(window->new_area, result.mouse_position.x, result.mouse_position.y);

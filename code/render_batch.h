@@ -22,7 +22,21 @@ struct Vertex_Attribute_Info {
     GLint padding_length;
 };
 
-inline u32 get_vertex_attribute_byte_count(const Vertex_Attribute_Info *attribute_info) {
+#define Template_Array_Name      Vertex_Attributes
+#define Template_Array_Data_Type Vertex_Attribute_Info
+#include "template_array.h"
+
+struct Vertex_Buffer {
+    Vertex_Attributes attributes;
+    u32 vertex_byte_count;
+    GLuint object;
+};
+
+#define Template_Array_Name      Vertex_Buffers
+#define Template_Array_Data_Type Vertex_Buffer
+#include "template_array.h"
+
+inline u32 vertex_attribute_byte_count_of(const Vertex_Attribute_Info *attribute_info) {
     switch (attribute_info->type) {
         case GL_FLOAT:
         return sizeof(GLfloat) * (attribute_info->length + attribute_info->padding_length);
@@ -36,52 +50,91 @@ inline u32 get_vertex_attribute_byte_count(const Vertex_Attribute_Info *attribut
     }
 }
 
-u32 get_vertex_byte_count(const Vertex_Attribute_Info *attribute_infos, u32 attribute_infos_length) {
+u32 vertex_byte_count_of(Vertex_Attributes attributes) {
     u32 byte_count = 0;
     
-    for (u32 i = 0; i != attribute_infos_length; ++i)
-        byte_count+= get_vertex_attribute_byte_count(attribute_infos + i);
+    for (u32 i = 0; i != attributes.count; ++i)
+        byte_count+= vertex_attribute_byte_count_of(attributes.data + i);
     
     return byte_count;
 }
 
-void set_vertex_attributes(GLuint vertex_buffer_object, const Vertex_Attribute_Info *attribute_infos, u32 attribute_infos_length) {
-    GLsizei stride = (GLsizei)get_vertex_byte_count(attribute_infos, attribute_infos_length);
+void set_vertex_attributes(GLuint vertex_buffer_object, Vertex_Attributes attributes) {
+    GLsizei stride = (GLsizei)vertex_byte_count_of(attributes);
     u8 *offset = 0;
     
     glBindBuffer(GL_ARRAY_BUFFER, vertex_buffer_object);
     
-    for (u32 i = 0; i != attribute_infos_length; ++i) {
-        glEnableVertexAttribArray(attribute_infos[i].index);
+    for (u32 i = 0; i != attributes.count; ++i) {
+        glEnableVertexAttribArray(attributes[i].index);
         glVertexAttribPointer(
-            attribute_infos[i].index,
-            attribute_infos[i].length,
-            attribute_infos[i].type,
-            attribute_infos[i].do_normalize,
+            attributes[i].index,
+            attributes[i].length,
+            attributes[i].type,
+            attributes[i].do_normalize,
             stride,
             (const void *)offset
             );
         
-        offset += get_vertex_attribute_byte_count(attribute_infos + i);
+        offset += vertex_attribute_byte_count_of(attributes.data + i);
     }
 }
+
+u32 vertex_attribute_byte_offet_of(Vertex_Attributes attributes, u32 index) {
+    u32 byte_offset = 0;
+    for (u32 i = 0; i != attributes.count; ++i) {
+        if (attributes[i].index == index)
+            return byte_offset;
+        
+        byte_offset += vertex_attribute_byte_count_of(attributes.data + i);
+    }
+    
+    return -1;
+}
+
+u32 vertex_attribute_byte_offet_of(u32 *out_buffer_index, Vertex_Buffers buffers, u32 index) {
+    
+    for (u32 b = 0; b < buffers.count; b++) {
+        u32 byte_offset = vertex_attribute_byte_offet_of(buffers[b].attributes, index);
+        if (byte_offset != -1) {
+            *out_buffer_index = b;
+            return byte_offset;
+        }
+    }
+    
+    *out_buffer_index = -1;
+    return -1;
+}
+
 
 #include "u8_buffer.h"
 
 struct Indices {
     u8_buffer buffer;
-    u32 bytes_per_index;
+    u32 index_byte_count;
 };
 
 INTERNAL void push_index(Indices *indices, u32 index) {
-    u8 *dest = push(&indices->buffer, indices->bytes_per_index);
-    // should work because of endieness
-    copy(dest, &index, indices->bytes_per_index);
-    //push(&indices->buffer, cast_p(u8, &index), indices->bytes_per_index);
+    switch (indices->index_byte_count) {
+        case 1:
+        push(&indices->buffer, cast_v(u8, index));
+        break;
+        
+        case 2:
+        *push_item(&indices->buffer, u16) = cast_v(u16, index);
+        break;
+        
+        case 4:
+        *push_item(&indices->buffer, u32) = cast_v(u32, index);
+        break;
+        
+        default:
+        UNREACHABLE_CODE;
+    }
 }
 
-INTERNAL u32 get_index(Indices indices, u32 offset) {
-    switch (indices.bytes_per_index) {
+INTERNAL u32 index_of(Indices indices, u32 offset) {
+    switch (indices.index_byte_count) {
         case 1:
         return indices.buffer[offset];
         
@@ -101,22 +154,22 @@ INTERNAL u32 get_index(Indices indices, u32 offset) {
     }
 }
 
-INTERNAL u32 index_count(Indices indices) {
-    return indices.buffer.count / indices.bytes_per_index;
+INTERNAL u32 index_count_of(Indices indices) {
+    return indices.buffer.count / indices.index_byte_count;
 }
 
 inline void set_bytes_per_index_by_gl_type(Indices *indices, GLenum type) {
     switch (type) {	
         case GL_UNSIGNED_BYTE:
-        indices->bytes_per_index = sizeof(u8);
+        indices->index_byte_count = sizeof(u8);
         break;
         
         case GL_UNSIGNED_SHORT:
-        indices->bytes_per_index = sizeof(u16);
+        indices->index_byte_count = sizeof(u16);
         break;
         
         case GL_UNSIGNED_INT:
-        indices->bytes_per_index = sizeof(u32);
+        indices->index_byte_count = sizeof(u32);
         break;
         
         default:
@@ -124,8 +177,8 @@ inline void set_bytes_per_index_by_gl_type(Indices *indices, GLenum type) {
     }
 }
 
-inline GLenum get_index_gl_type(Indices indices) {
-    switch (indices.bytes_per_index) {	
+inline GLenum index_gl_type_of(Indices indices) {
+    switch (indices.index_byte_count) {	
         case sizeof(GLubyte):
         return GL_UNSIGNED_BYTE;
         
@@ -147,6 +200,47 @@ void update_buffer_object_data(GLenum target, GLuint buffer_object, u8_buffer *b
     buffer->count = 0;
 }
 
+
+struct Batch {
+    Vertex_Buffers vertex_buffers;
+    GLuint vertex_array_object;
+    GLuint index_buffer_object;
+    GLuint index_type;
+    u32 index_byte_count;
+};
+
+INTERNAL void init_batch_objects(Batch *batch) {
+    glGenVertexArrays(1, &batch->vertex_array_object);
+    glBindVertexArray(batch->vertex_array_object);
+    
+    for_array_item(buffer, batch->vertex_buffers) {
+        glGenBuffers(1, &buffer->object);
+        buffer->vertex_byte_count = vertex_byte_count_of(buffer->attributes);
+        set_vertex_attributes(buffer->object, buffer->attributes);
+    }
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    
+    glGenBuffers(1, &batch->index_buffer_object);
+    
+    glBindVertexArray(0);
+}
+
+INTERNAL void upload_vertex_buffer(Vertex_Buffer buffer, u8_array data) {
+    glBindBuffer(GL_ARRAY_BUFFER, buffer.object);
+    glBufferData(GL_ARRAY_BUFFER, byte_count_of(data), data.data, GL_STREAM_DRAW);
+    
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+}
+
+INTERNAL void upload_index_buffer(Batch batch, u8_array data) {
+    glBindVertexArray(batch.vertex_array_object);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, batch.index_buffer_object);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, byte_count_of(data), data.data, GL_STREAM_DRAW);
+    
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+}
+
 typedef void(*Bind_Render_Material_Function)(any new_material, any old_material);
 
 #define BIND_MATERIAL_DEC(name) void name(any new_material_pointer, any old_material_pointer)
@@ -161,10 +255,37 @@ struct Render_Batch_Command {
     u32 index_count;
 };
 
+#define Template_Array_Name      Render_Batch_Commands
+#define Template_Array_Data_Type Render_Batch_Command
+#include "template_array.h"
+
 #define Template_Array_Name      Render_Batch_Command_Buffer
 #define Template_Array_Data_Type Render_Batch_Command
 #define Template_Array_Is_Buffer
 #include "template_array.h"
+
+
+void push_render_command(Memory_Allocator *allocator, Render_Batch_Commands *commands, u32 material_index,
+                         GLenum draw_mode,
+                         u32 index_count)
+{
+    //Render_Batch_Command *last_command = back_or_null(batch->command_buffer);
+    Render_Batch_Command *last_command = commands->count ? commands->data + commands->count - 1 : null;
+    
+    if (last_command &&
+        (last_command->material_index == material_index) &&
+        (last_command->draw_mode == draw_mode) &&
+        (last_command->draw_mode != GL_LINE_LOOP) &&
+        (last_command->draw_mode != GL_TRIANGLE_FAN) &&
+        (last_command->draw_mode != GL_TRIANGLE_STRIP)
+        )
+    {
+        last_command->index_count += index_count;
+    } else {
+        *grow(allocator, commands) = { material_index, draw_mode, index_count };
+    }
+}
+
 
 struct Render_Batch {
     u8 *memory;
@@ -177,9 +298,9 @@ struct Render_Batch {
     GLuint index_buffer_object;
 };
 
-Render_Batch make_render_batch(u32 vertex_buffer_size, u32 index_buffer_size,
+Render_Batch make_render_batch(Memory_Allocator *allocator, u32 vertex_buffer_size, u32 index_buffer_size,
                                GLenum index_type, u32 render_command_count,
-                               const Vertex_Attribute_Info *attribute_infos, u32 attribute_infos_count, Memory_Allocator *allocator)
+                               Vertex_Attributes attributes)
 {
     Render_Batch batch;
     
@@ -201,7 +322,7 @@ Render_Batch make_render_batch(u32 vertex_buffer_size, u32 index_buffer_size,
     glGenVertexArrays(1, &batch.vertex_array_object);
     glBindVertexArray(batch.vertex_array_object);
     
-    set_vertex_attributes(batch.vertex_buffer_object, attribute_infos, attribute_infos_count);
+    set_vertex_attributes(batch.vertex_buffer_object, attributes);
     
     glBufferData(GL_ARRAY_BUFFER, batch.vertex_buffer.capacity, batch.vertex_buffer.data, GL_DYNAMIC_DRAW);
     
@@ -267,23 +388,21 @@ void revert_to_checkpoint(Render_Batch *batch, Render_Batch_Checkpoint *checkpoi
 }
 
 struct Static_Render_Batch {
-    Render_Batch_Command *commands;
-    u32 command_count;
+    Render_Batch_Commands commands;
     GLuint vertex_array_object;
     GLuint index_buffer_object;
     GLuint index_type;
-    u32 bytes_per_index;
+    u32 index_byte_count;
 };
 
 Static_Render_Batch flush(Render_Batch *batch) {
     Static_Render_Batch result;
-    result.commands = batch->command_buffer.data;
-    result.command_count = batch->command_buffer.count;
+    result.commands = { batch->command_buffer.data, batch->command_buffer.count };
     
     result.vertex_array_object = batch->vertex_array_object;
     result.index_buffer_object = batch->index_buffer_object;
-    result.index_type          = get_index_gl_type(batch->indices);
-    result.bytes_per_index     = batch->indices.bytes_per_index;
+    result.index_type          = index_gl_type_of(batch->indices);
+    result.index_byte_count     = batch->indices.index_byte_count;
     
     update_buffer_object_data(GL_ARRAY_BUFFER, batch->vertex_buffer_object, &batch->vertex_buffer);
     update_buffer_object_data(GL_ELEMENT_ARRAY_BUFFER, batch->index_buffer_object, &batch->indices.buffer);
@@ -294,16 +413,15 @@ Static_Render_Batch flush(Render_Batch *batch) {
 
 Static_Render_Batch make_static_render_batch(Render_Batch *batch, Memory_Allocator *allocator) {
     Static_Render_Batch result;
-    result.commands = ALLOCATE_ARRAY(allocator, Render_Batch_Command, batch->command_buffer.count);
-    result.command_count = batch->command_buffer.count;
+    result.commands = ALLOCATE_ARRAY_INFO(allocator, Render_Batch_Command, batch->command_buffer.count);
     
-    for (u32 i = 0; i < result.command_count; ++i)
+    for (u32 i = 0; i < result.commands.count; ++i)
         result.commands[i] = batch->command_buffer[i];
     
     result.vertex_array_object = batch->vertex_array_object;
     result.index_buffer_object = batch->index_buffer_object;
-    result.index_type = get_index_gl_type(batch->indices);
-    result.bytes_per_index = batch->indices.bytes_per_index;
+    result.index_type = index_gl_type_of(batch->indices);
+    result.index_byte_count = batch->indices.index_byte_count;
     
     update_buffer_object_data(GL_ARRAY_BUFFER, batch->vertex_buffer_object, &batch->vertex_buffer);
     update_buffer_object_data(GL_ELEMENT_ARRAY_BUFFER, batch->index_buffer_object, &batch->indices.buffer);
@@ -322,7 +440,7 @@ void draw(Static_Render_Batch *batch, Render_Material **materials, u32 material_
     u32 last_material_index = -1;
     
     u8 *index_offset = 0;
-    for (Render_Batch_Command *it = batch->commands, *end = it + batch->command_count; it != end; ++it) {
+    for_array_item(it, batch->commands) {
         if (it->material_index != last_material_index) {
             Render_Material *material = materials[it->material_index];
             
@@ -335,7 +453,7 @@ void draw(Static_Render_Batch *batch, Render_Material **materials, u32 material_
         }
         
         glDrawElements(it->draw_mode, cast_v(GLsizei, it->index_count), batch->index_type, cast_p(GLvoid, index_offset));
-        index_offset += it->index_count * batch->bytes_per_index;
+        index_offset += it->index_count * batch->index_byte_count;
     }
 }
 
@@ -344,18 +462,28 @@ void draw(Static_Render_Batch batch, u32 material_index) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, batch.index_buffer_object);
     
     usize index_offset = 0;
-    for (Render_Batch_Command *it = batch.commands,
-         *end = it + batch.command_count;
-         it != end;
-         ++it
-         )
-    {
+    for_array_item(it, batch.commands) {
         if (it->material_index == material_index)
             glDrawElements(it->draw_mode, cast_v(GLsizei, it->index_count), batch.index_type, cast_p(GLvoid, index_offset));
         
-        index_offset += it->index_count * batch.bytes_per_index;
+        index_offset += it->index_count * batch.index_byte_count;
     }
 }
+
+
+void draw(Batch batch, Render_Batch_Commands commands, u32 material_index) {	
+    glBindVertexArray(batch.vertex_array_object);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, batch.index_buffer_object);
+    
+    usize index_offset = 0;
+    for_array_item(it, commands) {
+        if (it->material_index == material_index)
+            glDrawElements(it->draw_mode, cast_v(GLsizei, it->index_count), batch.index_type, cast_p(GLvoid, index_offset));
+        
+        index_offset += it->index_count * batch.index_byte_count;
+    }
+}
+
 
 void draw(Render_Batch *batch, Render_Material **materials, u32 material_count) { 
     auto static_batch = flush(batch);

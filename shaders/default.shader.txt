@@ -1,0 +1,385 @@
+
+#if defined VERTEX_SHADER
+
+#  define VERTEX_OUT out
+
+#elif defined FRAGMENT_SHADER
+
+#  define VERTEX_OUT in
+
+#else
+
+#  error define VERTEX_SHADER or FRAGMENT_SHADER befor makeing a shader object
+
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+//  OPTIONS                                                                  // 
+///////////////////////////////////////////////////////////////////////////////
+
+// WITH_DIFFUSE_MAP
+// WITH_DIFFUSE_COLOR
+// WITH_VERTEX_COLOR
+// WITH_NORMAL_MAP
+// WITH_SHADOW_MAP
+// WITH_ENVIRONMENT_MAP
+// MAX_LIGHT_COUNT as uint
+// MAX_BONE_COUNT  as uint
+
+///////////////////////////////////////////////////////////////////////////////
+//  INTERFACE                                                                // 
+///////////////////////////////////////////////////////////////////////////////
+
+#define PI 3.14159265358979323846
+
+layout (std140, column_major) uniform Camera_Uniform_Block
+{ 
+	mat4   world_to_clip;
+//	mat4x3 world_to_camera;
+	vec3   world_position;
+} Camera;
+
+#if defined MAX_LIGHT_COUNT
+	layout (std140) uniform Lighting_Uniform_Block {
+		vec4 colors[MAX_LIGHT_COUNT];
+		vec4 parameters[MAX_LIGHT_COUNT];
+		vec4 global_ambient_color;
+		uint directional_light_count;
+		uint point_light_count;
+	} Lighting;
+#endif
+
+struct Material_Uniform {
+	vec4 specular_color;
+	vec4 diffuse_color;
+	float metalness;
+	float gloss;
+	sampler2D diffuse_map;
+	sampler2D normal_map;
+};
+
+uniform Material_Uniform Material;
+
+uniform mat4x3 Object_To_World;
+
+struct Shadow_Uniform {
+	mat4 world_to_shadow;
+	sampler2D map;
+};
+
+struct Environment_Uniform {
+	mat4x3 world_to_environment;
+	samplerCube map;
+	int level_of_detail_count;
+};
+
+#if defined WITH_SHADOW_MAP
+	uniform Shadow_Uniform Shadow;
+#endif
+
+#if defined WITH_ENVIRONMENT_MAP
+	uniform Environment_Uniform Environment;
+#endif
+
+#if defined MAX_BONE_COUNT
+	uniform mat4x3 Animation_Bones[MAX_BONE_COUNT];
+#endif
+
+#if defined VERTEX_SHADER
+
+	in vec3 vertex_position;
+	in vec3 vertex_normal;
+	in vec3 vertex_tangent;
+	in vec2 vertex_uv;
+	in uvec4 vertex_bone_indices; // somehow it doesn't like integer uvec4 -.-, why gl why?
+	in vec4 vertex_bone_weights;
+	in vec4 vertex_color;
+
+#endif
+
+VERTEX_OUT vec3 world_position;
+VERTEX_OUT vec3 world_normal;
+VERTEX_OUT vec3 world_tangent;
+VERTEX_OUT vec2 uv;
+VERTEX_OUT vec4 color;
+VERTEX_OUT vec3 camera_direction;
+
+#if defined MAX_LIGHT_COUNT
+	VERTEX_OUT vec3 light_distances[MAX_LIGHT_COUNT];
+#endif
+
+#if defined FRAGMENT_SHADER
+	out vec4 fragment_color;
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+//  VERTEX_SHADER                                                            // 
+///////////////////////////////////////////////////////////////////////////////
+
+struct Vertex {
+	vec3 position;
+	vec3 normal;
+	vec3 tangent;
+};
+
+Vertex animate(Vertex object_vertex, uvec4 bone_indices, vec4 bone_weights)
+{
+#if MAX_BONE_COUNT
+	Vertex out;
+
+	out.position = vec3(0);
+	out.normal   = vec3(0);
+	out.tangent  = vec3(0);
+	
+	for (int i = 0; i < 4; ++i)
+	{
+		uint index = bone_indices[i];
+		out.position += (Animation_Bones[index] * vec4(object_vertex.position, 1)) * bone_weights[i];
+		out.normal   += (Animation_Bones[index] * vec4(object_vertex.normal,   0)) * bone_weights[i];
+		out.tangent  += (Animation_Bones[index] * vec4(object_vertex.tangent,  0)) * bone_weights[i];	
+	}
+
+	return out;
+#else
+	return object_vertex;
+#endif
+}
+
+Vertex to_world(Vertex object_vertex, mat4x3 object_to_world)
+{
+	Vertex world_vertex;
+
+	world_vertex.position = object_to_world * vec4(object_vertex.position, 1);
+	world_vertex.normal   = object_to_world * vec4(object_vertex.normal,   0);
+	world_vertex.tangent  = object_to_world * vec4(object_vertex.tangent,  0);
+
+	return world_vertex;
+}
+
+vec4 to_clip(vec3 world_position) {
+	return Camera.world_to_clip * vec4(world_position, 1);
+}
+
+mat3 make_world_to_tangent(Vertex world_vertex) {
+	mat3 world_to_tangent = transpose(mat3(
+        normalize(world_vertex.tangent),
+        normalize(cross(world_vertex.normal, world_vertex.tangent)),
+        normalize(world_vertex.normal)
+    ));
+
+	return world_to_tangent;
+}
+
+vec3 to_lightspace(mat3 world_to_tangent, vec3 direction)
+{
+#if !(defined WITH_NORMAL_MAP) || ((defined VERTEX_SHADER) == (defined TANGENT_TRANSFORM_PER_FRAGMENT))
+	return direction;
+#else
+	return world_to_tangent * direction;
+#endif
+}
+
+#if defined VERTEX_SHADER
+
+///////////////////////////////////////////////////////////////////////////////
+//  VERTEX_SHADER                                                            // 
+///////////////////////////////////////////////////////////////////////////////
+
+void main()
+{
+	Vertex vertex;
+	vertex.position = vertex_position;
+	vertex.normal   = vertex_normal;
+	vertex.tangent  = vertex_tangent;
+
+	vertex = animate(vertex, vertex_bone_indices, vertex_bone_weights);
+
+	Vertex world_vertex = to_world(vertex, Object_To_World);
+
+	mat3 world_to_tangent = make_world_to_tangent(world_vertex);
+
+#if defined MAX_LIGHT_COUNT
+		int light_index = 0;
+
+		for (; light_index < Lighting.directional_light_count; light_index++)
+		{
+			light_distances[light_index] = to_lightspace(world_to_tangent, 	-Lighting.parameters[light_index].xyz);
+		}
+
+		for (; light_index < Lighting.directional_light_count + Lighting.point_light_count; light_index++)
+		{
+			light_distances[light_index] = to_lightspace(world_to_tangent, 	Lighting.parameters[light_index].xyz - world_vertex.position);
+		}
+#endif
+
+	camera_direction = to_lightspace(world_to_tangent, Camera.world_position - world_vertex.position);
+
+	uv = vertex_uv;
+
+#if defined WITH_VERTEX_COLOR
+	color = vertex_color;
+#endif
+
+	world_position = world_vertex.position;
+	world_normal   = world_vertex.normal;
+	world_tangent  = world_vertex.tangent;
+
+	gl_Position = to_clip(world_vertex.position);
+}
+
+#else
+
+///////////////////////////////////////////////////////////////////////////////
+//  FRAGMENT_SHADER                                                          // 
+///////////////////////////////////////////////////////////////////////////////
+
+vec4 frasnel_schlick(vec4 specular_color, vec3 light_direction, vec3 half_direction, float metalness) {
+	vec4 f0 = mix(vec4(vec3(0.04), 1), specular_color, metalness);
+    return f0 + (1 - f0) * pow(1 - max(0, dot(light_direction, half_direction)), 5);
+}
+
+float normal_distribution(vec3 normal, vec3 half_direction, float gloss) {
+    float specular_power = pow(8192, gloss);
+    
+    return (specular_power + 2) * pow(max(0, dot(normal, half_direction)), specular_power) / (2 * PI);
+}
+
+float visibility(vec3 light_direction, vec3 half_direction) {
+    return 1 / pow(max(0, dot(light_direction, half_direction)), 2);
+}
+
+// bidirectional reflectance distribution
+vec4 microfacet_BRDF(vec3 normal, vec3 light_direction, vec3 half_direction, vec4 specular_color, float gloss, float metalness)
+{
+    return frasnel_schlick(specular_color, light_direction, half_direction, metalness) * visibility(light_direction, half_direction) * normal_distribution(normal, half_direction, gloss) * 0.25f;
+}
+
+struct Lighting_Iterator {
+	vec4 specular_color;
+	vec4 diffuse_color;
+	uint index;
+};
+
+Lighting_Iterator update_lighting(mat3 world_to_tangent, vec3 normal, vec3 camera_direction, float with_attenuation, Lighting_Iterator it, uint max_count)
+{
+#if defined MAX_LIGHT_COUNT
+	for (; it.index < max_count; it.index++)
+	{
+		vec3 light_distance = light_distances[it.index];
+		vec3 light_direction = normalize(to_lightspace(world_to_tangent, light_distance));
+			vec3 half_direction = normalize(camera_direction + light_direction);
+
+		float intensity = with_attenuation * (1 / (1 + Lighting.parameters[it.index].w * dot(light_distance, light_distance))) + (1 - with_attenuation);
+
+		vec4 light_color = (Lighting.colors[it.index] * intensity * max(0, dot(normal, light_direction)));
+
+		vec4 spec = microfacet_BRDF(normal, light_direction, half_direction, Material.specular_color, Material.gloss, Material.metalness);
+
+		it.specular_color += PI * spec  * light_color; 
+		it.diffuse_color  += (1 - spec) * light_color;
+	}
+#endif
+
+	return it;
+}
+
+void main()
+{
+	vec4 diffuse_color  = vec4(0);
+	vec4 specular_color = vec4(0);
+
+#if defined WITH_NORMAL_MAP
+	vec3 normal = normalize(texture(Lighting.normal_map, uv).xyz * 2  - 1);
+#else
+	vec3 normal = normalize(world_normal);
+#endif
+
+	Vertex world_vertex;
+	world_vertex.position = world_position;
+	world_vertex.normal   = world_normal;
+	world_vertex.tangent  = world_tangent;
+
+	mat3 world_to_tangent = make_world_to_tangent(world_vertex);
+
+	vec3 camera_dir = normalize(to_lightspace(world_to_tangent, camera_direction));
+	
+#if defined MAX_LIGHT_COUNT
+	{
+		diffuse_color += Lighting.global_ambient_color;
+	
+		Lighting_Iterator it;
+		it.index = uint(0);
+		it.specular_color = vec4(0);
+		it.diffuse_color = vec4(0);
+
+//Lighting_Iterator update_lighting(mat3 world_to_tangent, vec3 normal, vec3 camera_direction, float with_attenuation, Lighting_Iterator it, int max_count)
+
+		// directional lights without attenuation and distance
+		it = update_lighting(world_to_tangent, normal, camera_dir, 0, it, Lighting.directional_light_count);
+
+		// point lights with attenuation and distance
+		it = update_lighting(world_to_tangent, normal, camera_dir, 1, it, Lighting.directional_light_count + Lighting.point_light_count);
+
+		specular_color = it.specular_color;
+		diffuse_color = it.diffuse_color;
+	}
+
+#else
+
+	diffuse_color = vec4(1);
+
+#endif
+
+#if defined WITH_DIFFUSE_MAP
+	diffuse_color *= texture(Lighting.diffuse_texture, uv); 
+#endif
+
+#if defined WITH_DIFFUSE_COLOR
+	diffuse_color *= Material.diffuse_color;
+#endif
+
+#if defined WITH_VERTEX_COLOR
+	diffuse_color *= color;
+#endif
+
+#if defined WITH_SHADOW_MAP
+	{
+		vec4 shadow_position = Shadow.world_to_shadow * vec4(world_position, 1);
+	
+	//	shadow_position.xyz /= 2;
+//		shadow_position.xyz += 0.5;
+
+		if (texture(Shadow.map, (shadow_position.xy/shadow_position.w) * 0.5 + 0.5).r < ((shadow_position.z - 0.0001)/shadow_position.w) * 0.5 + 0.5) {
+		    diffuse_color  *= 0.5f;
+    		specular_color *= 0.5f;
+		}
+	}
+#endif
+
+#if defined WITH_ENVIRONMENT_MAP
+	{
+//		diffuse_color *= texture(Environment.map, Environment.world_to_environment * vec4(reflect(-camera_dir, normal), 0));
+
+		float lod_factor = (1 - Material.gloss);
+		lod_factor = lod_factor * lod_factor;
+		vec4 r = mix(vec4(1), textureLod(Environment.map, reflect(-camera_dir, normal), lod_factor * (Environment.level_of_detail_count - 1)), mix(0.05, 0.8, Material.metalness));
+
+		fragment_color = (diffuse_color*r + specular_color);
+	}
+
+#else
+
+	fragment_color = diffuse_color + specular_color;
+
+#endif
+
+
+	// for debuging
+	//fragment_color = vec4(normal * 0.5 + 0.5, 1.0);
+	//fragment_color = vec4(normalize(light_directions[0]) * 0.5 + 0.5, 1.0);
+	//fragment_color = vec4(normalize(camera_dir) * 0.5 + 0.5, 1.0);
+}
+
+#endif
+
+

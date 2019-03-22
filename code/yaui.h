@@ -120,7 +120,6 @@ struct UI_Context {
         string tooltip;
         f32 tooltip_countdown;
         bool tooltip_is_active;
-        vec2f tooltip_position;
         
         vec2f drag_start_position;
         
@@ -185,8 +184,8 @@ UI_Context make_ui_context(Memory_Allocator *internal_allocator) {
     
     glBindVertexArray(context.vertex_array_object);
     
-    set_vertex_attributes(context.vertex_buffer_object, ARRAY_WITH_COUNT(attribute_infos));
-    assert(get_vertex_byte_count( ARRAY_WITH_COUNT(attribute_infos)) == sizeof(UI_Vertex));
+    set_vertex_attributes(context.vertex_buffer_object, ARRAY_INFO(attribute_infos));
+    assert(vertex_byte_count_of(ARRAY_INFO(attribute_infos)) == sizeof(UI_Vertex));
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
@@ -621,7 +620,7 @@ area2f ui_write_va(UI_Context *context, UI_Text_Info *info, string format, va_li
     return result;
 }
 
-inline area2f ui_write(UI_Context *context, s16 x, s16 y, string format, ...) {
+INTERNAL area2f ui_write(UI_Context *context, s16 x, s16 y, string format, ...) {
     va_list params;
     va_start(params, format);
     
@@ -632,7 +631,7 @@ inline area2f ui_write(UI_Context *context, s16 x, s16 y, string format, ...) {
     return result;
 }
 
-inline area2f ui_write(UI_Context *context, s16 x, s16 y, rgba32 color, string format, ...) {
+INTERNAL area2f ui_write(UI_Context *context, s16 x, s16 y, rgba32 color, string format, ...) {
     va_list params;
     va_start(params, format);
     SCOPE_PUSH(context->font_rendering.color, color);
@@ -644,7 +643,7 @@ inline area2f ui_write(UI_Context *context, s16 x, s16 y, rgba32 color, string f
     return result;
 }
 
-inline area2f ui_write(UI_Context *context, UI_Text_Info *info, string format, ...) {
+INTERNAL area2f ui_write(UI_Context *context, UI_Text_Info *info, string format, ...) {
     va_list params;
     va_start(params, format);
     area2f result = ui_write_va(context, info, format, params);
@@ -653,7 +652,7 @@ inline area2f ui_write(UI_Context *context, UI_Text_Info *info, string format, .
     return result;
 }
 
-inline area2f ui_write(UI_Context *context, UI_Text_Info *info, rgba32 color, string format, ...) {
+INTERNAL area2f ui_write(UI_Context *context, UI_Text_Info *info, rgba32 color, string format, ...) {
     va_list params;
     va_start(params, format);
     SCOPE_PUSH(context->font_rendering.color, color);
@@ -663,8 +662,129 @@ inline area2f ui_write(UI_Context *context, UI_Text_Info *info, rgba32 color, st
     return result;
 }
 
-INTERNAL bool ui_control(UI_Context *context, f32 delta_seconds, area2f cursor_area, bool cursor_was_pressed, bool cursor_was_released, bool force_update = true)
+INTERNAL void ui_circle(UI_Context *context, vec2f center, f32 radius, rgba32 color, bool is_filled = true, u32 corner_count = 32) {
+    
+    UI_Command *command;
+    UI_Vertex *vertices;
+    u32 *indices;
+    u32 index_count = 0;
+    u32 vertex_count;
+    if (!is_filled) {
+        command = ui_begin_draw(context, GL_LINE_LOOP, corner_count, corner_count);
+        vertices = command->draw.vertices.data;
+        indices  = command->draw.indices.data;
+        vertex_count = corner_count;
+    }
+    else {
+        command = ui_begin_draw(context, GL_TRIANGLE_FAN, corner_count + 2, corner_count + 2);
+        vertices = command->draw.vertices.data;
+        indices  = command->draw.indices.data;
+        
+        ui_set_vertex(context, vertices++, center.x, center.y, 0, 0, color);
+        *(indices++) = index_count++;
+        
+        vertex_count = corner_count + 1;
+    }
+    
+    for (u32 i = 0; i < vertex_count; i++) {
+        mat4x3f transform = make_transform(make_quat(VEC3_Z_AXIS, 2 * Pi32 * i / vertex_count), make_vec3(center), { radius, radius, radius });
+        
+        auto corner = transform_point(transform, vec3f{ 0, 1, 0 });
+        ui_set_vertex(context, vertices++, corner.x, corner.y, 0, 0, color);
+        *(indices++) = index_count++;
+    }
+}
+
+vec2f * sample_curve(Memory_Allocator *allocator, vec2f *points, u32 point_count, u32 sample_count) {
+    assert(point_count >= 2);
+    assert(sample_count >= 2);
+    
+    auto samples = ALLOCATE_ARRAY(allocator, vec2f, sample_count);
+    auto primes = ALLOCATE_ARRAY(allocator, vec2f, point_count);
+    defer { free(allocator, primes); };
+    
+    samples[0] = points[0];
+    
+    for (u32 i = 1; i < sample_count - 1; i++) {
+        copy(primes, points, sizeof(*points) * point_count);
+        
+        f32 t = (i / cast_v(f32, sample_count - 1));
+        
+        for (u32 a = 0; a < point_count - 1; a++) {
+            for (u32 b = 0; b < point_count - a - 1; b++) {
+                primes[b] = linear_interpolation(primes[b], primes[b + 1], t);
+            }
+        }
+        
+        samples[i] = primes[0];
+    }
+    
+    samples[sample_count - 1] = points[point_count - 1];
+    
+    return samples;
+}
+
+INTERNAL void ui_curve(UI_Context *context, vec2f *points, u32 point_count, rgba32 color, u32 vertex_count = 32) {
+    //assert(point_count >= 2);
+    
+    //u32 prime_count = point_count;
+    //auto primes = ALLOCATE_ARRAY(context->transient_allocator, vec2f, point_count);
+    //defer { free(context->transient_allocator, primes); };
+    
+    //u32 sample_count = vertex_count * 3;
+    u32 sample_count = vertex_count;
+    auto samples = sample_curve(context->transient_allocator, points, point_count, sample_count);
+    defer { free(context->transient_allocator, samples); };
+    
+#if 0    
+    auto arc_lengths = ALLOCATE_ARRAY(context->transient_allocator, f32, sample_count);
+    defer { free(context->transient_allocator, arc_lengths); };
+    
+    arc_lengths[0] = 0;
+    for (u32 i = 0; i < sample_count - 1; i++)
+        arc_lengths[i + 1] = arc_lengths[i] + length(samples[i + 1] - samples[i]);
+    
+    f32 segment_length = arc_lengths[sample_count - 1] / vertex_count;
+#endif
+    
+    auto command = ui_begin_draw(context, GL_LINE_STRIP, vertex_count, vertex_count);
+    
+    ui_set_vertex(context, command->draw.vertices.data + 0, samples[0].x, samples[0].y, 0, 0, color);
+    command->draw.indices[0] = 0;
+    
+#if 0    
+    f32 t = 0;
+    u32 sample_index = 0;
+    for (u32 i = 1; i < vertex_count - 1; i++) {
+        t += segment_length;
+        
+        for (; sample_index < sample_count; sample_index++) {
+            if (arc_lengths[sample_index + 1] > t)
+                break;
+        }
+        
+        auto l = (arc_lengths[sample_index + 1] - t) / (arc_lengths[sample_index + 1] - arc_lengths[sample_index]);
+        
+        auto pos = linear_interpolation(samples[sample_index], samples[sample_index + 1], l);
+        
+        ui_set_vertex(context, command->draw.vertices.data + i + 1, pos.x, pos.y, 0, 0, color);
+        command->draw.indices[i + 1] = i + 1;
+    }
+#else
+    for (u32 i = 1; i < vertex_count - 1; i++) {
+        ui_set_vertex(context, command->draw.vertices.data + i, samples[i].x, samples[i].y, 0, 0, color);
+        command->draw.indices[i] = i;
+    }
+    
+#endif
+    
+    ui_set_vertex(context, command->draw.vertices.data + vertex_count - 1, samples[sample_count - 1].x, samples[sample_count - 1].y, 0, 0, color);
+    command->draw.indices[vertex_count - 1] = vertex_count - 1;
+}
+
+INTERNAL bool ui_control_start(UI_Context *context, f32 delta_seconds, bool cursor_was_pressed, bool cursor_was_released, bool force_update = true)
 {
+    bool needs_update = false;
     auto control = &context->control;
     
     if ((control->hot_id != -1)) {
@@ -672,6 +792,8 @@ INTERNAL bool ui_control(UI_Context *context, f32 delta_seconds, area2f cursor_a
             control->tooltip_countdown -= delta_seconds;
             if (control->tooltip_countdown <= 0.0f) {
                 control->tooltip_is_active = true;
+                
+                needs_update = true;
             }
         }
     }
@@ -683,56 +805,24 @@ INTERNAL bool ui_control(UI_Context *context, f32 delta_seconds, area2f cursor_a
         control->hot_id = control->next_hot_id;
         control->tooltip_countdown = 1.5f;
         control->tooltip_is_active = false;
-        control->tooltip_position = cursor_area.min;
+        needs_update = true;
     }
     
     if (control->active_is_done) {
         control->active_is_done = false;
         control->active_id = -1;
+        needs_update = true;
     }
     
     control->next_hot_id = -1;
-    
-    control->cursor_area = cursor_area;
     control->cursor_was_pressed  = cursor_was_pressed;
     control->cursor_was_released = cursor_was_released;
     
-    return true;
-    
-#if 0    
-    if (control->cursor_was_released)
-        control->active_id = -1;
-#endif
-    
-    bool needs_update = force_update || cursor_was_pressed || cursor_was_released || !are_equal(&cursor_area, &control->cursor_area, sizeof(cursor_area));
-    
-#if 0    
-    if (needs_update)
-    {
-        control->hot_id = control->next_hot_id;
-        control->next_hot_id = -1;
-        //control->triggerd_id = -1;
-        control->cursor_area = cursor_area;
-        control->cursor_was_pressed  = cursor_was_pressed;
-        control->cursor_was_released = cursor_was_released;
-        control->current_id = -1;
-        
-        if ((control->hot_id != -1) && cursor_was_pressed)
-            control->active_id = control->hot_id;
-        
-#if 0
-        else if (cursor_was_released)
-        {
-            if (control->hot_id == control->active_id)
-                control->triggerd_id = control->active_id;
-            
-            control->active_id = -1;
-        }
-#endif
-    }
-#endif
-    
-    return needs_update;
+    return needs_update || cursor_was_pressed || cursor_was_released;
+}
+
+INTERNAL void ui_set_cursor(UI_Context *context, area2f cursor_area, bool cursor_area_is_active) {
+    context->control.cursor_area = cursor_area;
 }
 
 bool ui_request_hot(UI_Context *context, u32 id, f32 priority) {
@@ -771,14 +861,14 @@ INTERNAL UI_Control_State ui_state_of(UI_Context *context, u32 id) {
     return UI_Control_State_Idle;
 }
 
-INTERNAL bool ui_drag(UI_Context *context, u32 id, area2f area, vec2f *delta, f32 priority = 0.0f) {
+INTERNAL bool ui_drag(UI_Context *context, u32 id, area2f area, vec2f anchor, vec2f *delta, f32 priority = 0.0f) {
     auto control = &context->control;
     
     bool was_triggered = false;
     *delta = {};
     
     if (control->active_id == id) {
-        *delta = control->cursor_area.min - control->drag_start_position;
+        *delta = control->drag_start_position + control->cursor_area.min - anchor;
         
         if (control->cursor_was_released) {
             was_triggered = true;
@@ -786,7 +876,7 @@ INTERNAL bool ui_drag(UI_Context *context, u32 id, area2f area, vec2f *delta, f3
         }
     }
     else if (control->cursor_was_pressed && ui_request_active(context, id)) {
-        control->drag_start_position = control->cursor_area.min;
+        control->drag_start_position = anchor - control->cursor_area.min;
     }
     
     if (intersects(area, control->cursor_area))
@@ -823,7 +913,7 @@ INTERNAL bool ui_button(UI_Context *context, u32 id, area2f button_area, f32 pri
 // apply_selection will be passed, so it can not be accidentally forgotten
 void ui_area_selector(UI_Context *context, u32 id, area2f area, bool *apply_selection, f32 priority) {
     vec2f delta;
-    bool was_triggerd = ui_drag(context, id, area, &delta, priority);
+    bool was_triggerd = ui_drag(context, id, area, { 0, 0 }, &delta, priority);
     *apply_selection |= was_triggerd;
     
     if (context->control.active_id == id) {
@@ -846,7 +936,7 @@ bool ui_selectable(UI_Context *context, area2f area) {
 
 bool ui_slider(UI_Context *context, u32 id, area2f area, f32 *value, vec2f influence, f32 min_value, f32 max_value, f32 priority) {
     vec2f delta;
-    bool is_done = ui_drag(context, id, area, &delta, priority);
+    bool is_done = ui_drag(context, id, area, { 0, 0 }, &delta, priority);
     
     if (context->control.active_id == id) {
         *value = CLAMP(dot(context->control.drag_start_position + delta, influence), min_value, max_value);

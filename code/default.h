@@ -2,7 +2,6 @@
 #include <platform.h>
 #include <memory_growing_stack.h>
 #include <memory_c_allocator.h>
-//#include <ui_queue.h>
 #include <yaui.h>
 
 #include <immediate_render.cpp>
@@ -55,6 +54,7 @@ struct Default_State
     Font default_font;
     UI_Context ui;
     Immediate_Render_Context im;
+    Pixel_Rectangle main_window_area;
     bool main_window_is_fullscreen;
     
     union {
@@ -298,20 +298,22 @@ void init(Default_State *state, Platform_API *platform_api)
         glBindBuffer(GL_UNIFORM_BUFFER, 0);
     }
     
-    state->ui_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->ui_shader.uniforms), S("shaders/transparent_textured.shader.txt"), S("WITH_VERTEX_COLOR, WITH_DIFFUSE_TEXTURE, ALPHA_THRESHOLD 0.025"), S(STRINGIFY(UI_SHADER_UNIFORMS)));
+    state->ui_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->ui_shader.uniforms), S(MOOSELIB_PATH "shaders/transparent_textured.shader.txt"), S("WITH_VERTEX_COLOR, WITH_DIFFUSE_TEXTURE, ALPHA_THRESHOLD 0.025"), S(STRINGIFY(UI_SHADER_UNIFORMS)));
     
     auto default_shader_uniforms = S("Material.diffuse_color, Material.specular_color, Material.gloss, Material.metalness, Material.diffuse_map, Material.normal_map, "
                                      "Shadow.world_to_shadow, Shadow.map, "
                                      "Environment.world_to_environment, Environment.map, Environment.level_of_detail_count, "
                                      "Object_To_World");
     
-    state->im_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->im_shader.uniforms), S("shaders/default.shader.txt"), S("WITH_VERTEX_COLOR"), 
+    state->im_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->im_shader.uniforms), S(MOOSELIB_PATH "shaders/default.shader.txt"), S("WITH_VERTEX_COLOR"), 
                                                   default_shader_uniforms);
     
-    state->default_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->default_shader.uniforms), S("shaders/default.shader.txt"), S("WITH_SHADOW_MAP, WITH_ENVIRONMENT_MAP, WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
+    state->default_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->default_shader.uniforms), S(MOOSELIB_PATH "shaders/default.shader.txt"), 
+                                                       //S("WITH_SHADOW_MAP, WITH_ENVIRONMENT_MAP, WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
+                                                       S("WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
                                                        default_shader_uniforms);
     
-    state->shadow_map_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->shadow_map_shader.uniforms), S("shaders/shadow_map.shader.txt"), S("WITH_DIFFUSE_COLOR"),
+    state->shadow_map_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->shadow_map_shader.uniforms), S(MOOSELIB_PATH "shaders/shadow_map.shader.txt"), S("WITH_DIFFUSE_COLOR"),
                                                           S("World_To_Shadow_Map, Object_To_World"));
     
     init(&state->im);
@@ -322,7 +324,7 @@ void init(Default_State *state, Platform_API *platform_api)
     state->debug.speed = 1.0f;
     state->debug.backup_speed = 1.0f;
     
-    state->debug.camera_movement_speed    = 50.0f;
+    state->debug.camera_movement_speed    = 10.0f;
     state->debug.camera_mouse_sensitivity = 2.0f * Pi32 / 2048.0f;;
     
     state->debug.camera.alpha_axis = VEC3_Y_AXIS;
@@ -344,28 +346,18 @@ void default_init_worker_queue_memory(Default_State *state, Platform_API *platfo
     state->work_memory = make_memory_growing_stack(platform_api->allocator);
 }
 
-bool default_begin_frame(Default_State *state, const Game_Input *input, Platform_API *platform_api, f64 *delta_seconds)
+bool default_init_frame(Default_State *state, const Game_Input *input, Platform_API *platform_api, f64 *delta_seconds)
 {
     clear(&state->transient_memory);
     
     for (auto it = platform_api->messages.head; it; it = it->next) {
         if (it->value->kind == Platform_Message_Kind_Reload) {
             default_reload_global_functions(platform_api);
-            //init_font_allocator(&state->font_allocator, cast_p(Memory_Allocator, state->font_allocator.user));
             break;
         }
     }
     
 #if defined DEBUG_EDITOR
-    
-    if (was_pressed(input->keys[VK_F1])) {
-        state->debug.is_active = !state->debug.is_active;
-        
-        if (state->debug.is_active)
-            state->debug.backup_camera_to_world = state->camera.to_world;
-        else
-            state->camera.to_world = state->debug.backup_camera_to_world;
-    }
     
     if (was_pressed(input->keys[VK_F5])) {
         state->debug.speed = MAX(1.0f / 16.0f, state->debug.speed * 0.5f);
@@ -399,6 +391,9 @@ bool default_begin_frame(Default_State *state, const Game_Input *input, Platform
     if (input->left_alt.is_active && was_pressed(input->keys[VK_RETURN]))
         state->main_window_is_fullscreen = !state->main_window_is_fullscreen;
     
+    ui_control_start(&state->ui, *delta_seconds, was_pressed(input->mouse.left), was_released(input->mouse.left));
+    state->ui.transient_allocator = &state->transient_memory.allocator;
+    
     return true;
 }
 
@@ -422,6 +417,32 @@ void upload_camera_block(Default_State *state) {
     
 }
 
+bool default_window_begin(Default_State *state, Platform_Window window, vec4f clear_color, f32 scale = 1.0f) {
+    Pixel_Dimensions render_resolution = window.area.size; //get_auto_render_resolution(state->main_window_area.size, Reference_Resolution);
+    
+    if (render_resolution.width == 0 || render_resolution.height == 0)
+        return false;
+    
+    set_auto_viewport(render_resolution, render_resolution, clear_color);
+    
+    auto ui = &state->ui;
+    ui_set_cursor(ui, { window.mouse_position, { 1, 1 } }, window.mouse_is_inside);
+    
+    ui_set_transform(ui, render_resolution, scale);
+    ui_set_texture(ui, &state->blank_texture);
+    ui_set_font(ui, &state->default_font);
+    
+    draw_begin(&state->im, C_Allocator, MAT4X3_IDENTITY);
+    
+    state->camera.to_clip_projection = make_perspective_fov_projection((f32)(60 * Degree_To_Radian32), width_over_height(render_resolution));
+    state->camera.clip_to_camera_projection = make_inverse_perspective_projection(state->camera.to_clip_projection);
+    
+    upload_camera_block(state->camera_uniform_buffer_object, state->camera.world_to_camera, state->camera.to_clip_projection, state->camera.to_world.translation);
+    
+    return true;
+}
+
+#if 0
 UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64 delta_seconds, bool allways_update, Platform_Window window, Pixel_Rectangle *window_rect, Pixel_Rectangle new_window_rect, bool cursor_was_pressed, bool cursor_was_released, vec4f clear_color, f32 scale = 1.0f)
 {
     bool do_update = !are_equal(window_rect, &new_window_rect, sizeof(*window_rect));
@@ -437,7 +458,7 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     
     auto ui = &state->ui;
     
-    do_update &= ui_control(ui, delta_seconds, { window.mouse_position, { 1, 1 } }, cursor_was_pressed, cursor_was_released);
+    do_update &= ui_control_start(ui, delta_seconds, cursor_was_pressed, cursor_was_released);
     
     //if (!allways_update && !do_update)
     //return null;
@@ -457,8 +478,30 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
     
     upload_camera_block(state->camera_uniform_buffer_object, state->camera.world_to_camera, state->camera.to_clip_projection, state->camera.to_world.translation);
     
+    return ui;
+}
+#endif
+
+void default_debug_camera(Default_State *state, Game_Input const * input, Platform_Window window, f32 delta_seconds) {
+    
 #if defined DEBUG_EDITOR
-    // update debug camera
+    
+    if (was_pressed(input->keys[VK_F1])) {
+        state->debug.is_active = !state->debug.is_active;
+        
+        if (state->debug.is_active)
+            state->debug.backup_camera_to_world = state->camera.to_world;
+        else
+            state->camera.to_world = state->debug.backup_camera_to_world;
+    }
+    
+    if (was_pressed(input->keys[VK_F2])) {
+        if (state->debug.is_active)
+            state->debug.backup_camera_to_world = state->camera.to_world;
+        else
+            state->debug.camera.to_world = state->camera.to_world;
+    }
+    
     if (state->debug.is_active) {
         if (was_pressed(input->keys[VK_F3]))
             state->debug.use_game_controls = !state->debug.use_game_controls;
@@ -510,11 +553,9 @@ UI_Context * default_begin_ui(Default_State *state, const Game_Input *input, f64
 #endif
     
     state->camera.world_to_camera = make_inverse_unscaled_transform(state->camera.to_world);
-    
-    return ui;
 }
 
-void default_end_frame(Default_State *state)
+void default_window_end(Default_State *state)
 {
     // im
     {

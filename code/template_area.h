@@ -22,6 +22,8 @@ struct Template_Area_Name {
 
 #endif
 
+#include "basic.h"
+
 INTERNAL Template_Area_Name CHAIN(make_empty_, Template_Area_Name) () {
     Template_Area_Name result;
     
@@ -59,10 +61,10 @@ INTERNAL Template_Area_Name merge(Template_Area_Name a, Template_Area_Name b)
             Template_Area_Name result;
             
             for (u32 i = 0; i < ARRAY_COUNT(result.min.values); ++i)
-                result.min[i] = min(a.min[i], b.min[i]);
+                result.min[i] = MIN(a.min[i], b.min[i]);
             
             for (u32 i = 0; i < ARRAY_COUNT(result.size.values); ++i)
-                result.size[i] = max(a.min[i] + a.size[i], b.min[i] + b.size[i]) - result.min[i];
+                result.size[i] = MAX(a.min[i] + a.size[i], b.min[i] + b.size[i]) - result.min[i];
             
             result.is_valid = true;
             return result;
@@ -116,8 +118,8 @@ INTERNAL Template_Area_Name intersection(Template_Area_Name a, Template_Area_Nam
     
     for (u32 i = 0; i < ARRAY_COUNT(a.min.values); ++i)
     {
-        result.min[i] = max(a.min[i], b.min[i]);
-        auto max = min(a.min[i] + a.size[i], b.min[i] + b.size[i]);
+        result.min[i] = MAX(a.min[i], b.min[i]);
+        auto max = MIN(a.min[i] + a.size[i], b.min[i] + b.size[i]);
         result.size[i] = max - result.min[i];
         
         if (result.size[i] <= 0)

@@ -1,9 +1,10 @@
 #ifndef _ENGINE_MATH_DEFS_H_
 #define _ENGINE_MATH_DEFS_H_
 
+#include "basic.h"
+
 #include <cmath>
 
-#include "basic.h"
 
 #define Pi64 3.14159265358979323846
 #define Degree_To_Radian64 (Pi64 / 180.0)
@@ -93,8 +94,8 @@ const quat QUAT_IDENTITY = { 1, 0, 0, 0 };
 const vec2 vec2_zero     = { 0, 0 };
 const vec2 vec2_one      = { 1, 1 };
 
-const vec3 VEC3_ZERO     = { 0, 0, 0 };
-const vec3 VEC3_ONE      = { 1, 1, 1 };
+const vec3 Vec3_Zero     = { 0, 0, 0 };
+const vec3 Vec3_One      = { 1, 1, 1 };
 
 const vec3 VEC3_X_AXIS   = { 1, 0, 0 };
 const vec3 VEC3_Y_AXIS   = { 0, 1, 0 };
@@ -108,5 +109,24 @@ const mat4x3 MAT4X3_IDENTITY = make_transform(QUAT_IDENTITY);
     0, 0, 1, 0, \
     0, 0, 0, 1 \
 }
+
+union area2f {
+    struct {
+        vec2f min, size;
+    };
+    
+    struct {
+        f32 x, y;
+        f32 width, height;
+    };
+    
+    bool is_valid;
+};
+
+#define Template_Area_Name        area2f
+#define Template_Area_Vector_Type vec2f
+#define Template_Area_Data_Type   f32
+#define Template_Area_Struct_Is_Declared
+#include "template_area.h"
 
 #endif // !_ENGINE_MATH_DEFS_H_

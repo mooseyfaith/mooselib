@@ -1,0 +1,77 @@
+
+#if defined VERTEX_SHADER
+
+#  define VERTEX_OUT out
+
+#elif defined FRAGMENT_SHADER
+
+#  define VERTEX_OUT in
+
+#else
+
+#  error define VERTEX_SHADER or FRAGMENT_SHADER befor makeing a shader object
+
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+//  OPTIONS                                                                  // 
+///////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+//  INTERFACE                                                                // 
+///////////////////////////////////////////////////////////////////////////////
+
+layout (std140, column_major) uniform Camera_Uniform_Block
+{ 
+	mat4   world_to_clip;
+	vec3   world_position;
+} Camera;
+
+uniform mat4 Clip_To_World;
+uniform samplerCube skybox_cube_map;
+
+#if defined VERTEX_SHADER
+
+	in vec3 vertex_position;
+
+#endif
+
+VERTEX_OUT vec3 fragment_direction;
+
+#if defined FRAGMENT_SHADER
+	out vec4 fragment_color;
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+//  VERTEX_SHADER                                                            // 
+///////////////////////////////////////////////////////////////////////////////
+
+#if defined VERTEX_SHADER
+
+///////////////////////////////////////////////////////////////////////////////
+//  VERTEX_SHADER                                                            // 
+///////////////////////////////////////////////////////////////////////////////
+
+void main()
+{
+
+	vec4 clip_position =  vec4(vertex_position.xy, 1 - 0.0000001, 1);
+
+	vec4 world_position = Clip_To_World * clip_position;
+	fragment_direction = world_position.xyz / world_position.w - Camera.world_position;
+
+    gl_Position = clip_position;
+}
+
+#else
+
+///////////////////////////////////////////////////////////////////////////////
+//  FRAGMENT_SHADER                                                          // 
+///////////////////////////////////////////////////////////////////////////////
+
+void main()
+{
+	fragment_color = textureLod(skybox_cube_map, normalize(fragment_direction), 0);
+}
+
+#endif

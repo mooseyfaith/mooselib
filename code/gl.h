@@ -277,25 +277,6 @@ struct Texture {
     GLenum format;
 };
 
-union area2f {
-    struct {
-        vec2f min, size;
-    };
-    
-    struct {
-        f32 x, y;
-        f32 width, height;
-    };
-    
-    bool is_valid;
-};
-
-#define Template_Area_Name area2f
-#define Template_Area_Struct_Is_Declared
-#define Template_Area_Vector_Type vec2f
-#define Template_Area_Data_Type f32
-#include "template_area.h"
-
 area2f make_uv_rect(Texture *texture, Pixel_Rectangle rect) {
     return {
         rect.x / cast_v(f32, texture->resolution.width), 

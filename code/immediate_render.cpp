@@ -15,7 +15,7 @@ void init(Immediate_Render_Context *context) {
         { Vertex_Color_Index,    4, GL_UNSIGNED_BYTE, GL_TRUE },
     };
     
-    set_vertex_attributes(context->vertex_buffer_object, ARRAY_WITH_COUNT(attribute_infos));
+    set_vertex_attributes(context->vertex_buffer_object, ARRAY_INFO(attribute_infos));
     
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);

@@ -26,23 +26,23 @@ defer { \
     --global_debug_draw_info.level; \
 };
 
-inline void DEBUG_DRAW_INIT(Immediate_Render_Context *immediate_render_context, u32 max_iteration_count = 0) {
+INTERNAL void DEBUG_DRAW_INIT(Immediate_Render_Context *immediate_render_context, u32 max_iteration_count = 0) {
     global_debug_draw_info.immediate_render_context = immediate_render_context;
     global_debug_draw_info.max_iteration_count = max_iteration_count;
     global_debug_draw_info.to_world_transform = MAT4X3_IDENTITY;
 }
 
-inline void DEBUG_DRAW_ENABLE() {
+INTERNAL void DEBUG_DRAW_ENABLE() {
     if (global_debug_draw_info.disabled_at_level == global_debug_draw_info.level)
         global_debug_draw_info.disabled_at_level = 0;
 }
 
-inline void DEBUG_DRAW_DISABLE() {
+INTERNAL void DEBUG_DRAW_DISABLE() {
     if (!global_debug_draw_info.disabled_at_level)
         global_debug_draw_info.disabled_at_level = global_debug_draw_info.level;
 }
 
-inline mat4x3f DEBUG_DRAW_SET_TO_WORLD_MATRIX(mat4x3f to_world_transform) {
+INTERNAL mat4x3f DEBUG_DRAW_SET_TO_WORLD_MATRIX(mat4x3f to_world_transform) {
     mat4x3f old = global_debug_draw_info.to_world_transform;
     global_debug_draw_info.to_world_transform = to_world_transform;
     return old;
@@ -51,23 +51,25 @@ inline mat4x3f DEBUG_DRAW_SET_TO_WORLD_MATRIX(mat4x3f to_world_transform) {
 #define DEBUG_DRAW_PUSH_TO_WORLD_MATRIX(to_world_transform) \
 mat4x3f _debug_to_world_transform_ ## __LINE__ = DEBUG_DRAW_SET_TO_WORLD_MATRIX(to_world_transform); defer { DEBUG_DRAW_SET_TO_WORLD_MATRIX(_debug_to_world_transform_ ## __LINE__); };
 
-inline void DEBUG_DRAW_LINE(VECTOR a, VECTOR b, rgba32 color) {
+INTERNAL void DEBUG_DRAW_LINE(VECTOR a, VECTOR b, rgba32 color) {
     if (!global_debug_draw_info.disabled_at_level || (global_debug_draw_info.disabled_at_level > global_debug_draw_info.level))
-        draw_line(global_debug_draw_info.immediate_render_context, transform_point(global_debug_draw_info.to_world_transform, a), transform_point(global_debug_draw_info.to_world_transform, b), color);
+        draw_line(transform_point(global_debug_draw_info.to_world_transform, a), transform_point(global_debug_draw_info.to_world_transform, b), color);
 }
 
-inline void DEBUG_DRAW_CIRCLE(VECTOR center, float radius, rgba32 color) {
+INTERNAL void DEBUG_DRAW_CIRCLE(VECTOR center, f32 radius, rgba32 color) {
     if (!global_debug_draw_info.disabled_at_level || (global_debug_draw_info.disabled_at_level > global_debug_draw_info.level))
-        draw_circle(global_debug_draw_info.immediate_render_context, transform_point(global_debug_draw_info.to_world_transform, center), global_debug_draw_info.camera_forward_direction, radius, color);
+        draw_circle(transform_point(global_debug_draw_info.to_world_transform, center), radius, global_debug_draw_info.camera_forward_direction, color);
 }
 
-inline Render_Batch_Checkpoint DEBUG_DRAW_CHECKPOINT() {
+#if 0
+INTERNAL Render_Batch_Checkpoint DEBUG_DRAW_CHECKPOINT() {
     return get_checkpoint(&global_debug_draw_info.immediate_render_context->render_batch);
 }
 
-inline void DEBUG_DRAW_REVERT(Render_Batch_Checkpoint checkpoint) {
+INTERNAL void DEBUG_DRAW_REVERT(Render_Batch_Checkpoint checkpoint) {
     revert_to_checkpoint(&global_debug_draw_info.immediate_render_context->render_batch, &checkpoint);
 }
+#endif
 
 #else
 
@@ -87,12 +89,12 @@ typedef SUPPORT_DEC((*Support_Funtion));
 struct Weighted_Support_Info {
     any *objects;
     Support_Funtion *supports;
-    float *weights;
+    f32 *weights;
     u32 count;
 };
 
 VECTOR weighted_support(any support_info_pointer, VECTOR direction) {
-    Weighted_Support_Info *info = CAST_P(Weighted_Support_Info, support_info_pointer);
+    Weighted_Support_Info *info = cast_p(Weighted_Support_Info, support_info_pointer);
     VECTOR result = VECTOR{};
     
     for (u32 i = 0; i < info->count; ++i)
@@ -102,8 +104,8 @@ VECTOR weighted_support(any support_info_pointer, VECTOR direction) {
 }
 
 VECTOR sweep_support(any sweep_dir_ptr, VECTOR direction) {
-    VECTOR *sweep_dir = CAST_P(VECTOR, sweep_dir_ptr);
-    float d = dot(direction, *sweep_dir);
+    VECTOR *sweep_dir = cast_p(VECTOR, sweep_dir_ptr);
+    f32 d = dot(direction, *sweep_dir);
     
     if (d > 0.0f)
         return *sweep_dir;
@@ -118,8 +120,8 @@ struct LINE {
 };
 
 VECTOR line_support(any line_ptr, VECTOR direction) {
-    LINE *line = CAST_P(LINE, line_ptr);
-    float d = dot(direction, line->to - line->from);
+    LINE *line = cast_p(LINE, line_ptr);
+    f32 d = dot(direction, line->to - line->from);
     
     if (d > 0.0f)
         return line->to;
@@ -131,11 +133,11 @@ VECTOR line_support(any line_ptr, VECTOR direction) {
 
 struct SPHERE {
     VECTOR center;
-    float radius;
+    f32 radius;
 };
 
 VECTOR sphere_support(any sphere_pointer, VECTOR direction) {
-    SPHERE *sphere = CAST_P(SPHERE, sphere_pointer);
+    SPHERE *sphere = cast_p(SPHERE, sphere_pointer);
     return sphere->center + normalize(direction) * sphere->radius;
 }
 
@@ -147,7 +149,7 @@ struct BOX {
 };
 
 VECTOR box_support(void *box_pointer, VECTOR direction) {
-    BOX *box = CAST_P(BOX, box_pointer);
+    BOX *box = cast_p(BOX, box_pointer);
     
     if (box->inverse_transform) {
         assert(box->transform);
@@ -169,7 +171,7 @@ VECTOR box_support(void *box_pointer, VECTOR direction) {
     return point;
 }
 
-inline bool gjk_simplex_edge_case(u32 *corner_count, VECTOR *direction, VECTOR a, VECTOR *b, VECTOR ab, VECTOR ao) {
+INTERNAL bool gjk_simplex_edge_case(u32 *corner_count, VECTOR *direction, VECTOR a, VECTOR *b, VECTOR ab, VECTOR ao) {
     if (dot(ab, ao) > 0.0f) { // edge points towards origin
         // ab x ao x ab => vector perpendicular to ab and pointing to origin
         *direction = cross(cross(ab, ao), ab);
@@ -192,7 +194,7 @@ inline bool gjk_simplex_edge_case(u32 *corner_count, VECTOR *direction, VECTOR a
     return false;
 }
 
-inline bool gjk_simplex(VECTOR corners[4], u32 *corner_count, VECTOR *direction) {
+INTERNAL bool gjk_simplex(VECTOR corners[4], u32 *corner_count, VECTOR *direction) {
     switch (*corner_count) {
         case 2: {
             VECTOR *b = corners + 0;
@@ -236,7 +238,7 @@ inline bool gjk_simplex(VECTOR corners[4], u32 *corner_count, VECTOR *direction)
                 }
                 else {
                     // origin is below triangle, otherwise above 
-                    float d = dot(face_normal, *a);
+                    f32 d = dot(face_normal, *a);
                     
                     if (d > 0.0f) {
                         *direction = -face_normal; // origin is closest to triangle plane
@@ -321,7 +323,7 @@ inline bool gjk_simplex(VECTOR corners[4], u32 *corner_count, VECTOR *direction)
 bool is_intersecting(any object, Support_Funtion support) {
     VECTOR corners[4];
     
-    Render_Batch_Checkpoint checkpoint = DEBUG_DRAW_CHECKPOINT();
+    //Render_Batch_Checkpoint checkpoint = DEBUG_DRAW_CHECKPOINT();
     
     corners[0] = support(object, VECTOR{1.0f});
     VECTOR direction = -corners[0];
@@ -345,11 +347,11 @@ bool is_intersecting(any object, Support_Funtion support) {
         rgba32 color = { 255, 255, 0, 255 };
         for (u32 a = 0; a < corner_count - 1; ++a) {
             for (u32 b = a + 1; b < corner_count; ++b) {
-                draw_line(global_debug_draw_info.immediate_render_context, corners[a], corners[b], color);
+                draw_line(corners[a], corners[b], color);
             }
         }
         
-        draw_circle(global_debug_draw_info.immediate_render_context, corners[corner_count - 1], global_debug_draw_info.camera_forward_direction, 0.1f, color);
+        draw_circle(corners[corner_count - 1], 0.1f, global_debug_draw_info.camera_forward_direction, color);
         
         bool simplex_done = gjk_simplex(corners, &corner_count, &direction);
         
@@ -358,8 +360,8 @@ bool is_intersecting(any object, Support_Funtion support) {
         if (global_debug_draw_info.max_iteration_count && ( global_debug_draw_info.current_iteration_count == global_debug_draw_info.max_iteration_count))
             return false;
         
-        if (!simplex_done)
-            DEBUG_DRAW_REVERT(checkpoint);
+        //if (!simplex_done)
+        //DEBUG_DRAW_REVERT(checkpoint);
         
         if (simplex_done)
             return true;
@@ -371,15 +373,15 @@ bool is_intersecting(any object, Support_Funtion support) {
 }
 
 #if 0
-void get_contact_info(float *contact_depth, float *contact_point, float *contact_normal, const void *object, Support_Funtion support, const float *contact_direction) {
-    float corners[12];
-    float direction[3];
+void get_contact_info(f32 *contact_depth, f32 *contact_point, f32 *contact_normal, const void *object, Support_Funtion support, const f32 *contact_direction) {
+    f32 corners[12];
+    f32 direction[3];
     size_t corner_count = 1;
     
     set(direction, contact_direction, 3);
     support(corners, object, direction);
     
-    float tmp[3];
+    f32 tmp[3];
     cross(tmp, corners, contact_direction, 3);
     cross(direction, tmp, corners, 3);
     
@@ -392,13 +394,13 @@ void get_contact_info(float *contact_depth, float *contact_point, float *contact
     }
     
     for(;;) {// && (it < max_it)) {
-        float *a = corners + 3 * corner_count;
+        f32 *a = corners + 3 * corner_count;
         support(a, object, direction);
         ++corner_count;
         
         switch (corner_count) {
             case 2: {
-                float *b = corners;
+                f32 *b = corners;
                 
                 /*if (equals(a, b, 3)) {
                 set(contact_point, a, 3);
@@ -406,10 +408,10 @@ void get_contact_info(float *contact_depth, float *contact_point, float *contact
                 break;
                 }*/
                 
-                float tmp[3];
+                f32 tmp[3];
                 cross(tmp, a, contact_direction, 3);
                 
-                float ao_normal[3];
+                f32 ao_normal[3];
                 cross(ao_normal, tmp, a, 3);
                 
                 if (dot(ao_normal, b, 3) <= 0.0f) {
@@ -418,10 +420,10 @@ void get_contact_info(float *contact_depth, float *contact_point, float *contact
                     set(direction, ao_normal, 3);
                 }
                 else {
-                    float ab[3];
+                    f32 ab[3];
                     sub(ab, b, a, 3);
                     
-                    float tmp[3];
+                    f32 tmp[3];
                     cross(tmp, ab, contact_direction, 3);
                     cross(direction, tmp, ab, 3);
                 }
@@ -429,22 +431,22 @@ void get_contact_info(float *contact_depth, float *contact_point, float *contact
                 break;
             }
             case 3: {
-                float *c = corners;
-                float *b = corners + 3;
+                f32 *c = corners;
+                f32 *b = corners + 3;
                 
-                float ab[3];
+                f32 ab[3];
                 sub(ab, b, a, 3);
                 
-                float ac[3];
+                f32 ac[3];
                 sub(ac, c, a, 3);
                 
-                const float epsilon_squared = 0.00001f * 0.00001f;
+                const f32 epsilon_squared = 0.00001f * 0.00001f;
                 
                 if (length_squared(ab, 3) < epsilon_squared || length_squared(ac, 3) < epsilon_squared) {
-                    float bc[3];
+                    f32 bc[3];
                     sub(bc, c, b, 3);
                     
-                    float tmp[3];
+                    f32 tmp[3];
                     cross(tmp, bc, contact_direction, 3);
                     cross(contact_normal, tmp, bc, 3);
                     
@@ -454,20 +456,20 @@ void get_contact_info(float *contact_depth, float *contact_point, float *contact
                     return;
                 }
                 
-                float tmp[3];
+                f32 tmp[3];
                 cross(tmp, a, contact_direction, 3);
                 
-                float ao_normal[3];
+                f32 ao_normal[3];
                 cross(ao_normal, tmp, a, 3);
                 
-                float db = dot(ao_normal, b, 3);
-                float dc = dot(ao_normal, c, 3);
+                f32 db = dot(ao_normal, b, 3);
+                f32 dc = dot(ao_normal, c, 3);
                 
                 if (db * dc > 0.0f) {
-                    float bc[3];
+                    f32 bc[3];
                     sub(bc, c, b, 3);
                     
-                    float tmp[3];
+                    f32 tmp[3];
                     cross(tmp, bc, contact_direction, 3);
                     cross(contact_normal, tmp, bc, 3);
                     
@@ -486,7 +488,7 @@ void get_contact_info(float *contact_depth, float *contact_point, float *contact
                 
                 corner_count = 2;
                 
-                float bc[3];
+                f32 bc[3];
                 sub(bc, c, b, 3);
                 
                 cross(tmp, bc, contact_direction, 3);
@@ -507,13 +509,13 @@ void get_contact_info(float *contact_depth, float *contact_point, float *contact
 
 // returns 0.0f <= t <= 1.0f
 // for a maximum t <= 1.0f, where translation of Sphere A by move_dir_a * t is safe to perform without colliding with Sphere B
-inline float get_collision_distance(SPHERE *a, VECTOR move_dir_a, SPHERE *b) {
+INTERNAL f32 get_collision_distance(SPHERE *a, VECTOR move_dir_a, SPHERE *b) {
     VECTOR distance = a->center - b->center;
     
-    float d2 = squared_length(distance);
-    float m2 = squared_length(move_dir_a);
-    float md = dot(distance, move_dir_a);
-    float r2 = a->radius + b->radius;
+    f32 d2 = squared_length(distance);
+    f32 m2 = squared_length(move_dir_a);
+    f32 md = dot(distance, move_dir_a);
+    f32 r2 = a->radius + b->radius;
     r2 = r2 * r2;
     
     if (md >= 0.0f)
@@ -521,19 +523,19 @@ inline float get_collision_distance(SPHERE *a, VECTOR move_dir_a, SPHERE *b) {
     
     assert(m2 > 0.0f);
     
-    float p_2 = -md / m2;
+    f32 p_2 = -md / m2;
     
-    float under_root = p_2 * p_2 + (r2 - d2) / m2;
+    f32 under_root = p_2 * p_2 + (r2 - d2) / m2;
     
     // no intersection
     if (under_root < 0.0f)
         return 1.0f;
     
-    float root = sqrt(under_root);
-    float t0 = p_2 - root;
-    float t1 = p_2 + root;
+    f32 root = sqrt(under_root);
+    f32 t0 = p_2 - root;
+    f32 t1 = p_2 + root;
     
-    float t;
+    f32 t;
     if (t0 > 0.0f)
         t = t0;
     else
@@ -546,7 +548,7 @@ inline float get_collision_distance(SPHERE *a, VECTOR move_dir_a, SPHERE *b) {
     return t;
 }
 
-inline float get_collision_distance(SPHERE *a, VECTOR move_dir_a, SPHERE *b, VECTOR move_dir_b) {
+INTERNAL f32 get_collision_distance(SPHERE *a, VECTOR move_dir_a, SPHERE *b, VECTOR move_dir_b) {
     return get_collision_distance(a, move_dir_a - move_dir_b, b);
 }
 
@@ -554,29 +556,29 @@ struct Ray {
     VECTOR origin, direction;
 };
 
-inline VECTOR get_point_at(Ray ray, float distance) {
+INTERNAL VECTOR get_point_at(Ray ray, f32 distance) {
     return ray.origin + ray.direction * distance;
 }
 
-inline Ray transform_ray(mat4x3f transform, Ray ray) {
+INTERNAL Ray transform_ray(mat4x3f transform, Ray ray) {
     return { transform_point(transform, ray.origin), transform_direction(transform, ray.direction) };
 }
 
-inline float get_plane_distance(VECTOR plane_point, VECTOR plane_normal, VECTOR point) {
+INTERNAL f32 get_plane_distance(VECTOR plane_point, VECTOR plane_normal, VECTOR point) {
     return dot(plane_normal, point - plane_point);
 }
 
-bool is_intersecting_ray_polygon(OUTPUT VECTOR *point, OUTPUT float *distance, Ray ray, u8 *vertices, u32 vertex_stride_in_bytes, Indices indices, u32 corner_offset, u32 corner_count) {
+bool is_intersecting_ray_polygon(OUTPUT VECTOR *point, OUTPUT f32 *distance, Ray ray, u8 *vertices, u32 vertex_stride_in_bytes, Indices indices, u32 corner_offset, u32 corner_count) {
     DEBUG_DRAW_PUSH_LEVEL();
     
     assert(corner_count > 2);
     assert(is_unit_length(ray.direction));
     
-    VECTOR *a = CAST_P(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset + 0));
-    VECTOR *b = CAST_P(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset +  1));
-    VECTOR *c = CAST_P(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset +  2));
+    VECTOR *a = cast_p(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset + 0));
+    VECTOR *b = cast_p(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset +  1));
+    VECTOR *c = cast_p(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset +  2));
     
-    Render_Batch_Checkpoint checkpoint = DEBUG_DRAW_CHECKPOINT();
+    //Render_Batch_Checkpoint checkpoint = DEBUG_DRAW_CHECKPOINT();
     
     VECTOR ab = *b - *a;
     VECTOR ac = *c - *a;
@@ -593,30 +595,30 @@ bool is_intersecting_ray_polygon(OUTPUT VECTOR *point, OUTPUT float *distance, R
         DEBUG_DRAW_LINE((*a + * b + *c) / 3.0f, (*a + * b + *c) / 3.0f + normalize(face_normal), color);
     }
     
-    float l = dot(face_normal, ray.direction);
+    f32 l = dot(face_normal, ray.direction);
     
     // ray is parallel to triangle plane, ignored even if its inside the triangle
     // it should hopefully be detected by adjacent triangles if the mesh is closed
     if (l == 0.0f) {
         return false;
     } else {
-        float t = dot(face_normal, *a - ray.origin) / l;
+        f32 t = dot(face_normal, *a - ray.origin) / l;
         
         if ((t < 0.0f) || (t >= *distance)) {
-            DEBUG_DRAW_REVERT(checkpoint);
+            //DEBUG_DRAW_REVERT(checkpoint);
             return false;
         }
         
         VECTOR hit = ray.origin + ray.direction * t;
         
         // check if point is inside all planes described by edge normals
-        VECTOR *last_vertex = CAST_P(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset + corner_count - 1));
+        VECTOR *last_vertex = cast_p(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset + corner_count - 1));
         for (u32 i = 0; i < corner_count; ++i) {
-            VECTOR *vertex = CAST_P(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset + i));
+            VECTOR *vertex = cast_p(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, corner_offset + i));
             VECTOR edge_normal = cross(face_normal, *vertex - *last_vertex);
             
             if (get_plane_distance(*vertex, edge_normal, hit) < 0.0f) {
-                DEBUG_DRAW_REVERT(checkpoint);
+                //DEBUG_DRAW_REVERT(checkpoint);
                 
                 rgba32 color = { 255, 0, 0, 255 };
                 DEBUG_DRAW_LINE(*last_vertex, *vertex, color);
@@ -642,11 +644,11 @@ bool is_intersecting_ray_polygon(OUTPUT VECTOR *point, OUTPUT float *distance, R
     }
 }
 
-bool is_intersecting_ray_triangles(OUTPUT VECTOR *point, OUTPUT float *distance,
+bool is_intersecting_ray_triangles(OUTPUT VECTOR *point, OUTPUT f32 *distance,
                                    Ray ray, u8 *vertices, u32 vertex_stride_in_bytes, Indices indices, u32 first_triangle_corner_index, u32 triangle_count) {
     DEBUG_DRAW_PUSH_LEVEL();
     
-    Render_Batch_Checkpoint checkpoint = DEBUG_DRAW_CHECKPOINT();
+    //Render_Batch_Checkpoint checkpoint = DEBUG_DRAW_CHECKPOINT();
     
     bool is_intersecting = false;
     
@@ -657,15 +659,15 @@ bool is_intersecting_ray_triangles(OUTPUT VECTOR *point, OUTPUT float *distance,
         if (is_intersecting_ray_polygon(point, distance, ray, vertices, vertex_stride_in_bytes, indices, first_triangle_corner_index + 3 * i, 3)) {
             is_intersecting = true;
             
-            DEBUG_DRAW_REVERT(checkpoint);
+            //DEBUG_DRAW_REVERT(checkpoint);
             DEBUG_DRAW_ENABLE();
             
             rgba32 color = { 255, 255, 0, 255 };
             for (u32 a = 0; a < 2; ++a) {
-                VECTOR *va =CAST_P(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, first_triangle_corner_index + 3 * i + a));
+                VECTOR *va =cast_p(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, first_triangle_corner_index + 3 * i + a));
                 
                 for (u32 b = a + 1; b < 3; ++b) {
-                    VECTOR *vb =CAST_P(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, first_triangle_corner_index + 3 * i + b));
+                    VECTOR *vb =cast_p(VECTOR, vertices + vertex_stride_in_bytes * get_index(indices, first_triangle_corner_index + 3 * i + b));
                     
                     DEBUG_DRAW_LINE(*va, *vb, color);
                 }

@@ -1,0 +1,84 @@
+
+#if defined VERTEX_SHADER
+
+#  define VERTEX_OUT out
+
+#elif defined FRAGMENT_SHADER
+
+#  define VERTEX_OUT in
+
+#else
+
+#  error define VERTEX_SHADER or FRAGMENT_SHADER befor makeing a shader object
+
+#endif
+
+///////////////////////////////////////////////////////////////////////////////
+//  OPTIONS                                                                  // 
+///////////////////////////////////////////////////////////////////////////////
+
+///////////////////////////////////////////////////////////////////////////////
+//  INTERFACE                                                                // 
+///////////////////////////////////////////////////////////////////////////////
+
+layout (std140, column_major) uniform Camera_Uniform_Block
+{ 
+	mat4   world_to_clip;
+	vec3   world_position;
+} Camera;
+
+struct Environment_Uniform {
+	mat4x3 world_to_environment;
+	samplerCube map;
+};
+
+uniform Environment_Uniform Environment;
+uniform mat4x3 Object_To_World;
+
+#if defined VERTEX_SHADER
+
+	in vec3 vertex_position;
+
+#endif
+
+VERTEX_OUT vec3 direction;
+
+#if defined FRAGMENT_SHADER
+	out vec4 fragment_color;
+#endif
+
+vec4 to_clip(vec3 world_position) {
+	return Camera.world_to_clip *  vec4(world_position, 1);
+}
+
+///////////////////////////////////////////////////////////////////////////////
+//  VERTEX_SHADER                                                            // 
+///////////////////////////////////////////////////////////////////////////////
+
+#if defined VERTEX_SHADER
+
+///////////////////////////////////////////////////////////////////////////////
+//  VERTEX_SHADER                                                            // 
+///////////////////////////////////////////////////////////////////////////////
+
+void main()
+{
+	vec3 world_position = Object_To_World * vec4(vertex_position, 1);
+
+	direction = normalize(Environment.world_to_environment * vec4(world_position, 1));
+
+	gl_Position = to_clip(world_position);
+}
+
+#else
+
+///////////////////////////////////////////////////////////////////////////////
+//  FRAGMENT_SHADER                                                          // 
+///////////////////////////////////////////////////////////////////////////////
+
+void main()
+{
+	fragment_color = texture(Environment.map, normalize(direction));
+}
+
+#endif

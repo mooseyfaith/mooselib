@@ -88,14 +88,9 @@ static inline void skip_white_space(string *it) {
 #define MESH_PARSE_STRING_DEC(text) static string const string_ ## text = S(# text)
 #define MESH_PARSE_STRING(text) string_ ## text
 
+
 struct Mesh {
-    struct Vertex_Buffer {
-        Vertex_Attribute_Info *vertex_attribute_infos;
-        u32 vertex_attribute_info_count;
-        u32 vertex_byte_count;
-        GLuint object;
-    } *vertex_buffers;
-    u32 vertex_buffer_count;
+    Vertex_Buffers vertex_buffers;
     
     Bone *bones;
     u32 bone_count;
@@ -113,13 +108,13 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
     
     skip(&it, S("vertex_buffers")); skip_white_space(&it);
     
-    mesh.vertex_buffer_count = PARSE_UNSIGNED_INTEGER(&it, 32); skip_white_space(&it);
+    mesh.vertex_buffers.count = PARSE_UNSIGNED_INTEGER(&it, 32); skip_white_space(&it);
     
-    mesh.vertex_buffers = ALLOCATE_ARRAY(allocator, Mesh::Vertex_Buffer, mesh.vertex_buffer_count);
+    mesh.vertex_buffers.data = ALLOCATE_ARRAY(allocator, Vertex_Buffer, mesh.vertex_buffers.count);
     u32 vertex_buffer_count = 0;
     
     if (out_vertex_buffers)
-        *out_vertex_buffers = ALLOCATE_ARRAY(allocator, u8_array, mesh.vertex_buffer_count);
+        *out_vertex_buffers = ALLOCATE_ARRAY(allocator, u8_array, mesh.vertex_buffers.count);
     
     skip(&it, S("{")); skip_white_space(&it);
     
@@ -136,15 +131,15 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             break;
         }
         
-        assert(vertex_buffer_count < mesh.vertex_buffer_count);
+        assert(vertex_buffer_count < mesh.vertex_buffers.count);
         
         if (try_skip(&it, S("vertex_buffer"))) {
             skip_white_space(&it);
             
-            mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_info_count = PARSE_UNSIGNED_INTEGER(&it, 32); skip_white_space(&it);
-            mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_infos = ALLOCATE_ARRAY(allocator, Vertex_Attribute_Info, mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_info_count);
-            Vertex_Attribute_Info *vertex_attribute_infos = mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_infos;
-            u32 vertex_attribute_info_count = 0;
+            mesh.vertex_buffers[vertex_buffer_count].attributes.count = PARSE_UNSIGNED_INTEGER(&it, 32); skip_white_space(&it);
+            mesh.vertex_buffers[vertex_buffer_count].attributes.data = ALLOCATE_ARRAY(allocator, Vertex_Attribute_Info, mesh.vertex_buffers[vertex_buffer_count].attributes.count);
+            Vertex_Attribute_Info *vertex_attributes = mesh.vertex_buffers[vertex_buffer_count].attributes.data + 0;
+            u32 vertex_attribute_count = 0;
             
             skip(&it, S("{")); skip_white_space(&it);
             
@@ -154,61 +149,61 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
                     break;
                 }
                 
-                assert(vertex_attribute_info_count < mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_info_count);
+                assert(vertex_attribute_count < mesh.vertex_buffers[vertex_buffer_count].attributes.count);
                 
                 if (try_skip(&it, S("position"))) {
                     skip_white_space(&it);
-                    vertex_attribute_infos[vertex_attribute_info_count].index = Vertex_Position_Index;
+                    vertex_attributes[vertex_attribute_count].index = Vertex_Position_Index;
                 }
                 else if (try_skip(&it, S("normal"))) {
                     skip_white_space(&it);
-                    vertex_attribute_infos[vertex_attribute_info_count].index = Vertex_Normal_Index;
+                    vertex_attributes[vertex_attribute_count].index = Vertex_Normal_Index;
                 }
                 else if (try_skip(&it, S("tangent"))) {
                     skip_white_space(&it);
-                    vertex_attribute_infos[vertex_attribute_info_count].index = Vertex_Tangent_Index;
+                    vertex_attributes[vertex_attribute_count].index = Vertex_Tangent_Index;
                 }
                 else if (try_skip(&it, S("uv0"))) {
                     skip_white_space(&it);
-                    vertex_attribute_infos[vertex_attribute_info_count].index = Vertex_UV_Index;
+                    vertex_attributes[vertex_attribute_count].index = Vertex_UV_Index;
                 }
                 else if (try_skip(&it, S("color"))) {
                     skip_white_space(&it);
-                    vertex_attribute_infos[vertex_attribute_info_count].index = Vertex_Color_Index;
+                    vertex_attributes[vertex_attribute_count].index = Vertex_Color_Index;
                 }
                 else if (try_skip(&it, S("bone_index"))) {
                     skip_white_space(&it);
-                    vertex_attribute_infos[vertex_attribute_info_count].index = Vertex_Bone_Index;
+                    vertex_attributes[vertex_attribute_count].index = Vertex_Bone_Index;
                 }
                 else if (try_skip(&it, S("bone_weight"))) {
                     skip_white_space(&it);
-                    vertex_attribute_infos[vertex_attribute_info_count].index = Vertex_Bone_Weight;
+                    vertex_attributes[vertex_attribute_count].index = Vertex_Bone_Weight;
                 }
                 else {
                     assert(0);  // vertex attribute index not supported or implemented yet
                 }
                 
-                vertex_attribute_infos[vertex_attribute_info_count].length = cast_v(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
+                vertex_attributes[vertex_attribute_count].length = cast_v(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
                 skip_white_space(&it);
                 
                 if (try_skip(&it, S("f32"))) {
-                    vertex_attribute_infos[vertex_attribute_info_count].type = GL_FLOAT;
+                    vertex_attributes[vertex_attribute_count].type = GL_FLOAT;
                 }
                 else if (try_skip(&it, S("u8"))) {
-                    vertex_attribute_infos[vertex_attribute_info_count].type = GL_UNSIGNED_BYTE;
+                    vertex_attributes[vertex_attribute_count].type = GL_UNSIGNED_BYTE;
                 }
                 else {
                     assert(0); // vertex attribute type not supported or implemented yet
                 }
                 skip_white_space(&it);
                 
-                vertex_attribute_infos[vertex_attribute_info_count].do_normalize = parse_unsigned_integer(&it, 1) ? GL_TRUE : GL_FALSE;
+                vertex_attributes[vertex_attribute_count].do_normalize = parse_unsigned_integer(&it, 1) ? GL_TRUE : GL_FALSE;
                 skip_white_space(&it);
                 
-                vertex_attribute_infos[vertex_attribute_info_count].padding_length = cast_v(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
+                vertex_attributes[vertex_attribute_count].padding_length = cast_v(GLint, PARSE_UNSIGNED_INTEGER(&it, 32));
                 skip_white_space(&it);
                 
-                ++vertex_attribute_info_count;
+                ++vertex_attribute_count;
             }
             
             u32 vertex_count = PARSE_UNSIGNED_INTEGER(&it, 32); skip_white_space(&it);
@@ -221,7 +216,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             if (out_vertex_count)
                 *out_vertex_count = vertex_count;
             
-            mesh.vertex_buffers[vertex_buffer_count].vertex_byte_count = get_vertex_byte_count(mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_infos, mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_info_count);
+            mesh.vertex_buffers[vertex_buffer_count].vertex_byte_count = vertex_byte_count_of(mesh.vertex_buffers[vertex_buffer_count].attributes);
             
             u32 data_length = vertex_count * mesh.vertex_buffers[vertex_buffer_count].vertex_byte_count;
             u8_buffer buffer = ALLOCATE_ARRAY_INFO(allocator, u8, data_length);
@@ -261,9 +256,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             
             set_vertex_attributes(
                 mesh.vertex_buffers[vertex_buffer_count].object,
-                mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_infos,
-                mesh.vertex_buffers[vertex_buffer_count].vertex_attribute_info_count
-                );
+                mesh.vertex_buffers[vertex_buffer_count].attributes);
             
             if (out_vertex_buffers)
                 (*out_vertex_buffers)[vertex_buffer_count] = {buffer.data, buffer.count };
@@ -290,16 +283,16 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
     
         if (last_vertex_count < (1 << 16)) {
         mesh.batch.index_type      = GL_UNSIGNED_SHORT;
-        mesh.batch.bytes_per_index = 2;
+        mesh.batch.index_byte_count = 2;
     } 
     else {
         mesh.batch.index_type      = GL_UNSIGNED_INT;
-        mesh.batch.bytes_per_index = 4;
+        mesh.batch.index_byte_count = 4;
     }
     
     Indices indices;
-    indices.bytes_per_index = mesh.batch.bytes_per_index;
-    indices.buffer    = ALLOCATE_ARRAY_INFO(allocator, u8, index_count * indices.bytes_per_index);
+    indices.index_byte_count = mesh.batch.index_byte_count;
+    indices.buffer    = ALLOCATE_ARRAY_INFO(allocator, u8, index_count * indices.index_byte_count);
     
     while (it.count) {
         if (try_skip(&it, S("}"))) {
@@ -307,13 +300,13 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             break;
         }
         
-        push_index(&indices, cast_v(u32, parse_unsigned_integer(&it, indices.bytes_per_index << 3)));
+        push_index(&indices, cast_v(u32, parse_unsigned_integer(&it, indices.index_byte_count << 3)));
         skip_white_space(&it);
     }
     
     glGenBuffers(1, &mesh.batch.index_buffer_object);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mesh.batch.index_buffer_object);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizei)index_count * indices.bytes_per_index, indices.buffer.data, GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizei)index_count * indices.index_byte_count, indices.buffer.data, GL_STATIC_DRAW);
     
     if (out_indices)
         *out_indices = indices;
@@ -393,8 +386,8 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
     }
     
     skip(&it, S("draw_calls")); skip_white_space(&it);
-    mesh.batch.command_count = PARSE_UNSIGNED_INTEGER(&it, 32); skip_white_space(&it);
-    mesh.batch.commands = ALLOCATE_ARRAY(allocator, Render_Batch_Command, mesh.batch.command_count);
+    mesh.batch.commands.count = PARSE_UNSIGNED_INTEGER(&it, 32); skip_white_space(&it);
+    mesh.batch.commands = ALLOCATE_ARRAY_INFO(allocator, Render_Batch_Command, mesh.batch.commands.count);
     u32 render_command_count = 0;
     
     skip(&it, S("{")); skip_white_space(&it);
@@ -405,7 +398,7 @@ Mesh make_mesh(string mesh_source, Memory_Allocator *allocator, OUTPUT u8_array 
             break;
         }
         
-        assert(render_command_count < mesh.batch.command_count);
+        assert(render_command_count < mesh.batch.commands.count);
         
         if (try_skip(&it, S("triangles"))) {
             mesh.batch.commands[render_command_count].draw_mode = GL_TRIANGLES;
@@ -622,12 +615,12 @@ void end_blend(Bone *bones, u32 bone_count) {
             it->rotation = normalize(it->rotation);
         
         if (it->translation_total_blend == 0.0f)
-            it->translation = VEC3_ZERO;
+            it->translation = Vec3_Zero;
         else
             it->translation /= it->translation_total_blend;
         
         if (it->scale_total_blend == 0.0f)
-            it->scale = VEC3_ONE;
+            it->scale = Vec3_One;
         else
             it->scale /= it->scale_total_blend;
         

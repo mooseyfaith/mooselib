@@ -82,8 +82,9 @@ typedef PLATFORM_GET_FINISHED_WORK_DEC((*Platform_Get_Finished_Work_Function));
 typedef PLATFORM_WORK_RESET_DEC((*Platform_Work_Reset_Function));
 
 struct Platform_Window {
-    bool mouse_is_inside;
     vec2f mouse_position;
+    Pixel_Rectangle area;
+    bool mouse_is_inside;
     bool was_destroyed;
 };
 

@@ -1,4 +1,4 @@
-#if !defined(FONT_H)
+#if !defined FONT_H
 #define FONT_H
 
 #include <ft2build.h>
