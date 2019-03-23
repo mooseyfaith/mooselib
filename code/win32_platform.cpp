@@ -13,10 +13,6 @@ int main(int argc, const char **args)
     init_win32_api(&win32_platform_api);
     global_win32_api = &win32_platform_api;
     
-    // if you need more than 8 windows at a time, change this
-    Win32_Window _window_buffer[8];
-    win32_platform_api.window_buffer = ARRAY_INFO(_window_buffer);
-    
     u32 path_count = 0;
     for (u32 i = 0; args[0][i]; ++i) {
         if (args[0][i] == '\\')
@@ -481,10 +477,10 @@ int main(int argc, const char **args)
                 // it might point to old data, since we did not clone the string
                 // this will force a renameing of the window
                 for (u32 i = 0;
-                     i < win32_platform_api.window_buffer.count;
+                     i < win32_platform_api.windows.count;
                      ++i)
                 {
-                    win32_platform_api.window_buffer[i].title = {};
+                    win32_platform_api.windows[i].title = {};
                 }
                 
                 auto message = ALLOCATE(&win32_platform_api.transient_memory.allocator, Platform_Message);
@@ -546,8 +542,8 @@ int main(int argc, const char **args)
                     win32_platform_api.input.gamepads[i].is_enabled = false;
             }
             
-            for (u32 i = 0; i < win32_platform_api.window_buffer.count; ++i) {
-                win32_platform_api.window_buffer[i].is_active = false;
+            for (u32 i = 0; i < win32_platform_api.windows.count; ++i) {
+                win32_platform_api.windows[i].is_active = false;
             }
             
 #if 0            
@@ -755,17 +751,18 @@ int main(int argc, const char **args)
             
             {
                 u32 i = 0;
-                while (i < win32_platform_api.window_buffer.count) {
-                    if (!win32_platform_api.window_buffer[i].is_active)
-                        DestroyWindow(win32_platform_api.window_buffer[i].handle);
+                while (i < win32_platform_api.windows.count) {
+                    if (!win32_platform_api.windows[i].is_active)
+                        DestroyWindow(win32_platform_api.windows[i].handle);
                     
-                    if (win32_platform_api.window_buffer[i].was_destroyed) {
-                        win32_platform_api.window_buffer[i] = win32_platform_api.window_buffer[win32_platform_api.window_buffer.count - 1];
-                        win32_platform_api.window_buffer.count--;
+                    if (win32_platform_api.windows[i].was_destroyed) {
+                        win32_platform_api.windows[i] = win32_platform_api.windows[win32_platform_api.windows.count - 1];
+                        
+                        shrink(&win32_platform_api.window_memory.allocator, &win32_platform_api.windows);
                         
                         // update handle to window maping, after swap
-                        if (i < win32_platform_api.window_buffer.count) {
-                            SetWindowLongPtr(win32_platform_api.window_buffer[i].handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(win32_platform_api.window_buffer.data + i));
+                        if (i < win32_platform_api.windows.count) {
+                            SetWindowLongPtr(win32_platform_api.windows[i].handle, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(win32_platform_api.windows.data + i));
                         }
                     }
                     else {

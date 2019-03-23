@@ -1,5 +1,5 @@
 version(1);
-project_name = "preprocessor";
+project_name = "MyProgram";
 patterns = {
 "*.c",
 "*.cpp",
@@ -14,7 +14,7 @@ blacklist_patterns = {
 };
 load_paths_base = {
  { ".", .relative = true, .recursive = true, },
- { "..\\code", .relative = true, .recursive = true, },
+ { "..\\mooselib\\code", .relative = true, .recursive = true, },
 };
 load_paths = {
  { load_paths_base, .os = "win", },
@@ -30,9 +30,8 @@ command_list = {
             { "./build.sh", .os = "mac"   }, }, },
  { .name = "run",
    .out = "*run*", .footer_panel = false, .save_dirty_files = false,
-   .cmd = { { "build\\mooselib_preprocessor.exe test.t -c" , .os = "win"   },
-            { "build/mooselib_preprocessor.exe" , .os = "linux" },
-            { "build/mooselib_preprocessor.exe" , .os = "mac"   }, }, },
+   .cmd = { { "cd data && ..\\build\\MyProgram.exe" , .os = "win"   }, },
+ },
 };
 
 fkey_command[1] = "build";

@@ -1,9 +1,7 @@
 #if !defined _ENGINE_INPUT_H_
 #define _ENGINE_INPUT_H_
 
-//#include <Windows.h>
-
-#include "mathdefs.h"
+#include "vector_math.h"
 
 enum Keycode {
     Keycode_Return,
@@ -91,7 +89,7 @@ struct Game_Input {
     } mouse;
 };
 
-inline void normalize_stick(Input_Gamepad *gamepad, float dead_zone) {
+INTERNAL void normalize_stick(Input_Gamepad *gamepad, float dead_zone) {
     for (u32 stick_index = 0; stick_index < ARRAY_COUNT(gamepad->sticks); ++stick_index) {
         Input_Gamepad::Stick *stick = gamepad->sticks + stick_index;
         
@@ -107,18 +105,18 @@ inline void normalize_stick(Input_Gamepad *gamepad, float dead_zone) {
     }
 }
 
-inline void button_poll_update(Input_Button *button, bool is_active) {
+INTERNAL void button_poll_update(Input_Button *button, bool is_active) {
     if (button->is_active != is_active) {
         button->idle_time = 0.0f;
         button->is_active = is_active;
     }
 }
 
-inline void button_poll_advance(Input_Button *button, float delta_seconds) {
+INTERNAL void button_poll_advance(Input_Button *button, float delta_seconds) {
     button->idle_time += delta_seconds;
 }
 
-inline void button_event_update(Input_Button *button, bool is_active)
+INTERNAL void button_event_update(Input_Button *button, bool is_active)
 {
     if (is_active) {
         ++button->down_count;
@@ -133,42 +131,42 @@ inline void button_event_update(Input_Button *button, bool is_active)
     button->idle_time = 0.0f;
 }
 
-inline void button_event_advance(Input_Button *button, float delta_seconds) {
+INTERNAL void button_event_advance(Input_Button *button, float delta_seconds) {
     button->up_count   = 0;
     button->down_count = 0;
     button->idle_time += delta_seconds;
 }
 
-inline bool was_pressed(Input_Button button, float max_duration = 0.0f) {
+INTERNAL bool was_pressed(Input_Button button, float max_duration = 0.0f) {
     return button.down_count || (button.is_active && (button.idle_time <= max_duration));
 }
 
-inline bool was_released(Input_Button button, float max_duration = 0.0f) {
+INTERNAL bool was_released(Input_Button button, float max_duration = 0.0f) {
     return button.up_count || (!button.is_active && (button.idle_time <= max_duration));
 }
 
-inline vec2f get_relative_mouse_position(vec2f screen_mouse_position, const Pixel_Dimensions *window) {
+INTERNAL vec2f get_relative_mouse_position(vec2f screen_mouse_position, const Pixel_Dimensions *window) {
     return screen_mouse_position / vec2f{ (float)window->width, (float)-window->height } * 2.0f - vec2f{ 1.0f, 1.0f };
 }
 
-inline void key_event_update(Game_Input *input, u8 key_code, bool is_down)
+INTERNAL void key_event_update(Game_Input *input, u8 key_code, bool is_down)
 {
     button_event_update(input->keys + key_code, is_down);
 }
 
-inline bool is_active(Game_Input *input, u8 keycode) {
+INTERNAL bool is_active(Game_Input *input, u8 keycode) {
     return input->keys[keycode].is_active;
 }
 
-inline bool was_pressed(Game_Input *input, u8 keycode, float max_duration = 0.0f) {
+INTERNAL bool was_pressed(Game_Input *input, u8 keycode, float max_duration = 0.0f) {
     return was_pressed(input->keys[keycode], max_duration);
 }
 
-inline bool was_released(Game_Input *input, u8 keycode, float max_duration = 0.0f) {
+INTERNAL bool was_released(Game_Input *input, u8 keycode, float max_duration = 0.0f) {
     return was_released(input->keys[keycode], max_duration);
 }
 
-inline void advance_input(Game_Input *input, f32 delta_seconds)
+INTERNAL void advance_input(Game_Input *input, f32 delta_seconds)
 {
 #if 0
     for (u32 i = 0; i != ARRAY_COUNT(input->mouse.buttons); ++i)

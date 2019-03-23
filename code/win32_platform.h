@@ -32,9 +32,8 @@ struct Win32_Window {
     WINDOWPLACEMENT placement_backup;
 };
 
-#define Template_Array_Name      Win32_Window_Buffer
+#define Template_Array_Name      Win32_Windows
 #define Template_Array_Data_Type Win32_Window
-#define Template_Array_Is_Buffer
 #include "template_array.h"
 
 struct Application_Info {
@@ -76,7 +75,10 @@ struct Win32_Platform_API {
     Memory_Allocator allocator;
     Memory_Growing_Stack persistent_memory;
     Memory_Growing_Stack transient_memory;
-    Win32_Window_Buffer window_buffer;
+    
+    Memory_Growing_Stack window_memory;
+    Win32_Windows windows;
+    
     Win32_Window *current_window;
     u32 swap_buffer_count;
     WNDCLASS window_class;
@@ -758,15 +760,15 @@ PLATFORM_DISPLAY_WINDOW_DEC(win32_display_window) {
     }
     
     Win32_Window *window = null;
-    for (u32 i = 0; i < api->window_buffer.count; ++i) {
-        if (api->window_buffer[i].id == window_id) {
-            window = api->window_buffer.data + i;
+    for (u32 i = 0; i < api->windows.count; ++i) {
+        if (api->windows[i].id == window_id) {
+            window = api->windows.data + i;
             break;
         }
     }
     
     if (!window) {
-        window = push(&api->window_buffer);
+        window = grow(&api->window_memory.allocator, &api->windows);
         *window = {};
         
         window->title = title;
@@ -1158,7 +1160,7 @@ PLATFORM_MUTEX_UNLOCK_DEC(win32_mutex_unlock) {
     return true;
 }
 
-PLATFORM_RUN_COMMAND(win32_run_command) {
+PLATFORM_RUN_COMMAND_DEC(win32_run_command) {
     auto win32_api = cast_p(Win32_Platform_API, platform_api);
     
     if (win32_api->pipe_read == 0) {
@@ -1253,7 +1255,7 @@ PLATFORM_RUN_COMMAND(win32_run_command) {
     return output;
 }
 
-PLATFORM_GET_WORKING_DIRECTORY(win32_get_working_directory) {
+PLATFORM_GET_WORKING_DIRECTORY_DEC(win32_get_working_directory) {
     auto win32_api = cast_p(Win32_Platform_API, platform_api);
     
     if (!win32_api->working_directory.count) {
@@ -1279,6 +1281,102 @@ PLATFORM_GET_WORKING_DIRECTORY(win32_get_working_directory) {
     return win32_api->working_directory;
 }
 
+PLATFORM_COPY_TO_CLIPBOAD_DEC(win32_copy_to_clipboard) {
+    if (!text.count)
+        return;
+    
+    if (!OpenClipboard(null))
+        return;
+    
+    defer { CloseClipboard(); };
+    
+    EmptyClipboard();
+    
+    auto win32_api = cast_p(Win32_Platform_API, platform_api);
+    
+    // TODO: check for trailing newline add add \r\n only if its missing
+    auto clipboard_text =new_write(&win32_api->transient_memory.allocator, S("%\r\n\0"), f(text));
+    defer { free_array(&win32_api->transient_memory.allocator, &clipboard_text); };
+    
+    // -1 means we give and want a 0-terminating string
+    int byte_count = MultiByteToWideChar(CP_UTF8, 0, (LPCCH)clipboard_text.data, -1, null, 0);
+    u16_array utf16_text = ALLOCATE_ARRAY_INFO(&win32_api->transient_memory.allocator, u16, cast_v(usize, byte_count));
+    defer { free_array(&win32_api->transient_memory.allocator, &utf16_text); };
+    
+    MultiByteToWideChar(CP_UTF8, 0, (LPCCH)clipboard_text.data, clipboard_text.count, (LPWSTR)utf16_text.data, utf16_text.count);
+    
+    HANDLE data_handle = GlobalAlloc(GMEM_MOVEABLE, byte_count_of(utf16_text));
+    
+    if (!data_handle)
+        return;
+    
+    auto data = GlobalLock(data_handle);
+    if (!data)
+        return;
+    
+    defer { GlobalUnlock(data_handle); };
+    
+    copy(data, utf16_text.data, byte_count_of(utf16_text));
+    
+    // no wide characters found, so paste regular ansi text
+    if (clipboard_text.count + 1 == utf16_text.count)
+        SetClipboardData(CF_TEXT, data_handle);
+    else
+        SetClipboardData(CF_UNICODETEXT, data_handle);
+}
+
+PLATFORM_GET_CLIPBOARD_TEXT_DEC(win32_get_clipboad_text) {
+    
+    if (!IsClipboardFormatAvailable(CF_TEXT) && !IsClipboardFormatAvailable(CF_UNICODETEXT)) 
+        return {}; 
+    
+    if (!OpenClipboard(null))
+        return {};
+    
+    defer { CloseClipboard(); };
+    
+    bool is_utf16;
+    HANDLE data_handle;
+    if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+        data_handle = GetClipboardData(CF_UNICODETEXT); 
+        if (!data_handle)
+            return {};
+        
+        is_utf16 = true;
+    }
+    else {
+        assert(IsClipboardFormatAvailable(CF_TEXT));
+        data_handle = GetClipboardData(CF_TEXT); 
+        if (!data_handle)
+            return {};
+        
+        is_utf16 = false;
+    }
+    
+    auto data = cast_p(u8, GlobalLock(data_handle)); 
+    if (!data)
+        return {};
+    
+    defer { GlobalUnlock(data_handle); };
+    
+    auto win32_api = cast_p(Win32_Platform_API, platform_api);
+    
+    if (is_utf16) {
+        int byte_count = WideCharToMultiByte(CP_UTF8, 0, (LPCWSTR)data, -1, null, 0, NULL, NULL);
+        
+        string text = {};
+        defer { free_array(&win32_api->transient_memory.allocator, &text); };
+        grow(&win32_api->transient_memory.allocator, &text, byte_count);
+        
+        WideCharToMultiByte(CP_UTF8, 0, (LPCWSTR)data, -1, (LPSTR)text.data, text.count, NULL, NULL);
+        
+        return new_write(allocator, S("%"), f(text));
+    }
+    else {
+        return new_write(allocator, S("%"), f(make_string(cast_p(char, data))));
+    }
+}
+
 void init_win32_api(Win32_Platform_API *win32_api) {
     init_win32_allocator();
     
@@ -1287,6 +1385,9 @@ void init_win32_api(Win32_Platform_API *win32_api) {
     win32_api->allocator = make_win32_allocator();
     win32_api->transient_memory = make_memory_growing_stack(&win32_api->allocator);
     win32_api->persistent_memory = make_memory_growing_stack(&win32_api->allocator);
+    
+    win32_api->window_memory = make_memory_growing_stack(&win32_api->allocator);
+    win32_api->windows = {};
     
     win32_api->windows_instance = GetModuleHandle(NULL);
     
@@ -1317,6 +1418,9 @@ void init_win32_api(Win32_Platform_API *win32_api) {
         win32_mutex_unlock,
         win32_run_command,
         win32_get_working_directory,
+        
+        win32_get_clipboad_text,
+        win32_copy_to_clipboard,
     };
 }
 

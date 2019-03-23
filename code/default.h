@@ -2,7 +2,7 @@
 #include <platform.h>
 #include <memory_growing_stack.h>
 #include <memory_c_allocator.h>
-#include <yaui.h>
+#include <ui.h>
 
 #include <immediate_render.cpp>
 

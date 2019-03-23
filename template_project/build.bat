@@ -3,26 +3,19 @@
 set mode=debug
 rem set mode=release
 
-set name=mooselib_preprocessor
-set gui_application=0
+set name=MyProgram
+set source=%cd%\code\main.cpp
+set moose_dir=%cd%\..\mooselib\
+
+set gui_application=1
 set application_init_function=application_init
 set application_main_loop_function=application_main_loop
 
-rem paths relative to build dir
-set source=%cd%/preprocessor.cpp
-set moose_dir=%cd%/../
-
 set include_dirs=/I "%moose_dir%3rdparty" /I "%moose_dir%code"
-set libs=kernel32.lib user32.lib shell32.lib gdi32.lib opengl32.lib
+set libs=kernel32.lib user32.lib shell32.lib gdi32.lib winmm.lib opengl32.lib
 set options=/Zi /nologo /EHsc
 set link_options=/link /INCREMENTAL:NO
 set dll_flag= 
-
-rem preprocessor step
-for %%f in (*.t) do (
-	echo preprocessing %%f
-	rem %moose_dir%\preprocessor\build\mooselib_preprocessor %%f
-)
 
 if %gui_application%==1 (
 	set include_dirs=%include_dirs% /I "%moose_dir%3rdparty\freetype\include\freetype2"
@@ -78,7 +71,7 @@ del *.pdb > NUL 2> NUL
 
 echo "compiling dll" > compile_dll_lock.tmp
 rem option /ignore:4099 disables linker warning, that .pdb files for freetype.lib do not exists (we only use release build)
-cl -Fe%name% %options% %dll_flag% "%source%" %libs% /DWIN32 /DWIN32_EXPORT %include_dirs% %link_options% /ignore:4099 /PDB:"%name%%date%-%t%.pdb"
+cl -Fe%name% %options% %dll_flag% "%source%" %libs% /DWIN32 /DWIN32_EXPORT /DMOOSELIB_PATH=\"%moose_dir:\=/%/\" %include_dirs% %link_options% /ignore:4099 /PDB:"%name%%date%-%t%.pdb"
 
 if errorlevel 1 (
 	del compile_dll_lock.tmp
@@ -90,7 +83,7 @@ del compile_dll_lock.tmp
 
 if %live_code_editing%==0 (
 	if %gui_application%==1 (
-		cl -Fe"%name%" %options% /DWIN32_DLL_NAME=\"%name%.dll\" /DWIN32_INIT_FUNCTION_NAME=\"%application_init_function%\" /DWIN32_MAIN_LOOP_FUNCTION_NAME=\"%application_main_loop_function%\" 	%include_dirs% "%moose_dir%code\win32_platform.cpp" %libs% %link_options%
+		cl -Fe"%name%" %options% /DWIN32_DLL_NAME=\"%name%.dll\" /DWIN32_INIT_FUNCTION_NAME=\"%application_init_function%\" /DWIN32_MAIN_LOOP_FUNCTION_NAME=\"%application_main_loop_function%\" %include_dirs% "%moose_dir%code\win32_platform.cpp" %libs% %link_options%
 
 		if errorlevel 1 (
 			popd

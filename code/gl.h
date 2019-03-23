@@ -8,7 +8,7 @@
 #include <gl\wglext.h>
 
 #include "basic.h"
-#include "mathdefs.h"
+#include "vector_math.h"
 #include "mo_string.h"
 
 #define GL_LOAD_PROC(type, name) { name = reinterpret_cast<type> (wglGetProcAddress(# name)); assert(name); }

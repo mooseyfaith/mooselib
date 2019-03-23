@@ -1,10 +1,19 @@
-#ifndef _ENGINE_MATH_DEFS_H_
-#define _ENGINE_MATH_DEFS_H_
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  vector_math.h                                                             //
+//                                                                            //
+//  Tafil Kajtazi                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+
+#ifndef VECTOR_MATH_H
+#define VECTOR_MATH_H
 
 #include "basic.h"
 
 #include <cmath>
-
 
 #define Pi64 3.14159265358979323846
 #define Degree_To_Radian64 (Pi64 / 180.0)
@@ -17,35 +26,35 @@
 // Unit in the last place (ulp) comparision
 // numbers should not be close to zero, thats what they said ...
 // see: https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
-INTERNAL bool are_close(float a, float b, s32 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
+INTERNAL bool are_close(f32 a, f32 b, s32 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
     if ((a > 0.0f) != (b > 0.0f))
         return a == b;
     
     return abs(*cast_p(s32, &a) - *cast_p(s32, &b)) <= max_ulp_diff;
 }
 
-INTERNAL bool are_close(double a, double b, s64 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
+INTERNAL bool are_close(f64 a, f64 b, s64 max_ulp_diff = MAX_ULP_DIFF_DEFAULT) {
     if ((a > 0.0) != (b > 0.0))
         return a == b;
     
     return abs(*cast_p(s64, &a) - *cast_p(s64, &b)) <= max_ulp_diff;
 }
 
-INTERNAL u32 binary_distance(float a, float b) {
+INTERNAL u32 binary_distance(f32 a, f32 b) {
     if ((a > 0.0f) != (b > 0.0f))
         return -1;
     
     return abs(*cast_p(s32, &a) - *cast_p(s32, &b));
 }
 
-INTERNAL u64 binary_distance(double a, double b) {
+INTERNAL u64 binary_distance(f64 a, f64 b) {
     if ((a > 0.0) != (b > 0.0))
         return -1;
     
     return abs(*cast_p(s64, &a) - *cast_p(s64, &b));
 }
 
-INTERNAL float sign(float a) {
+INTERNAL f32 sign(f32 a) {
     if (a < 0.0f)
         return -1.0f;
     else if (a > 0.0f)
@@ -54,7 +63,7 @@ INTERNAL float sign(float a) {
         return 0.0f;
 }
 
-INTERNAL double sign(double a) {
+INTERNAL f64 sign(f64 a) {
     if (a < 0.0)
         return -1.0;
     else if (a > 0.0)
@@ -68,17 +77,23 @@ INTERNAL f32 dirty_mod(f32 value, f32 divisor) {
     return value - x * divisor;
 }
 
-#ifndef _VMATHF_H_
-#define _VMATHF_H_
-#include "vmath.h"
-#endif // _VMATHF_H_
+#define Template_Vector_Math_Data_Type        f32
+#define Template_Vector_Math_Vector2_Name     vec2f
+#define Template_Vector_Math_Vector3_Name     vec3f
+#define Template_Vector_Math_Vector4_Name     vec4f
+#define Template_Vector_Math_Matrix4x3_Name   mat4x3f
+#define Template_Vector_Math_Matrix4_Name     mat4f
+#define Template_Vector_Math_Quaternion_Name  quatf
+#include "template_vector_math.h"
 
-#ifndef _VMATHD_H_
-#define _VMATHD_H_
-#define VMATH_USE_DOUBLE
-#include "vmath.h"
-#undef VMATH_USE_DOUBLE
-#endif // _VMATHD_H_
+#define Template_Vector_Math_Data_Type        f64
+#define Template_Vector_Math_Vector2_Name     vec2d
+#define Template_Vector_Math_Vector3_Name     vec3d
+#define Template_Vector_Math_Vector4_Name     vec4d
+#define Template_Vector_Math_Matrix4x3_Name   mat4x3d
+#define Template_Vector_Math_Matrix4_Name     mat4d
+#define Template_Vector_Math_Quaternion_Name  quatd
+#include "template_vector_math.h"
 
 typedef vec2f vec2;
 typedef vec3f vec3;
@@ -110,14 +125,16 @@ const mat4x3 MAT4X3_IDENTITY = make_transform(QUAT_IDENTITY);
     0, 0, 0, 1 \
 }
 
-union area2f {
-    struct {
-        vec2f min, size;
-    };
-    
-    struct {
-        f32 x, y;
-        f32 width, height;
+struct area2f {
+    union {
+        struct {
+            vec2f min, size;
+        };
+        
+        struct {
+            f32 x, y;
+            f32 width, height;
+        };
     };
     
     bool is_valid;
@@ -129,4 +146,4 @@ union area2f {
 #define Template_Area_Struct_Is_Declared
 #include "template_area.h"
 
-#endif // !_ENGINE_MATH_DEFS_H_
+#endif // VECTOR_MATH_H

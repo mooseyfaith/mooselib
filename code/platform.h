@@ -119,14 +119,20 @@ typedef PLATFORM_MUTEX_UNLOCK_DEC((*Platform_Mutex_Unlock_Function));
 #define PLATFORM_MUTEX_DESTROY_DEC(name) bool name(Platform_Mutex *mutex)
 typedef PLATFORM_MUTEX_DESTROY_DEC((*Platform_Mutex_Destroy_Function));
 
-#define PLATFORM_RUN_COMMAND(name) string name(u32 *out_exit_code, bool *out_ok, Platform_API *platform_api, string command_line, Memory_Allocator *allocator)
-typedef PLATFORM_RUN_COMMAND((*Platform_Run_Command_Function));
+#define PLATFORM_RUN_COMMAND_DEC(name) string name(u32 *out_exit_code, bool *out_ok, Platform_API *platform_api, string command_line, Memory_Allocator *allocator)
+typedef PLATFORM_RUN_COMMAND_DEC((*Platform_Run_Command_Function));
 
 #define PLATFORM_GET_LOGICAL_PROCESSOR_COUNT_DEC(name) u32 name(Platform_API *platform_api)
 typedef PLATFORM_GET_LOGICAL_PROCESSOR_COUNT_DEC((*Platform_Get_Logical_Processor_Count_Function));
 
-#define PLATFORM_GET_WORKING_DIRECTORY(name) string name(Platform_API *platform_api)
-typedef PLATFORM_GET_WORKING_DIRECTORY((*Platform_Get_Working_Directory_Function));
+#define PLATFORM_GET_WORKING_DIRECTORY_DEC(name) string name(Platform_API *platform_api)
+typedef PLATFORM_GET_WORKING_DIRECTORY_DEC((*Platform_Get_Working_Directory_Function));
+
+#define PLATFORM_GET_CLIPBOARD_TEXT_DEC(name) string name(Memory_Allocator *allocator, Platform_API *platform_api)
+typedef PLATFORM_GET_CLIPBOARD_TEXT_DEC((*Platform_Get_Clipboard_Text_Function));
+
+#define PLATFORM_COPY_TO_CLIPBOAD_DEC(name) void name(Platform_API *platform_api, string text)
+typedef PLATFORM_COPY_TO_CLIPBOAD_DEC((*Platform_Copy_To_Clipboard_Function));
 
 enum Platform_Message_Kind {
     Platform_Message_Kind_Reload,
@@ -214,6 +220,9 @@ struct Platform_API {
     
     Platform_Run_Command_Function           run_command;
     Platform_Get_Working_Directory_Function get_working_directory;
+    
+    Platform_Get_Clipboard_Text_Function get_clipboard_text;
+    Platform_Copy_To_Clipboard_Function  copy_to_clipboard;
     
     u32 worker_thread_count;
     

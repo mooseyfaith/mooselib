@@ -10,11 +10,11 @@
 #include "basic.h"
 
 #if !defined Template_Array_Name
-#  error Template_Array_Name needs to be defined befor including buffer_template.h
+#  error Template_Array_Name needs to be defined befor including template_array.h
 #endif
 
 #if !defined Template_Array_Data_Type
-#  error Template_Array_Data_Type needs to be defined befor including buffer_template.h
+#  error Template_Array_Data_Type needs to be defined befor including template_array.h
 #endif
 
 #if !defined Template_Array_Size_Type

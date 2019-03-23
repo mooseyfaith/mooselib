@@ -1,20 +1,45 @@
-#ifdef VMATH_USE_DOUBLE
-#    define REAL double
-#    define MAT4X3 mat4x3d
-#    define MAT4 mat4d
-#    define VEC2 vec2d
-#    define VEC3 vec3d
-#    define VEC4 vec4d
-#    define QUAT quatd
-#else
-#    define REAL float
-#    define MAT4X3 mat4x3f
-#    define MAT4 mat4f
-#    define VEC2 vec2f
-#    define VEC3 vec3f
-#    define VEC4 vec4f
-#    define QUAT quatf
-#endif
+
+////////////////////////////////////////////////////////////////////////////////
+//                                                                            //
+//  template_vector_math.h                                                    //
+//                                                                            //
+//  Tafil Kajtazi                                                             //
+//                                                                            //
+////////////////////////////////////////////////////////////////////////////////
+
+#define REAL   Template_Vector_Math_Data_Type
+#define VEC2   Template_Vector_Math_Vector2_Name
+#define VEC3   Template_Vector_Math_Vector3_Name
+#define VEC4   Template_Vector_Math_Vector4_Name
+#define MAT4X3 Template_Vector_Math_Matrix4x3_Name
+#define MAT4   Template_Vector_Math_Matrix4_Name
+#define QUAT   Template_Vector_Math_Quaternion_Name
+
+#define Template_Vector_Name      VEC2
+#define Template_Vector_Data_Type REAL
+#define Template_Vector_Dimension_Count 2
+#define Template_Vector_Union struct { REAL x, y; }; struct { REAL width, height; };
+#include "template_vector.h"
+
+#define Template_Vector_Name      VEC3
+#define Template_Vector_Data_Type REAL
+#define Template_Vector_Dimension_Count 3
+#define Template_Vector_Union struct { REAL x, y, z; }; struct { REAL r, g, b; }; struct { REAL red, green, blue; };
+#include "template_vector.h"
+
+#define Template_Vector_Name      VEC4
+#define Template_Vector_Data_Type REAL
+#define Template_Vector_Dimension_Count 4
+#define Template_Vector_Union struct { REAL x, y, z, w; }; struct { REAL r, g, b, a; }; struct { REAL red, green, blue, alpha; };
+#include "template_vector.h"
+
+#define Template_Vector_Name      QUAT
+#define Template_Vector_Data_Type REAL
+#define Template_Vector_Dimension_Count 4
+#define Template_Vector_Union struct { REAL w, x, y, z; };
+#include "template_vector.h"
+
+#if 0
 
 #define VEC_LENGTH 2
 #define VEC_NAME VEC2
@@ -31,33 +56,40 @@
 #define VEC_VALUE_UNIONS struct { REAL x, y, z, w; }; struct { REAL r, g, b, a; }; struct { REAL red, green, blue, alpha; };
 #include "vector.h"
 
-inline VEC2 make_vec2(REAL x, REAL y) {
+#define VEC_LENGTH 4
+#define VEC_NAME QUAT
+#define VEC_VALUE_UNIONS struct { REAL w, x, y, z; };
+#include "vector.h"
+
+#endif
+
+INTERNAL VEC2 make_vec2(REAL x, REAL y) {
     return VEC2{ x, y };
 }
 
-inline VEC2 make_vec2(VEC3 vec, u32 x_index = 0, u32 y_index = 1) {
+INTERNAL VEC2 make_vec2(VEC3 vec, u32 x_index = 0, u32 y_index = 1) {
     return VEC2{ vec.values[x_index], vec.values[y_index] };
 }
 
 // devides by w
-inline VEC2 make_vec2(VEC4 vec, u32 x_index = 0, u32 y_index = 1, u32 w_index = 3) {
+INTERNAL VEC2 make_vec2(VEC4 vec, u32 x_index = 0, u32 y_index = 1, u32 w_index = 3) {
     return VEC2{ vec.values[x_index], vec.values[y_index] } / vec.values[w_index];
 }
 
 // does not devide by w
-inline VEC2 make_vec2_cut(VEC4 vec, u32 x_index = 0, u32 y_index = 1) {
+INTERNAL VEC2 make_vec2_cut(VEC4 vec, u32 x_index = 0, u32 y_index = 1) {
     return VEC2{ vec.values[x_index], vec.values[y_index] };
 }
 
-inline VEC3 make_vec3(REAL x, REAL y, REAL z) {
+INTERNAL VEC3 make_vec3(REAL x, REAL y, REAL z) {
     return VEC3{ x, y, z };
 }
 
-inline VEC3 make_vec3(const VEC2& vec, REAL z = (REAL)0) {
+INTERNAL VEC3 make_vec3(const VEC2& vec, REAL z = (REAL)0) {
     return VEC3{ vec.values[0], vec.values[1], z };
 }
 
-inline VEC3 make_vec3_swizzle(VEC2 vec, u32 x_index, u32 y_index, REAL z = (REAL)0, REAL x_sign = (REAL)1, REAL y_sign = (REAL)1)
+INTERNAL VEC3 make_vec3_swizzle(VEC2 vec, u32 x_index, u32 y_index, REAL z = (REAL)0, REAL x_sign = (REAL)1, REAL y_sign = (REAL)1)
 {
     assert(x_index < 3);
     assert(y_index < 3);
@@ -72,55 +104,51 @@ inline VEC3 make_vec3_swizzle(VEC2 vec, u32 x_index, u32 y_index, REAL z = (REAL
 }
 
 // devides by w
-inline VEC3 make_vec3(const VEC4& vec) {
+INTERNAL VEC3 make_vec3(const VEC4& vec) {
     return VEC3{ vec.values[0], vec.values[1], vec.values[2] } / vec.values[3];
 }
 
 // does not devide by w
-inline VEC3 make_vec3_cut(const VEC4& vec) {
+INTERNAL VEC3 make_vec3_cut(const VEC4& vec) {
     return VEC3{ vec.values[0], vec.values[1], vec.values[2] };
 }
 
-inline VEC3 make_vec3_scale(REAL scale) {
+INTERNAL VEC3 make_vec3_scale(REAL scale) {
     return VEC3{ scale, scale, scale };
 }
 
-inline VEC4 make_vec4(REAL x, REAL y, REAL z, REAL w = (REAL)1) {
+INTERNAL VEC4 make_vec4(REAL x, REAL y, REAL z, REAL w = (REAL)1) {
     return VEC4{ x, y, z, w };
 }
 
-inline VEC4 make_vec4(const VEC2& vec, REAL z = (REAL)0, REAL w = (REAL)1) {
+INTERNAL VEC4 make_vec4(const VEC2& vec, REAL z = (REAL)0, REAL w = (REAL)1) {
     return VEC4{ vec.values[0],  vec.values[1], z, w };
 }
 
-inline VEC4 make_vec4(const VEC3& vec, REAL w = (REAL)1) {
+INTERNAL VEC4 make_vec4(const VEC3& vec, REAL w = (REAL)1) {
     return VEC4{ vec.values[0], vec.values[1], vec.values[2], w };
 }
 
-inline VEC4 make_vec4_scale(REAL scale, REAL w = (REAL)1) {
+INTERNAL VEC4 make_vec4_scale(REAL scale, REAL w = (REAL)1) {
     return VEC4{ scale, scale, scale, w };
 }
 
-#define VEC_LENGTH 4
-#define VEC_NAME QUAT
-#define VEC_VALUE_UNIONS struct { REAL w, x, y, z; };
-#include "vector.h"
 
 /*
 struct QUAT {
  REAL w, x, y, z;
  
- inline REAL & operator[](u32 i) {
+ INTERNAL REAL & operator[](u32 i) {
   assert(i < 4);
   return *(&w + i);
  }
  
- inline REAL operator[](u32 i) const {
+ INTERNAL REAL operator[](u32 i) const {
   assert(i < 4);
   return *(&w + i);
  }
  
- inline QUAT & operator=(const QUAT &other) {
+ INTERNAL QUAT & operator=(const QUAT &other) {
   w = other.w;
   x = other.x;
   y = other.y;
@@ -128,7 +156,7 @@ struct QUAT {
   return *this;
  }
  
- inline QUAT & operator=(const REAL other[]) {
+ INTERNAL QUAT & operator=(const REAL other[]) {
   w = other[0];
   x = other[1];
   y = other[2];
@@ -136,8 +164,8 @@ struct QUAT {
   return *this;
  }
  
- inline operator REAL *() { return &w; }
- inline operator const REAL *() const { return &w; }
+ INTERNAL operator REAL *() { return &w; }
+ INTERNAL operator const REAL *() const { return &w; }
 };
 */
 
@@ -156,11 +184,11 @@ QUAT make_quat(VEC3 normalized_rotation_axis, REAL radians)
     };
 }
 
-inline QUAT negative(QUAT a) {
+INTERNAL QUAT negative(QUAT a) {
     return QUAT{ a.w, -a.x, -a.y, -a.z };
 }
 
-inline QUAT multiply(QUAT a, QUAT b) {
+INTERNAL QUAT multiply(QUAT a, QUAT b) {
     return QUAT {
         a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
         a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
@@ -169,7 +197,7 @@ inline QUAT multiply(QUAT a, QUAT b) {
     };
 }
 
-inline QUAT inverse(const QUAT &a) {
+INTERNAL QUAT inverse(const QUAT &a) {
     REAL inv_length2 = (REAL)-1 / squared_length(a);
     return QUAT{ a.w * inv_length2, a.x * inv_length2, a.y * inv_length2, a.z * inv_length2 };
 }
@@ -199,14 +227,14 @@ struct MAT4X3 {
     inline operator const REAL *() const { return columns[0].values; }
 };
 
-inline void set_identity(MAT4X3 *matrix) {
+INTERNAL void set_identity(MAT4X3 *matrix) {
     *matrix = {};
     
     for (u32 col = 0; col != 3; ++col)
         matrix->columns[col].values[col] = (REAL)1;
 }
 
-inline void update_rotation_scale(MAT4X3 *matrix, QUAT rotation, VEC3 scale = VEC3{ (REAL)1, (REAL)1, (REAL)1 }) {
+INTERNAL void update_rotation_scale(MAT4X3 *matrix, QUAT rotation, VEC3 scale = VEC3{ (REAL)1, (REAL)1, (REAL)1 }) {
     REAL xx = rotation.x * rotation.x;
     REAL xy = rotation.x * rotation.y;
     REAL xz = rotation.x * rotation.z;
@@ -233,7 +261,7 @@ inline void update_rotation_scale(MAT4X3 *matrix, QUAT rotation, VEC3 scale = VE
     matrix->columns[2].values[2] = ((REAL)1 - (REAL)2 * (xx + yy))	* scale.values[2];
 }
 
-inline VEC4 transform(MAT4X3 matrix, VEC4 v) {
+INTERNAL VEC4 transform(MAT4X3 matrix, VEC4 v) {
     VEC3 result = matrix.columns[0] * v.values[0];
     
     for (u32 col = 1; col != 4; ++col)
@@ -242,11 +270,11 @@ inline VEC4 transform(MAT4X3 matrix, VEC4 v) {
     return VEC4{ result.values[0], result.values[1], result.values[2], v.values[3] };
 }
 
-inline VEC4 operator*(MAT4X3 matrix, VEC4 v) {
+INTERNAL VEC4 operator*(MAT4X3 matrix, VEC4 v) {
     return transform(matrix, v);
 }
 
-inline VEC4 transform(MAT4X3 matrix, VEC3 v, REAL w) {
+INTERNAL VEC4 transform(MAT4X3 matrix, VEC3 v, REAL w) {
     VEC3 result = matrix.translation * w;
     
     for (u32 col = 0; col != 3; ++col)
@@ -256,7 +284,7 @@ inline VEC4 transform(MAT4X3 matrix, VEC3 v, REAL w) {
 }
 
 // like transform with w == 1
-inline VEC3 transform_point(MAT4X3 matrix, VEC3 v) {
+INTERNAL VEC3 transform_point(MAT4X3 matrix, VEC3 v) {
     VEC3 result = matrix.translation;
     
     for (u32 col = 0; col != 3; ++col)
@@ -266,12 +294,12 @@ inline VEC3 transform_point(MAT4X3 matrix, VEC3 v) {
 }
 
 // like transform_point (w == 1)
-inline VEC3 operator*(MAT4X3 matrix, VEC3 v) {
+INTERNAL VEC3 operator*(MAT4X3 matrix, VEC3 v) {
     return transform_point(matrix, v);
 }
 
 // like transform with w == 0
-inline VEC3 transform_direction(MAT4X3 matrix, VEC3 v) {
+INTERNAL VEC3 transform_direction(MAT4X3 matrix, VEC3 v) {
     VEC3 result = matrix.columns[0] * v.values[0];
     
     for (u32 col = 1; col != 3; ++col)
@@ -280,7 +308,7 @@ inline VEC3 transform_direction(MAT4X3 matrix, VEC3 v) {
     return result;
 }
 
-inline MAT4X3 make_transform(QUAT rotation, VEC3 translation = VEC3{ (REAL)0, (REAL)0, (REAL)0 }, VEC3 scale = VEC3{ (REAL)1, (REAL)1, (REAL)1 }) {
+INTERNAL MAT4X3 make_transform(QUAT rotation, VEC3 translation = VEC3{ (REAL)0, (REAL)0, (REAL)0 }, VEC3 scale = VEC3{ (REAL)1, (REAL)1, (REAL)1 }) {
     MAT4X3 result;
     update_rotation_scale(&result, rotation, scale);
     result.translation = translation;
@@ -288,7 +316,7 @@ inline MAT4X3 make_transform(QUAT rotation, VEC3 translation = VEC3{ (REAL)0, (R
 }
 
 /* Todo: figure it out
-inline MAT4X3 make_inverse_transform(const QUAT &rotation, const VEC3 &translation, const VEC3 &scale = VEC3{ (REAL)1, (REAL)1, (REAL)1 }) {
+INTERNAL MAT4X3 make_inverse_transform(const QUAT &rotation, const VEC3 &translation, const VEC3 &scale = VEC3{ (REAL)1, (REAL)1, (REAL)1 }) {
 MAT4X3 result;
 // not correct for scale, needs 2 scale as input?
 update_rotation_scale(result, -rotation, VEC3{ (REAL)1 / scale.values[0], (REAL)1 / scale.values[1], (REAL)1 / scale.values[2] }); 
@@ -297,7 +325,7 @@ return result;
 }
 */
 
-inline MAT4X3 make_inverse_unscaled_transform(const MAT4X3 &transform) {
+INTERNAL MAT4X3 make_inverse_unscaled_transform(const MAT4X3 &transform) {
     MAT4X3 result;
     
     // inverse of rotation
@@ -316,7 +344,7 @@ inline MAT4X3 make_inverse_unscaled_transform(const MAT4X3 &transform) {
 // transfrom from local space to world space
 // can be used to place object at camera pos
 // inverse of camera view
-inline MAT4X3 make_look_at(VEC3 eye, VEC3 target, VEC3 up) {
+INTERNAL MAT4X3 make_look_at(VEC3 eye, VEC3 target, VEC3 up) {
     MAT4X3 result;
     VEC3 forward = normalize(eye - target);
     VEC3 right = normalize(cross(up, forward));
@@ -332,7 +360,7 @@ inline MAT4X3 make_look_at(VEC3 eye, VEC3 target, VEC3 up) {
 
 // transform from world space to local space (e.g. camera space)
 // camera view
-inline MAT4X3 make_inverse_look_at(VEC3 eye, VEC3 target, VEC3 up) {
+INTERNAL MAT4X3 make_inverse_look_at(VEC3 eye, VEC3 target, VEC3 up) {
     MAT4X3 result;
     VEC3 forward = normalize(eye - target);
     VEC3 right = normalize(cross(up, forward));
@@ -373,12 +401,12 @@ struct MAT4 {
     inline operator const REAL *() const { return columns[0].values; }
 };
 
-inline void set_identity(MAT4 *matrix) {
+INTERNAL void set_identity(MAT4 *matrix) {
     for (u32 col = 0; col != 4; ++col)
         set_axis(matrix->columns + col, col);
 }
 
-inline VEC4 transform(MAT4 matrix, VEC4 v) {
+INTERNAL VEC4 transform(MAT4 matrix, VEC4 v) {
     VEC4 result = matrix.columns[0] * v.values[0];
     
     for (u32 col = 1; col != 4; ++col)
@@ -387,11 +415,11 @@ inline VEC4 transform(MAT4 matrix, VEC4 v) {
     return result;
 }
 
-inline VEC4 operator*(MAT4 matrix, VEC4 v) {
+INTERNAL VEC4 operator*(MAT4 matrix, VEC4 v) {
     return transform(matrix, v);
 }
 
-inline VEC4 transform(MAT4 matrix, VEC3 v, REAL w) {
+INTERNAL VEC4 transform(MAT4 matrix, VEC3 v, REAL w) {
     VEC4 result = matrix.columns[3] * w;
     
     for (u32 col = 0; col != 3; ++col)
@@ -401,7 +429,7 @@ inline VEC4 transform(MAT4 matrix, VEC3 v, REAL w) {
 }
 
 // like transform with w == 1
-inline VEC4 transform_point(MAT4 matrix, VEC3 v) {
+INTERNAL VEC4 transform_point(MAT4 matrix, VEC3 v) {
     VEC4 result = matrix.columns[3];
     
     for (u32 col = 0; col != 3; ++col)
@@ -411,12 +439,12 @@ inline VEC4 transform_point(MAT4 matrix, VEC3 v) {
 }
 
 // like transform_point (w == 1)
-inline VEC4 operator*(MAT4 matrix, VEC3 v) {
+INTERNAL VEC4 operator*(MAT4 matrix, VEC3 v) {
     return transform_point(matrix, v);
 }
 
 // like transform with w == 0
-inline VEC4 transform_direction(MAT4 matrix, VEC3 v) {
+INTERNAL VEC4 transform_direction(MAT4 matrix, VEC3 v) {
     VEC4 result = matrix.columns[0] * v.values[0];
     
     for (u32 col = 1; col != 3; ++col)
@@ -432,7 +460,7 @@ a 0 0 0
 0 0 c d
 0 0 e 0
 */
-inline MAT4 make_perspective_projection(REAL a, REAL b, REAL c, REAL d, REAL e) {
+INTERNAL MAT4 make_perspective_projection(REAL a, REAL b, REAL c, REAL d, REAL e) {
     MAT4 result = {};
     
     result.columns[0].values[0] = a;
@@ -451,7 +479,7 @@ inverse projection matrix
 0     |     0 |     0 |        1 / e
 0     |     0 | 1 / d | -c / (d * e)
 */
-inline MAT4 make_inverse_perspective_projection(REAL a, REAL b, REAL c, REAL d, REAL e) {
+INTERNAL MAT4 make_inverse_perspective_projection(REAL a, REAL b, REAL c, REAL d, REAL e) {
     MAT4 result = {};
     
     result.columns[0].values[0] = (REAL)1 / a;
@@ -463,22 +491,22 @@ inline MAT4 make_inverse_perspective_projection(REAL a, REAL b, REAL c, REAL d, 
     return result;
 }
 
-inline MAT4 make_inverse_perspective_projection(MAT4 projection) {
+INTERNAL MAT4 make_inverse_perspective_projection(MAT4 projection) {
     return make_inverse_perspective_projection(projection.columns[0].values[0], projection.columns[1].values[1], projection.columns[2].values[2], projection.columns[3].values[2], projection.columns[2].values[3]);
 }
 
-inline MAT4 make_perspective_projection(REAL width, REAL height, REAL near_ = (REAL)0.01, REAL far_ = (REAL)1000.0)
+INTERNAL MAT4 make_perspective_projection(REAL width, REAL height, REAL near_ = (REAL)0.01, REAL far_ = (REAL)1000.0)
 {
     return make_perspective_projection((REAL)2 * near_ / width, (REAL)2 * near_ / height, -(far_ + near_) / (far_ - near_), (REAL)-2 * far_ * near_ / (far_ - near_), (REAL)-1);
 }
 
-inline MAT4 make_perspective_fov_projection(REAL fov_y, REAL width_over_height, REAL near_ =(REAL)0.01, REAL far_ = (REAL)1000.0) {
+INTERNAL MAT4 make_perspective_fov_projection(REAL fov_y, REAL width_over_height, REAL near_ =(REAL)0.01, REAL far_ = (REAL)1000.0) {
     REAL height = 2 * near_ * (REAL)tan(fov_y * (REAL)0.5);
     REAL width = width_over_height * height;
     return make_perspective_projection(width, height, near_, far_);
 }
 
-inline MAT4 make_orthographic_projection(REAL width, REAL height, REAL near_ = (REAL)0.01, REAL far_ = (REAL)1000.0) {
+INTERNAL MAT4 make_orthographic_projection(REAL width, REAL height, REAL near_ = (REAL)0.01, REAL far_ = (REAL)1000.0) {
     MAT4 result = {};
     
     result.columns[0].values[0] = (REAL)2 / width;
@@ -490,7 +518,7 @@ inline MAT4 make_orthographic_projection(REAL width, REAL height, REAL near_ = (
     return result;
 }
 
-inline MAT4 make_inverse_orthographic_projection(MAT4 orthographic_projection) {
+INTERNAL MAT4 make_inverse_orthographic_projection(MAT4 orthographic_projection) {
     MAT4 result = {};
     REAL n_minus_f = (REAL)2 / orthographic_projection.columns[2][2];
     REAL n_plus_f = n_minus_f * orthographic_projection.columns[3][2];
@@ -506,7 +534,7 @@ inline MAT4 make_inverse_orthographic_projection(MAT4 orthographic_projection) {
 
 // Matrix multiplications
 
-inline MAT4X3 mul(MAT4X3 second, MAT4X3 first) {
+INTERNAL MAT4X3 mul(MAT4X3 second, MAT4X3 first) {
     MAT4X3 result;
     
 #if 0
@@ -528,7 +556,7 @@ inline MAT4X3 mul(MAT4X3 second, MAT4X3 first) {
     return result;
 }
 
-inline MAT4 mul(MAT4 second, MAT4X3 first) {
+INTERNAL MAT4 mul(MAT4 second, MAT4X3 first) {
     MAT4 result;
     
     for (u32 col = 0; col != 3; ++col)
@@ -538,7 +566,7 @@ inline MAT4 mul(MAT4 second, MAT4X3 first) {
     return result;
 }
 
-inline MAT4 mul(MAT4X3 second, MAT4 first) {
+INTERNAL MAT4 mul(MAT4X3 second, MAT4 first) {
     MAT4 result;
     
     for (u32 col = 0; col != 4; ++col)
@@ -547,7 +575,7 @@ inline MAT4 mul(MAT4X3 second, MAT4 first) {
     return result;
 }
 
-inline MAT4 mul(MAT4 second, MAT4 first) {
+INTERNAL MAT4 mul(MAT4 second, MAT4 first) {
     MAT4 result;
     
     for (u32 col = 0; col != 4; ++col)
@@ -556,42 +584,42 @@ inline MAT4 mul(MAT4 second, MAT4 first) {
     return result;
 }
 
-inline MAT4X3 operator*(MAT4X3 second, MAT4X3 first) {
+INTERNAL MAT4X3 operator*(MAT4X3 second, MAT4X3 first) {
     return mul(second, first);
 }
 
-inline MAT4 operator*(MAT4 second, MAT4X3 first) {
+INTERNAL MAT4 operator*(MAT4 second, MAT4X3 first) {
     return mul(second, first);
 }
 
-inline MAT4 operator*(MAT4X3 second, MAT4 first) {
+INTERNAL MAT4 operator*(MAT4X3 second, MAT4 first) {
     return mul(second, first);
 }
 
-inline MAT4 operator*(MAT4 second, MAT4 first) {
+INTERNAL MAT4 operator*(MAT4 second, MAT4 first) {
     return mul(second, first);
 }
 
-inline VEC3 get_world_to_clip_point(MAT4 camera_to_clip_projection, MAT4X3 world_to_camera_transform, VEC3 world_point) {
+INTERNAL VEC3 get_world_to_clip_point(MAT4 camera_to_clip_projection, MAT4X3 world_to_camera_transform, VEC3 world_point) {
     return make_vec3(camera_to_clip_projection * (world_to_camera_transform * world_point));
 }
 
-inline VEC3 get_clip_to_world_point(MAT4X3 camera_to_world_transform, MAT4 clip_to_camera_projection, VEC3 clip_point) {
+INTERNAL VEC3 get_clip_to_world_point(MAT4X3 camera_to_world_transform, MAT4 clip_to_camera_projection, VEC3 clip_point) {
     return transform_point(camera_to_world_transform, make_vec3(transform_point(clip_to_camera_projection, clip_point)));
 }
 
-inline REAL get_clip_plane_z(MAT4 camera_to_clip_projection, MAT4X3 world_to_camera_transform, VEC3 world_plane_point) {
+INTERNAL REAL get_clip_plane_z(MAT4 camera_to_clip_projection, MAT4X3 world_to_camera_transform, VEC3 world_plane_point) {
     VEC4 clip_plane_point = camera_to_clip_projection * (world_to_camera_transform * world_plane_point);
     return clip_plane_point.values[2] / clip_plane_point.values[3];
 }
 
-inline VEC3 get_clip_to_world_direction(MAT4X3 camera_to_world_transform, MAT4 clip_to_camera_projection, VEC3 direction) {
+INTERNAL VEC3 get_clip_to_world_direction(MAT4X3 camera_to_world_transform, MAT4 clip_to_camera_projection, VEC3 direction) {
     VEC3 clip_center_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, VEC3{});
     VEC3 clip_end_point_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, direction);
     return clip_end_point_to_world - clip_center_to_world;
 }
 
-inline REAL get_clip_to_world_up_scale(MAT4X3 camera_to_world_transform, MAT4 clip_to_camera_projection, REAL clip_z) {
+INTERNAL REAL get_clip_to_world_up_scale(MAT4X3 camera_to_world_transform, MAT4 clip_to_camera_projection, REAL clip_z) {
     VEC3 clip_center_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, { cast_v(REAL, 0.0), cast_v(REAL, 0.0), clip_z });
     VEC3 clip_up_to_world = get_clip_to_world_point(camera_to_world_transform, clip_to_camera_projection, { cast_v(REAL, 0.0), cast_v(REAL, 1.0), clip_z });
     return length(clip_up_to_world - clip_center_to_world);
@@ -604,3 +632,11 @@ inline REAL get_clip_to_world_up_scale(MAT4X3 camera_to_world_transform, MAT4 cl
 #undef VEC3
 #undef VEC4
 #undef QUAT
+
+#undef Template_Vector_Math_Data_Type
+#undef Template_Vector_Math_Vector2_Name
+#undef Template_Vector_Math_Vector3_Name
+#undef Template_Vector_Math_Vector4_Name
+#undef Template_Vector_Math_Matrix4x3_Name
+#undef Template_Vector_Math_Matrix4_Name
+#undef Template_Vector_Math_Quaternion_Name
