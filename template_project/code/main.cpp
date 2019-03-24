@@ -7,6 +7,7 @@ struct State : Default_State {
 APP_INIT_DEC(application_init) {
     State *state;
     DEFAULT_STATE_INIT(State, state, platform_api);
+    load_default_shader(state, platform_api);
     
     // load config:
     // - main window state
@@ -40,7 +41,7 @@ APP_MAIN_LOOP_DEC(application_main_loop) {
     bool do_quit = !default_init_frame(state, input, platform_api, &delta_seconds);
     
     {
-        Platform_Window window = platform_api->display_window(platform_api, Main_Window_ID, S("Track Fighter"), &state->main_window_area, true, state->main_window_is_fullscreen, 0.0f);
+        Platform_Window window = platform_api->display_window(platform_api, Main_Window_ID, S("mooselib"), &state->main_window_area, true, state->main_window_is_fullscreen, 0.0f);
         
         do_quit |= window.was_destroyed;
         

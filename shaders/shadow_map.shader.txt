@@ -21,7 +21,7 @@
 //  INTERFACE                                                                // 
 ///////////////////////////////////////////////////////////////////////////////
 
-uniform mat4 World_To_Shadow_Map;
+uniform mat4   World_To_Shadow_Map;
 uniform mat4x3 Object_To_World;
 
 #if defined VERTEX_SHADER

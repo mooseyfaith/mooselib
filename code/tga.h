@@ -113,7 +113,7 @@ u8 * tga_get_mapped_image_data(TGA_Header *header, u8 *image_data, u8 *color_map
         for (s32 y = header->image_info.height - y_end * y_advance; y != y_end; y += y_advance) {
             for (s32 x = header->image_info.width - x_end * x_advance; x != x_end; x += x_advance) {
                 
-                u32 index = get_index(index_buffer, y * header->image_info.width + x);
+                u32 index = index_of(index_buffer, y * header->image_info.width + x);
                 
                 memcpy(maped_it, color_map + map_bytes_per_pixel * index, map_bytes_per_pixel);
                 

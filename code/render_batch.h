@@ -200,7 +200,6 @@ void update_buffer_object_data(GLenum target, GLuint buffer_object, u8_buffer *b
     buffer->count = 0;
 }
 
-
 struct Batch {
     Vertex_Buffers vertex_buffers;
     GLuint vertex_array_object;

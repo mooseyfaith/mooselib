@@ -154,6 +154,11 @@ struct Default_State
     } debug;
 };
 
+const auto Default_Shader_Uniforms = S("Material.diffuse_color, Material.specular_color, Material.gloss, Material.metalness, Material.diffuse_map, Material.normal_map, "
+                                       "Shadow.world_to_shadow, Shadow.map, "
+                                       "Environment.world_to_environment, Environment.map, Environment.level_of_detail_count, "
+                                       "Object_To_World");
+
 void default_reload_global_functions(Platform_API *platform_api)
 {
     PLATFORM_SYNC_ALLOCATORS();
@@ -256,6 +261,30 @@ GLuint load_shader(Default_State *state, Platform_API *platform_api, GLint *unif
 }
 
 
+void load_default_shader(Default_State *state, Platform_API *platform_api, bool with_shadow_map = false, bool with_environment_map = false, bool with_vertex_color = false) {
+    
+    auto options = new_write_buffer(&state->transient_memory.allocator, S(""));
+    defer { free(&options); };
+    
+    if (with_shadow_map) {
+        write(&options, S("WITH_SHADOW_MAP, "));
+        
+        state->shadow_map_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->shadow_map_shader.uniforms), S(MOOSELIB_PATH "shaders/shadow_map.shader.txt"), S(""),
+                                                              S("World_To_Shadow_Map, Object_To_World"));
+    }
+    
+    if (with_environment_map)
+        write(&options, S("WITH_ENVIRONMENT_MAP, "));
+    
+    if (with_vertex_color)
+        write(&options, S("WITH_VERTEX_COLOR, "));
+    
+    write(&options, S("WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"));
+    
+    state->default_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->default_shader.uniforms), S(MOOSELIB_PATH "shaders/default.shader.txt"), 
+                                                       options.buffer, Default_Shader_Uniforms);
+}
+
 void debug_update_camera(Debug_Camera *camera) {
     quatf rotation = make_quat(camera->alpha_axis, camera->alpha);
     rotation = multiply(rotation, make_quat(camera->beta_axis, camera->beta));
@@ -300,21 +329,8 @@ void init(Default_State *state, Platform_API *platform_api)
     
     state->ui_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->ui_shader.uniforms), S(MOOSELIB_PATH "shaders/transparent_textured.shader.txt"), S("WITH_VERTEX_COLOR, WITH_DIFFUSE_TEXTURE, ALPHA_THRESHOLD 0.025"), S(STRINGIFY(UI_SHADER_UNIFORMS)));
     
-    auto default_shader_uniforms = S("Material.diffuse_color, Material.specular_color, Material.gloss, Material.metalness, Material.diffuse_map, Material.normal_map, "
-                                     "Shadow.world_to_shadow, Shadow.map, "
-                                     "Environment.world_to_environment, Environment.map, Environment.level_of_detail_count, "
-                                     "Object_To_World");
-    
     state->im_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->im_shader.uniforms), S(MOOSELIB_PATH "shaders/default.shader.txt"), S("WITH_VERTEX_COLOR"), 
-                                                  default_shader_uniforms);
-    
-    state->default_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->default_shader.uniforms), S(MOOSELIB_PATH "shaders/default.shader.txt"), 
-                                                       //S("WITH_SHADOW_MAP, WITH_ENVIRONMENT_MAP, WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
-                                                       S("WITH_VERTEX_COLOR, WITH_DIFFUSE_COLOR, MAX_LIGHT_COUNT 10"), 
-                                                       default_shader_uniforms);
-    
-    state->shadow_map_shader.program_object = load_shader(state, platform_api, ARRAY_WITH_COUNT(state->shadow_map_shader.uniforms), S(MOOSELIB_PATH "shaders/shadow_map.shader.txt"), S("WITH_DIFFUSE_COLOR"),
-                                                          S("World_To_Shadow_Map, Object_To_World"));
+                                                  Default_Shader_Uniforms);
     
     init(&state->im);
     
